@@ -7,11 +7,12 @@ const Support = @import("Support");
 const CLIMetaData = @import("CLIMetaData");
 const TextUtils = @import("ZigTextUtils");
 const ANSI = @import("ANSI");
+const Core = @import("Core");
 const log = std.log.scoped(.ribboni);
 
 pub const std_options = @import("Log").std_options;
 
-const Error = Support.IOError || std.mem.Allocator.Error || error {
+const Error = Support.IOError || std.mem.Allocator.Error || CLIMetaData.CLIError || error {
 
 };
 
@@ -72,9 +73,15 @@ fn entry() Error!void {
     defer argsResult.deinit();
 
     switch (argsResult) {
-        .Exit => return,
-        .Execute => |x| {
-            Support.todo(noreturn, .{x, scriptArgs, stderr});
+        .exit => return,
+        .execute => |x| {
+            try earlyTesting(stderr, x.rootFiles, scriptArgs);
         },
     }
+}
+
+
+fn earlyTesting(output: std.fs.File.Writer, _: []const []const u8, _: []const []const u8) Error!void {
+    try output.print("Hello, world!\n", .{});
+    return;
 }

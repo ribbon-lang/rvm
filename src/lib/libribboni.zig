@@ -66,16 +66,16 @@ const customtype = HeaderGenUtils.customtype;
 
 pub const @"HEADER-GENERATION-DATA" = HeaderGenUtils.MakeData(struct {
     pub const CustomType = union(enum) {
-        Generative: void,
-        Enum: struct {
+        generative: void,
+        @"enum": struct {
             suffix: ?[]const u8,
             variants: []const []const u8,
         },
-        Platform: struct {
+        platform: struct {
             linux: []const u8,
             windows: []const u8,
         },
-        Function: struct {
+        function: struct {
             params: []const u8,
             retTy: []const u8,
         },
@@ -85,8 +85,8 @@ pub const @"HEADER-GENERATION-DATA" = HeaderGenUtils.MakeData(struct {
             _ = expr;
 
             switch (self) {
-                .Generative => return error.InvalidType,
-                .Enum => |t| {
+                .generative => return error.InvalidType,
+                .@"enum" => |t| {
                     try writer.print("typedef enum {s} {{", .{name});
                     if (t.variants.len > 1) {
                         try writer.writeAll("\n");
@@ -108,7 +108,7 @@ pub const @"HEADER-GENERATION-DATA" = HeaderGenUtils.MakeData(struct {
                     }
                     try writer.print("}} {s};", .{name});
                 },
-                .Platform => |p| {
+                .platform => |p| {
                     try writer.print(
                         \\#ifdef __linux__
                         \\    typedef {s} {s};
@@ -117,7 +117,7 @@ pub const @"HEADER-GENERATION-DATA" = HeaderGenUtils.MakeData(struct {
                         \\#endif
                     , .{ p.linux, name, p.windows, name });
                 },
-                .Function => |f| {
+                .function => |f| {
                     try writer.print("typedef {s} (*{s}) ({s});", .{ f.retTy, name, f.params });
                 },
             }
@@ -125,12 +125,8 @@ pub const @"HEADER-GENERATION-DATA" = HeaderGenUtils.MakeData(struct {
     };
 
     pub const customTypes = .{
-        .BB_FileHandle = CustomType{ .Platform = .{ .linux = "int", .windows = "void*" } },
+        .BB_FileHandle = CustomType{ .platform = .{ .linux = "int", .windows = "void*" } },
     };
-
-    pub fn source() []const u8 {
-        return @src().file;
-    }
 
     pub const ignoredDecls = .{};
 

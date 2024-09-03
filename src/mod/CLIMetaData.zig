@@ -23,8 +23,8 @@ pub const options =
 }));
 
 pub const ArgsResult = union(enum) {
-    Exit: void,
-    Execute: Execute,
+    exit: void,
+    execute: Execute,
 
     pub const Execute = struct {
         allocator: std.mem.Allocator,
@@ -33,8 +33,8 @@ pub const ArgsResult = union(enum) {
 
     pub fn deinit(self: ArgsResult) void {
         switch (self) {
-            .Exit => {},
-            .Execute => |x| {
+            .exit => {},
+            .execute => |x| {
                 for (x.rootFiles) |path| {
                     x.allocator.free(path);
                 }
@@ -47,6 +47,7 @@ pub const ArgsResult = union(enum) {
 
 pub const CLIError = error{
     InvalidArgument,
+    ClapError,
 };
 
 pub fn isCLIError(err: anyerror) bool {
@@ -60,7 +61,7 @@ pub fn asCLIError(err: anyerror) ?CLIError {
 pub fn processArgs(allocator: std.mem.Allocator, args: []const []const u8) (Support.IOError || std.mem.Allocator.Error || CLIError)!ArgsResult {
     if (args.len == 0) {
         return ArgsResult{
-            .Execute = ArgsResult.Execute{
+            .execute = ArgsResult.Execute{
                 .allocator = allocator,
                 .rootFiles = &[0][]const u8{},
             },
@@ -121,7 +122,7 @@ pub fn processArgs(allocator: std.mem.Allocator, args: []const []const u8) (Supp
     defer res.deinit();
 
     if (res.args.version != 0) {
-        try stdout.print("Ribbon v{}\n", .{Config.VERSION});
+        try stdout.print("RibbonI v{}\n", .{Config.VERSION});
         if (res.args.help != 0) {
             try stdout.print("\n", .{});
         }
@@ -132,7 +133,7 @@ pub fn processArgs(allocator: std.mem.Allocator, args: []const []const u8) (Supp
     }
 
     if (res.args.help != 0 or res.args.version != 0) {
-        return ArgsResult.Exit;
+        return ArgsResult.exit;
     }
 
     if (res.args.@"use-emoji") |styles| {
@@ -157,7 +158,7 @@ pub fn processArgs(allocator: std.mem.Allocator, args: []const []const u8) (Supp
     }
 
     return ArgsResult{
-        .Execute = ArgsResult.Execute{
+        .execute = ArgsResult.Execute{
             .allocator = allocator,
             .rootFiles = try rootFiles.toOwnedSlice(),
         },
@@ -166,7 +167,10 @@ pub fn processArgs(allocator: std.mem.Allocator, args: []const []const u8) (Supp
 
 pub fn printUsage(out: anytype) !void {
     try out.print("Usage: ribboni ", .{});
-    try clap.usage(out, clap.Help, options[2..]);
+    clap.usage(out, clap.Help, options[2..]) catch |err| {
+        try out.print("Error while printing usage: {s}\n", .{@errorName(err)});
+        return error.ClapError;
+    };
     try out.print("\n     | ribboni --help", .{});
     try out.print("\n     | ribboni --version", .{});
     try out.print("\n", .{});
@@ -175,7 +179,10 @@ pub fn printUsage(out: anytype) !void {
 pub fn printOptions(out: anytype) !void {
     try printUsage(out);
     try out.print("\nDetails:\n", .{});
-    try clap.help(out, clap.Help, &options, .{
+    clap.help(out, clap.Help, &options, .{
         .description_on_new_line = false,
-    });
+    }) catch |err| {
+        try out.print("Error while printing options: {s}\n", .{@errorName(err)});
+        return error.ClapError;
+    };
 }

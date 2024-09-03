@@ -17,7 +17,7 @@ pub fn log(
     std.options.logFn(message_level, scope, format, args);
 }
 
-pub fn scoped(comptime scope: @Type(.EnumLiteral)) type {
+pub fn scoped(comptime scope: @Type(.enum_literal)) type {
     if (comptime !@hasDecl(@import("root"), "std_options")) {
         @compileError("std_options not found in root file");
     }
@@ -27,7 +27,7 @@ pub fn scoped(comptime scope: @Type(.EnumLiteral)) type {
             comptime format: []const u8,
             args: anytype,
         ) void {
-            @setCold(true);
+            @branchHint(.cold);
             log(.err, scope, format, args);
         }
 
@@ -64,7 +64,7 @@ pub fn scoped(comptime scope: @Type(.EnumLiteral)) type {
 
 pub fn unfilteredLogFn(
     comptime level: std.log.Level,
-    comptime scope: @Type(.EnumLiteral),
+    comptime scope: @Type(.enum_literal),
     comptime format: []const u8,
     args: anytype,
 ) void {
@@ -73,7 +73,7 @@ pub fn unfilteredLogFn(
 
 pub fn filteredLogFn(
     comptime level: std.log.Level,
-    comptime scope: @Type(.EnumLiteral),
+    comptime scope: @Type(.enum_literal),
     comptime format: []const u8,
     args: anytype,
 ) void {

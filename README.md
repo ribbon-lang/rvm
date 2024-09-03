@@ -47,10 +47,11 @@ for now you can reach me via:
 
 ### Building from source
 
-You will need [`zig`](https://ziglang.org/).
+You will need [`zig`](https://ziglang.org/); likely, a nightly build.
+The latest version known to work is `0.14.0-dev.1417+242d268a0`.
 
 You can either:
-+ Get it through [ZVM](https://www.zvm.app/) (Recommended)
++ Get it through [ZVM](https://www.zvm.app/) or [Zigup]() (Recommended)
 + [Download it directly](https://ziglang.org/download)
 + Get the nightly build through a script like [night.zig](https://github.com/jsomedon/night.zig/)
 
@@ -96,9 +97,9 @@ See `zig build --help` for more information.
 
 #### From Zig
 
-1. Include ribbon in your `build.zig.zon` in the `.dependencies` section,
+1. Include RibbonI in your `build.zig.zon` in the `.dependencies` section,
    either by linking the tar, `zig fetch`, or provide a local path to the source.
-2. Add ribbon to your module imports like this:
+2. Add RibbonI to your module imports like this:
 ```zig
 const ribbon_i = b.dependency("ribbon-i", .{
     // these should always be passed to ensure ribbon is built correctly
@@ -125,7 +126,7 @@ If your host language has C FFI, it should be fairly straight forward. If you ma
 
 ### CLI
 
-The `ribboni` executable is a work in progress, but offers a functional command line interface for Ribbon.
+The `ribboni` executable is a work in progress, but offers a functional command line interface for RibbonI.
 
 #### CLI Usage
 ```
@@ -145,4 +146,4 @@ ribboni --version
 |`--version`| Display SemVer2 version number for RibbonI, and exit |
 |`--use-emoji <bool>`| Use emoji in the output [Default: true] |
 |`--use-ansi-styles <bool>`| Use ANSI styles in the output [Default: true] |
-|`<path>...`| Root files to execute |
+|`<path>...`| Files to execute |

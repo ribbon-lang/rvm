@@ -14,11 +14,13 @@ pub const std_options = std.Options{
 const log = std.log.scoped(.@"templater:readme:build");
 
 const Mode = enum {
+    ZIG_VERSION,
     VERSION,
     COMMANDS,
     OPTIONS,
 };
 
+const ZIG_VERSION = "zig-version";
 const VERSION = "version";
 const COMMANDS = "commands";
 const OPTIONS = "options";
@@ -33,7 +35,7 @@ pub fn main() !void {
 
     const args = try std.process.argsAlloc(allocator);
     if (args.len < 2) {
-        log.err("expected `{s}`, `{s}` or `{s}`, got nothing", .{ VERSION, COMMANDS, OPTIONS });
+        log.err("expected `{s}`, `{s}`, `{s}` or `{s}`, got nothing", .{ ZIG_VERSION, VERSION, COMMANDS, OPTIONS });
         return error.NotEnoughArguments;
     } else if (args.len > 2) {
         log.err("expected 1 argument, got {}:", .{args.len - 1});
@@ -44,14 +46,16 @@ pub fn main() !void {
     }
 
     const mode: Mode = mode: {
-        if (std.mem.eql(u8, args[1], VERSION)) {
+        if (std.mem.eql(u8, args[1], ZIG_VERSION)) {
+            break :mode .ZIG_VERSION;
+        } else if (std.mem.eql(u8, args[1], VERSION)) {
             break :mode .VERSION;
         } else if (std.mem.eql(u8, args[1], COMMANDS)) {
             break :mode .COMMANDS;
         } else if (std.mem.eql(u8, args[1], OPTIONS)) {
             break :mode .OPTIONS;
         } else {
-            log.err("expected `{s}`, `{s}` or `{s}`, got `{s}`", .{ VERSION, COMMANDS, OPTIONS, args[1] });
+            log.err("expected `{s}`, `{s}`, `{s}` or `{s}`, got `{s}`", .{ ZIG_VERSION, VERSION, COMMANDS, OPTIONS, args[1] });
             return error.InvalidModeArgument;
         }
     };
@@ -59,6 +63,9 @@ pub fn main() !void {
     const out = std.io.getStdOut().writer();
 
     switch (mode) {
+        .ZIG_VERSION => {
+            try out.print("{s}", .{@import("builtin").zig_version_string});
+        },
         .VERSION => {
             try out.print("v{}", .{manifest.version});
         },

@@ -53,8 +53,8 @@ pub fn build(b: *Build) !void {
         toolingTree,
         dependencies,
         .{
-            .meta = .Native,
-            .vis = .Private,
+            .meta = .native,
+            .vis = .private,
             .target = nativeTarget,
             .optimize = nativeOptimize,
             .strip = nativeOptimize != .Debug,
@@ -66,7 +66,7 @@ pub fn build(b: *Build) !void {
     var snapshotHelper = try nativeCompSet.getSnapshotHelper("tests/.snapshot");
 
     const defaultFullBuild = defaultFullBuild: {
-        break :defaultFullBuild try fullBuild(b, nativeCompSet, dependencies, .Public, defaultOptimize, stripDebugInfo, defaultTarget.query);
+        break :defaultFullBuild try fullBuild(b, nativeCompSet, dependencies, .public, defaultOptimize, stripDebugInfo, defaultTarget.query);
     };
 
     const defaultCommand: *Build.Step = b.default_step;
@@ -91,8 +91,8 @@ pub fn build(b: *Build) !void {
     const unitTestsCommand: *Build.Step = buildCommands.get("unit-tests").?;
     {
         const testCompSet = try Compilation.init(b, "tests", sourceTree, dependencies, .{
-            .meta = .{ .Generative = nativeCompSet },
-            .vis = .Private,
+            .meta = .{ .generative = nativeCompSet },
+            .vis = .private,
             .target = defaultTarget,
             .optimize = defaultOptimize,
             .strip = defaultOptimize != .Debug,
@@ -111,7 +111,7 @@ pub fn build(b: *Build) !void {
     {
         snapshotHelper.runWith(cliTestsCommand);
 
-        const releaseHost = try fullBuild(b, nativeCompSet, dependencies, .Private, .ReleaseSafe, stripDebugInfo, nativeTarget.query);
+        const releaseHost = try fullBuild(b, nativeCompSet, dependencies, .private, .ReleaseSafe, stripDebugInfo, nativeTarget.query);
 
         try cliTest(b, &buildOptions, &snapshotHelper, releaseHost.bin, cliTestsCommand, .Pass);
         try cliTest(b, &buildOptions, &snapshotHelper, releaseHost.bin, cliTestsCommand, .Fail);
@@ -135,7 +135,7 @@ pub fn build(b: *Build) !void {
     const headers = headerFiles: {
         const header = try nativeCompSet.getHeader("libribboni");
 
-        const writeHeader = b.addWriteFiles();
+        const writeHeader = b.addUpdateSourceFiles();
 
         const sourcePath = "include/ribboni.h";
 
@@ -151,7 +151,7 @@ pub fn build(b: *Build) !void {
         const genPath = try nativeCompSet.getFile("README");
         const sourcePath = "./README.md";
 
-        const writeReadme = b.addWriteFiles();
+        const writeReadme = b.addUpdateSourceFiles();
 
         writeReadme.addCopyFileToSource(genPath, sourcePath);
 
@@ -174,7 +174,7 @@ pub fn build(b: *Build) !void {
                 }
             }
 
-            const rel = try fullBuild(b, nativeCompSet, dependencies, .Private, .ReleaseSafe, stripDebugInfo, t);
+            const rel = try fullBuild(b, nativeCompSet, dependencies, .private, .ReleaseSafe, stripDebugInfo, t);
             releaseCommand.dependOn(&rel.step);
         }
     }
@@ -288,7 +288,7 @@ fn makeBuildOptions(b: *Build) BuildOptions {
         if (comptime opt.len != 3) {
             if (comptime opt.len == 2) {
                 switch (@typeInfo(opt[0])) {
-                    .Optional => |x| @field(options, dataOpt) = b.option(x.child, dataOpt, opt[1]),
+                    .optional => |x| @field(options, dataOpt) = b.option(x.child, dataOpt, opt[1]),
                     else => @compileError("invalid build config option `" ++ dataOpt ++ "`"),
                 }
             } else {
@@ -318,7 +318,7 @@ const BuildOptions = ty: {
         i += 1;
     }
     break :ty @Type(.{
-        .Struct = .{
+        .@"struct" = .{
             .layout = .auto,
             .fields = fields[0..i],
             .decls = &[0]std.builtin.Type.Declaration{},
@@ -374,8 +374,8 @@ fn targetStep(owner: *Build, name: []const u8, abi: std.Target.Abi) !*FullBuild 
     return target;
 }
 
-fn makeGuard(step: *Build.Step, prog_node: std.Progress.Node) anyerror!void {
-    _ = prog_node;
+fn makeGuard(step: *Build.Step, opts: Build.Step.MakeOptions) anyerror!void {
+    _ = opts;
 
     const target: *FullBuild = @fieldParentPtr("step", step);
 
@@ -402,7 +402,7 @@ fn fullBuild(b: *Build, nativeCompSet: *Compilation, dependencies: anytype, vis:
         nativeCompSet.tree,
         dependencies,
         .{
-            .meta = .{ .Generative = nativeCompSet },
+            .meta = .{ .generative = nativeCompSet },
             .vis = vis,
             .target = relTarget,
             .optimize = optimize,
@@ -547,7 +547,7 @@ fn cliTest(b: *Build, buildOptions: *const BuildOptions, snapshotHelper: *Snapsh
 }
 
 fn cTest(b: *Build, command: *Build.Step, buildOptions: *const BuildOptions, snapshotHelper: *Snapshot.Helper, prefixPath: []const u8, nativeCompSet: *Compilation, dependencies: anytype, stripDebugInfo: ?bool, t: std.Target.Query, runner: ?[]const u8) !void {
-    const rel = try fullBuild(b, nativeCompSet, dependencies, .Private, .ReleaseSafe, stripDebugInfo, t);
+    const rel = try fullBuild(b, nativeCompSet, dependencies, .private, .ReleaseSafe, stripDebugInfo, t);
 
     if (b.args) |args| {
         for (args) |arg| {
