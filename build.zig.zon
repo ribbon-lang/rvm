@@ -1,0 +1,31 @@
+.{
+    .name = "ribboni",
+    .version = "0.0.0",
+    .dependencies = .{
+        .clap = .{
+            .url = "https://github.com/Hejsil/zig-clap/archive/0.9.1.tar.gz",
+            .hash = "122062d301a203d003547b414237229b09a7980095061697349f8bef41be9c30266b",
+        },
+        .ZigBuilder = .{
+            .url = "https://github.com/noxabellus/zig-builder/archive/fc76d7e79109c7e460a493220ef6a78d5792770c.tar.gz",
+            .hash = "1220da708b570c6a62211269e019f361350d65dc0300a279829e3296d431812746a5",
+        },
+        .ZigTextUtils = .{
+            .url = "https://github.com/noxabellus/zig-text-utils/archive/6e993b117d3815a9ff966ce81d730c9ea9b20dd3.tar.gz",
+            .hash = "12203aee906d0a12ca91875b067ce4e71a2bdd197309eb2a0792ae4aaa37629ac8f2",
+        },
+        .ZigTypeUtils = .{
+            .url = "https://github.com/noxabellus/zig-type-utils/archive/2acb4ba33f3a7fecd54117c56b1ed02f89363bad.tar.gz",
+            .hash = "12206361cb41c94ff6a4bef7af47c7bb79479a6106ce7c421666d2e6322d82402735",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "tools",
+        "scripts",
+        "LICENSE",
+        "README.md",
+    },
+}
