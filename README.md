@@ -51,7 +51,7 @@ You will need [`zig`](https://ziglang.org/); likely, a nightly build.
 The latest version known to work is `0.14.0-dev.1417+242d268a0`.
 
 You can either:
-+ Get it through [ZVM](https://www.zvm.app/) or [Zigup]() (Recommended)
++ Get it through [ZVM](https://www.zvm.app/) or [Zigup](https://marler8997.github.io/zigup/) (Recommended)
 + [Download it directly](https://ziglang.org/download)
 + Get the nightly build through a script like [night.zig](https://github.com/jsomedon/night.zig/)
 
