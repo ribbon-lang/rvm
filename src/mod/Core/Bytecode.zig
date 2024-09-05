@@ -20,8 +20,8 @@ pub const BlockIndex = u16;
 pub const RegisterLocalOffset = u16;
 pub const RegisterBaseOffset = u24;
 pub const LayoutTableSize = RegisterBaseOffset;
-pub const OperandSize = u16;
-pub const OperandAlignment = u16;
+pub const ValueSize = u16;
+pub const ValueAlignment = u16;
 pub const FunctionIndex = u16;
 pub const HandlerSetIndex = u16;
 pub const HandlerIndex = u8;
@@ -56,7 +56,7 @@ pub const Register = reg: {
 
 pub const MAX_REGISTERS = std.math.maxInt(Register);
 
-pub const Argument = packed struct {
+pub const Operand = packed struct {
     register: Register,
     offset: RegisterLocalOffset,
 };
@@ -80,8 +80,8 @@ pub const Block = struct {
 };
 
 pub const Layout = struct {
-    size: OperandSize,
-    alignment: OperandAlignment,
+    size: ValueSize,
+    alignment: ValueAlignment,
 };
 
 pub const Type = union(enum) {
@@ -135,7 +135,7 @@ pub const LayoutTable = struct {
     local_layouts: []Layout,
     local_offsets: []RegisterBaseOffset,
     size: LayoutTableSize,
-    alignment: OperandAlignment,
+    alignment: ValueAlignment,
     num_params: Register,
 };
 
@@ -189,30 +189,6 @@ pub const Location = struct {
     offset: InstructionPointerOffset,
 };
 
-const ArithmeticOperandInfo = union(enum) {
-    none: void,
-    float_only: void,
-    int_only: SignVariance,
-    int_float: SignVariance,
-    pub const SignVariance = enum {
-        same,
-        different,
-        only_unsigned,
-        only_signed,
-    };
-};
-
-fn intOnly(signVariance: ArithmeticOperandInfo.SignVariance) ArithmeticOperandInfo {
-    return .{ .int_only = signVariance };
-}
-
-fn floatOnly() ArithmeticOperandInfo {
-    return .float_only;
-}
-
-fn intFloat(signVariance: ArithmeticOperandInfo.SignVariance) ArithmeticOperandInfo {
-    return .{ .int_float = signVariance };
-}
 
 const InstructionPrototypes = .{
     .basic = .{
@@ -229,22 +205,25 @@ const InstructionPrototypes = .{
 
     .functional = .{
         .{ "call"
-         , \\call the function at the address stored in `fun_reg`,
+         , \\call the function at the address stored in `fun`,
            \\using the registers `arg_regs` as arguments,
            \\and placing the result in `ret_reg`
-         , .{ .fun_reg = Register, .ret_reg = Register
-            , .arg_regs = []Register
-            }
+         , struct {
+            fun: Operand,
+            ret_reg: Register,
+            arg_regs: []Register,
+           }
         },
 
         .{ "prompt"
          , \\prompt the given `evidence`,
            \\using the registers `arg_regs` as arguments,
            \\and placing the result in `ret_reg`
-         , .{ .evidence = EvidenceIndex
-            , .ret_reg = Register
-            , .arg_regs = []Register
-            }
+         , struct {
+            evidence: EvidenceIndex,
+            ret_reg: Register,
+            arg_regs: []Register,
+           }
         },
 
         .{ "return"
@@ -261,458 +240,562 @@ const InstructionPrototypes = .{
     .control_flow = .{
         .{ "when"
          , \\enter the designated `block`,
-           \\if the condition in `cond_reg` is non-zero
-         , .{ .block = BlockIndex
-            , .cond_reg = Register
-            }
+           \\if the condition in `cond` is non-zero
+         , struct {
+            block: BlockIndex,
+            cond: Operand,
+           }
         },
         .{ "unless"
          , \\enter the designated `block`,
-           \\if the condition in `cond_reg` is zero
-         , .{ .block = BlockIndex
-            , .cond_reg = Register
-            }
+           \\if the condition in `cond` is zero
+         , struct {
+            block: BlockIndex,
+            cond: Operand,
+           }
         },
         .{ "loop"
          , \\enter the designated `block`, looping
-         , .{ .block = BlockIndex }
+         , struct {
+            block: BlockIndex
+           }
         },
         .{ "break_imm"
          , \\exit the designated block,
            \\copy the immediate value `imm`,
            \\and place the result in the block's yield register
-         , .{ .block = BlockIndex
-            , .imm = Bytecode.ConstantIndex
-            }
+         , struct {
+            block: BlockIndex,
+            imm: Bytecode.ConstantIndex,
+           }
         },
         .{ "break_if_imm"
          , \\exit the designated block,
-           \\if the condition in `cond_reg` is non-zero
+           \\if the condition in `cond` is non-zero
            \\copy the immediate value `imm`,
            \\and place the result in the block's yield register
-         , .{ .block = BlockIndex
-            , .imm = Bytecode.ConstantIndex
-            , .cond_reg = Register
-            }
+         , struct {
+            block: BlockIndex,
+            imm: Bytecode.ConstantIndex,
+            cond: Operand,
+           }
         },
         .{ "reiter"
          , \\restart the designated loop block
-         , .{ .block = BlockIndex
-            }
+         , struct {
+            block: BlockIndex,
+           }
         },
         .{ "reiter_if"
          , \\restart the designated loop block,
-           \\if the condition in `cond_reg` is non-zero
-         , .{ .block = BlockIndex
-            , .cond_reg = Register
-            }
+           \\if the condition in `cond` is non-zero
+         , struct {
+            block: BlockIndex,
+            cond: Operand,
+           }
         },
     },
 
     .control_flow_v = .{
         .{ "block"
          , \\enter the designated `block`
-         , .{ .block = BlockIndex }
-         , \\place the result of the block in `yield_reg`,
-         , .{ .yield_reg = Register
-            }
+         , struct {
+            block: BlockIndex
+           }
+         , \\place the result of the block in `yield`
+         , struct {
+            yield: Operand,
+           }
         },
         .{ "with"
          , \\enter the designated `block`,
            \\using the `handler_set` to handle effects
-         , .{ .handler_set = HandlerSetIndex
-            , .block = BlockIndex
-            }
-         , \\place the result of the block in `yield_reg`
-         , .{ .yield_reg = Register
-            }
+         , struct {
+            handler_set: HandlerSetIndex,
+            block: BlockIndex,
+           }
+         , \\place the result of the block in `yield`
+         , struct {
+            yield: Operand,
+           }
         },
         .{ "if_else"
          , \\enter the `then_block`,
-           \\if the condition in `cond_reg` is non-zero
+           \\if the condition in `cond` is non-zero
            \\otherwise enter the `else_block`
-         , .{ .then_block = BlockIndex
-            , .else_block = BlockIndex
-            , .cond_reg = Register
-            }
-         , \\place the result of the block in `yield_reg`,
-         , .{ .yield_reg = Register
-            }
+         , struct {
+            then_block: BlockIndex,
+            else_block: BlockIndex,
+            cond: Operand,
+           }
+         , \\place the result of the block in `yield`,
+         , struct {
+            yield: Operand,
+           }
         },
         .{ "case"
          , \\enter the indexed `block`,
            \\based on the value in `case_reg`
-         , .{ .case_reg = Register
-            , .blocks = []BlockIndex
-            }
-         , \\place the result of the block in `yield_reg`
-         , .{ .yield_reg = Register
-            }
+         , struct {
+            case_reg: Register,
+            blocks: []BlockIndex,
+           }
+         , \\place the result of the block in `yield`
+         , struct {
+            yield: Operand,
+           }
         },
         .{ "break"
          , \\exit the designated `block`
-         , .{ .block = BlockIndex }
-         , \\copy the value in `src_reg`,
+         , struct {
+            block: BlockIndex
+           }
+         , \\copy the value in `src`,
            \\placing the result in the block's yield register
-         , .{ .src_reg = Register }
+         , struct {
+            src: Operand
+           }
         },
         .{ "break_if"
          , \\exit the designated `block`,
-           \\if the condition in `cond_reg` is non-zero
-         , .{ .block = BlockIndex
-            , .cond_reg = Register
-            }
-         , \\copy the value in `src_reg`,
+           \\if the condition in `cond` is non-zero
+         , struct {
+            block: BlockIndex,
+            cond: Operand,
+           }
+         , \\copy the value in `src`,
            \\placing the result in the block's yield register
-         , .{ .src_reg = Register }
+         , struct {
+            src: Operand
+           }
         },
     },
 
     .memory = .{
         .{ "addr_of_upvalue"
-         , \\take the address of the upvalue register `src_reg`,
-           \\and store the result in `dst_reg`
-         , .{ .src_reg = Register
-            , .dst_reg = Register
-            }
+         , \\take the address of the upvalue register `src`,
+           \\and store the result in `dst`
+         , struct {
+            src: Operand,
+            dst: Operand,
+           }
         },
         .{ "addr_of"
-         , \\take the address of `src_reg`,
+         , \\take the address of `src`,
            \\offset it by `offset`,
-           \\and store the result in `dst_reg`
-         , .{ .offset = RegisterLocalOffset
-            , .src_reg = Register
-            , .dst_reg = Register
-            }
+           \\and store the result in `dst`
+         , struct {
+            offset: RegisterLocalOffset,
+            src: Operand,
+            dst: Operand,
+           }
         },
         .{ "load"
-         , \\copy the value from the address stored in `addr_reg`,
-           \\and store the result in `dst_reg`
-         , .{ .addr_reg = Register
-            , .dst_reg = Register
-            }
+         , \\copy the value from the address stored in `addr`,
+           \\and store the result in `dst`
+         , struct {
+            addr: Operand,
+            dst: Operand,
+           }
         },
 
         .{ "store"
-         , \\copy the value from `src_reg`
-           \\and store the result at the address stored in `addr_reg`
-         , .{ .src_reg = Register
-            , .addr_reg = Register
-            }
+         , \\copy the value from `src`
+           \\and store the result at the address stored in `addr`
+         , struct {
+            src: Operand,
+            addr: Operand,
+           }
         },
 
         .{ "load_imm"
          , \\copy the immediate value `imm`
-           \\and store the result in `dst_reg`
-         , .{ .imm = Bytecode.ConstantIndex
-            , .dst_reg = Register
-            }
+           \\and store the result in `dst`
+         , struct {
+            imm: Bytecode.ConstantIndex,
+            dst: Operand,
+           }
         },
 
         .{ "store_imm"
          , \\copy the immediate value `imm`
-           \\and store the result at the address stored in `addr_reg`
-         , .{ .imm = Bytecode.ConstantIndex
-            , .addr_reg = Register
-            }
-         }
+           \\and store the result at the address stored in `addr`
+         , struct {
+            imm: Bytecode.ConstantIndex,
+            addr: Operand,
+           }
+        },
     },
 
     .arithmetic = .{
         .{ "add"
-         , \\load two values from `lhs_reg` and `rhs_reg`,
+         , \\load two values from `lhs` and `rhs`,
            \\perform addition,
-           \\and store the result in `dst_reg`
+           \\and store the result in `dst`
          , intFloat(.same)
-         , .{ .lhs_reg = Register, .rhs_reg = Register
-            , .dst_reg = Register
-            }
+         , struct {
+            lhs: Operand,
+            rhs: Operand,
+            dst: Operand,
+           }
         },
 
         .{ "sub"
-         , \\load two values from `lhs_reg` and `rhs_reg`,
+         , \\load two values from `lhs` and `rhs`,
            \\perform subtraction,
-           \\and store the result in `dst_reg`
+           \\and store the result in `dst`
          , intFloat(.same)
-         , .{ .lhs_reg = Register, .rhs_reg = Register
-            , .dst_reg = Register
-            }
+         , struct {
+            lhs: Operand,
+            rhs: Operand,
+            dst: Operand,
+           }
         },
 
         .{ "mul"
-         , \\load two values from `lhs_reg` and `rhs_reg`,
+         , \\load two values from `lhs` and `rhs`,
            \\perform division,
-           \\and store the result in `dst_reg`
+           \\and store the result in `dst`
          , intFloat(.same)
-         , .{ .lhs_reg = Register, .rhs_reg = Register
-            , .dst_reg = Register
-            }
+         , struct {
+            lhs: Operand,
+            rhs: Operand,
+            dst: Operand,
+           }
         },
 
         .{ "div"
-         , \\load two values from `lhs_reg` and `rhs_reg`,
+         , \\load two values from `lhs` and `rhs`,
            \\perform division,
-           \\and store the result in `dst_reg`
+           \\and store the result in `dst`
          , intFloat(.different)
-         , .{ .lhs_reg = Register, .rhs_reg = Register
-            , .dst_reg = Register
-            }
+         , struct {
+            lhs: Operand,
+            rhs: Operand,
+            dst: Operand,
+           }
         },
 
         .{ "rem"
-         , \\load two values from `lhs_reg` and `rhs_reg`,
+         , \\load two values from `lhs` and `rhs`,
            \\perform remainder division,
-           \\and store the result in `dst_reg`
+           \\and store the result in `dst`
          , intFloat(.different)
-         , .{ .lhs_reg = Register, .rhs_reg = Register
-            , .dst_reg = Register
-            }
+         , struct {
+            lhs: Operand,
+            rhs: Operand,
+            dst: Operand,
+           }
         },
 
         .{ "neg"
-         , \\load a value from `lhs_reg`,
+         , \\load a value from `val`,
            \\perform negative,
-           \\and store the result in `dst_reg`
+           \\and store the result in `dst`
          , intFloat(.only_signed)
-         , .{ .val_reg = Register
-            , .dst_reg = Register
-            }
+         , struct {
+            val: Operand,
+            dst: Operand,
+           }
         },
 
         .{ "bitnot"
-         , \\load a value from `lhs_reg`,
+         , \\load a value from `val`,
            \\perform bitwise not,
-           \\and store the result in `dst_reg`
+           \\and store the result in `dst`
          , intOnly(.same)
-         , .{ .val_reg = Register
-            , .dst_reg = Register
-            }
+         , struct {
+            val: Operand,
+            dst: Operand,
+           }
         },
 
         .{ "bitand"
-         , \\load two values from `lhs_reg` and `rhs_reg`,
+         , \\load two values from `lhs` and `rhs`,
            \\perform bitwise and,
-           \\and store the result in `dst_reg`
+           \\and store the result in `dst`
          , intOnly(.same)
-         , .{ .lhs_reg = Register, .rhs_reg = Register
-            , .dst_reg = Register
-            }
+         , struct {
+            lhs: Operand,
+            rhs: Operand,
+            dst: Operand,
+           }
         },
 
         .{ "bitor"
-         , \\load two values from `lhs_reg` and `rhs_reg`,
+         , \\load two values from `lhs` and `rhs`,
            \\perform bitwise or,
-           \\and store the result in `dst_reg`
+           \\and store the result in `dst`
          , intOnly(.same)
-         , .{ .lhs_reg = Register, .rhs_reg = Register
-            , .dst_reg = Register
-            }
+         , struct {
+            lhs: Operand,
+            rhs: Operand,
+            dst: Operand,
+           }
         },
 
         .{ "bitxor"
-         , \\load two values from `lhs_reg` and `rhs_reg`,
+         , \\load two values from `lhs` and `rhs`,
            \\perform bitwise xor,
-           \\and store the result in `dst_reg`
+           \\and store the result in `dst`
          , intOnly(.same)
-         , .{ .lhs_reg = Register, .rhs_reg = Register
-            , .dst_reg = Register
-            }
+         , struct {
+            lhs: Operand,
+            rhs: Operand,
+            dst: Operand,
+           }
         },
 
         .{ "shiftl"
-         , \\load two values from `lhs_reg` and `rhs_reg`,
+         , \\load two values from `lhs` and `rhs`,
            \\perform bitwise left shift,
-           \\and store the result in `dst_reg`
+           \\and store the result in `dst`
          , intOnly(.same)
-         , .{ .lhs_reg = Register, .rhs_reg = Register
-            , .dst_reg = Register
-            }
+         , struct {
+            lhs: Operand,
+            rhs: Operand,
+            dst: Operand,
+           }
         },
 
         .{ "shiftar"
-         , \\load two values from `lhs_reg` and `rhs_reg`,
+         , \\load two values from `lhs` and `rhs`,
            \\perform bitwise arithmetic right shift,
-           \\and store the result in `dst_reg`
+           \\and store the result in `dst`
          , intOnly(.same)
-         , .{ .lhs_reg = Register, .rhs_reg = Register
-            , .dst_reg = Register
-            }
+         , struct {
+            lhs: Operand,
+            rhs: Operand,
+            dst: Operand,
+           }
         },
 
         .{ "shiftlr"
-         , \\load two values from `lhs_reg` and `rhs_reg`,
+         , \\load two values from `lhs` and `rhs`,
            \\perform bitwise logical right shift,
-           \\and store the result in `dst_reg`
+           \\and store the result in `dst`
          , intOnly(.same)
-         , .{ .lhs_reg = Register, .rhs_reg = Register
-            , .dst_reg = Register
-            }
+         , struct {
+            lhs: Operand,
+            rhs: Operand,
+            dst: Operand,
+           }
         },
 
         .{ "eq"
-         , \\load two values from `lhs_reg` and `rhs_reg`,
+         , \\load two values from `lhs` and `rhs`,
            \\perform equality comparison,
-           \\and store the result in `dst_reg`
+           \\and store the result in `dst`
          , intFloat(.same)
-         , .{ .lhs_reg = Register, .rhs_reg = Register
-            , .dst_reg = Register
-            }
+         , struct {
+            lhs: Operand,
+            rhs: Operand,
+            dst: Operand,
+           }
         },
 
         .{ "ne"
-         , \\load two values from `lhs_reg` and `rhs_reg`,
+         , \\load two values from `lhs` and `rhs`,
            \\perform inequality comparison,
-           \\and store the result in `dst_reg`
+           \\and store the result in `dst`
          , intFloat(.same)
-         , .{ .lhs_reg = Register, .rhs_reg = Register
-            , .dst_reg = Register
-            }
+         , struct {
+            lhs: Operand,
+            rhs: Operand,
+            dst: Operand,
+           }
         },
 
         .{ "lt"
-         , \\load two values from `lhs_reg` and `rhs_reg`,
+         , \\load two values from `lhs` and `rhs`,
            \\perform less than comparison,
-           \\and store the result in `dst_reg`
+           \\and store the result in `dst`
          , intFloat(.same)
-         , .{ .lhs_reg = Register, .rhs_reg = Register
-            , .dst_reg = Register
-            }
+         , struct {
+            lhs: Operand,
+            rhs: Operand,
+            dst: Operand,
+           }
         },
 
         .{ "le"
-         , \\load two values from `lhs_reg` and `rhs_reg`,
+         , \\load two values from `lhs` and `rhs`,
            \\perform less than or equal comparison,
-           \\and store the result in `dst_reg`
+           \\and store the result in `dst`
          , intFloat(.same)
-         , .{ .lhs_reg = Register, .rhs_reg = Register
-            , .dst_reg = Register
-            }
+         , struct {
+            lhs: Operand,
+            rhs: Operand,
+            dst: Operand,
+           }
         },
 
         .{ "gt"
-         , \\load two values from `lhs_reg` and `rhs_reg`,
+         , \\load two values from `lhs` and `rhs`,
            \\perform greater than comparison,
-           \\and store the result in `dst_reg`
+           \\and store the result in `dst`
          , intFloat(.same)
-         , .{ .lhs_reg = Register, .rhs_reg = Register
-            , .dst_reg = Register
-            }
+         , struct {
+            lhs: Operand,
+            rhs: Operand,
+            dst: Operand,
+           }
         },
 
         .{ "ge"
-         , \\load two values from `lhs_reg` and `rhs_reg`,
+         , \\load two values from `lhs` and `rhs`,
            \\perform greater than or equal comparison,
-           \\and store the result in `dst_reg`
+           \\and store the result in `dst`
          , intFloat(.same)
-         , .{ .lhs_reg = Register, .rhs_reg = Register
-            , .dst_reg = Register
-            }
+         , struct {
+            lhs: Operand,
+            rhs: Operand,
+            dst: Operand,
+           }
         },
     },
 
     .boolean = .{
         .{ "b_and"
-         , \\load two values from `lhs_reg` and `rhs_reg`,
+         , \\load two values from `lhs` and `rhs`,
            \\perform logical and,
-           \\and store the result in `dst_reg`
-         , .{ .lhs_reg = Register, .rhs_reg = Register
-            , .dst_reg = Register
-            }
+           \\and store the result in `dst`
+         , struct {
+            lhs: Operand,
+            rhs: Operand,
+            dst: Operand,
+           }
         },
 
         .{ "b_or"
-         , \\load two values from `lhs_reg` and `rhs_reg`,
+         , \\load two values from `lhs` and `rhs`,
            \\perform logical or,
-           \\and store the result in `dst_reg`
-         , .{ .lhs_reg = Register, .rhs_reg = Register
-            , .dst_reg = Register
-            }
+           \\and store the result in `dst`
+         , struct {
+            lhs: Operand,
+            rhs: Operand,
+            dst: Operand,
+           }
         },
 
         .{ "b_xor"
-         , \\load two values from `lhs_reg` and `rhs_reg`,
+         , \\load two values from `lhs` and `rhs`,
            \\perform logical xor,
-           \\and store the result in `dst_reg`
-         , .{ .lhs_reg = Register, .rhs_reg = Register
-            , .dst_reg = Register
-            }
+           \\and store the result in `dst`
+         , struct {
+            lhs: Operand,
+            rhs: Operand,
+            dst: Operand,
+           }
         },
 
         .{ "b_not"
-         , \\load a value from `lhs_reg`,
+         , \\load a value from `val`,
            \\perform logical not,
-           \\and store the result in `dst_reg`
-         , .{ .val_reg = Register
-            , .dst_reg = Register
-            }
+           \\and store the result in `dst`
+         , struct {
+            val: Operand,
+            dst: Operand,
+           }
         },
     },
 
     .size_cast_int = .{
         .{ "u_ext"
-         , \\load a value from `src_reg`,
+         , \\load a value from `src`,
            \\perform zero extension,
-           \\and store the result in `dst_reg`
+           \\and store the result in `dst`
          , .up
-         , .{ .src_reg = Register
-            , .dst_reg = Register
-            }
+         , struct {
+            src: Operand,
+            dst: Operand,
+           }
         },
         .{ "s_ext"
-         , \\load a value from `src_reg`,
+         , \\load a value from `src`,
            \\perform sign extension,
-           \\and store the result in `dst_reg`
+           \\and store the result in `dst`
          , .up
-         , .{ .src_reg = Register
-            , .dst_reg = Register
-            }
+         , struct {
+            src: Operand,
+            dst: Operand,
+           }
         },
         .{ "i_trunc"
-         , \\load a value from `src_reg`,
+         , \\load a value from `src`,
            \\perform sign extension,
-           \\and store the result in `dst_reg`
+           \\and store the result in `dst`
          , .down
-         , .{ .src_reg = Register
-            , .dst_reg = Register
-            }
+         , struct {
+            src: Operand,
+            dst: Operand,
+           }
         },
     },
 
     .size_cast_float = .{
         .{ "f_ext"
-         , \\load a value from `src_reg`,
+         , \\load a value from `src`,
            \\perform floating point extension,
-           \\and store the result in `dst_reg`
+           \\and store the result in `dst`
          , .up
-         , .{ .src_reg = Register
-            , .dst_reg = Register
-            }
+         , struct {
+            src: Operand,
+            dst: Operand,
+           }
         },
         .{ "f_trunc"
-         , \\load a value from `src_reg`,
+         , \\load a value from `src`,
            \\perform floating point truncation,
-           \\and store the result in `dst_reg`
+           \\and store the result in `dst`
          , .down
-         , .{ .src_reg = Register
-            , .dst_reg = Register
-            }
+         , struct {
+            src: Operand,
+            dst: Operand,
+           }
         },
     },
 
     .int_float_cast = .{
         .{ "to"
-         , \\load a value from `src_reg`,
+         , \\load a value from `src`,
            \\perform int/float conversion,
-           \\and store the result in `dst_reg`
-         , .{ .src_reg = Register
-            , .dst_reg = Register
-            }
-         }
+           \\and store the result in `dst`
+         , struct {
+            src: Operand,
+            dst: Operand,
+           }
+        },
     },
 };
 
 
-const OpCode = op: {
+const ArithmeticValueInfo = union(enum) {
+    none: void,
+    float_only: void,
+    int_only: SignVariance,
+    int_float: SignVariance,
+    const SignVariance = enum {
+        same,
+        different,
+        only_unsigned,
+        only_signed,
+    };
+};
+
+fn intOnly(signVariance: ArithmeticValueInfo.SignVariance) ArithmeticValueInfo {
+    return .{ .int_only = signVariance };
+}
+
+fn floatOnly() ArithmeticValueInfo {
+    return .float_only;
+}
+
+fn intFloat(signVariance: ArithmeticValueInfo.SignVariance) ArithmeticValueInfo {
+    return .{ .int_float = signVariance };
+}
+
+const Ops = ops: {
     const TagType = OpCodeIndex;
     const max = std.math.maxInt(TagType);
 
@@ -721,55 +804,61 @@ const OpCode = op: {
     const SIGNEDNESS = [2]TextUtils.Char { 'u', 's' };
 
     const Tools = struct {
-        fn makeFloatFields(fields: []std.builtin.Type.EnumField, id: *usize, name: []const u8) void {
+        fn makeFloatFields(enumFields: []std.builtin.Type.EnumField, unionFields: []std.builtin.Type.UnionField, id: *usize, name: [:0]const u8, operands: anytype) void {
             for (FLOAT_SIZE) |size| {
-                fields[id.*] = .{
-                    .name = std.fmt.comptimePrint("f_{s}{}", .{name, size}),
+                const fieldName = std.fmt.comptimePrint("f_{s}{}", .{name, size});
+                enumFields[id.*] = .{
+                    .name = fieldName,
                     .value = id.*,
+                };
+                const T = @TypeOf(operands);
+                unionFields[id.*] = .{
+                    .name = fieldName,
+                    .type = T,
+                    .alignment = @alignOf(T),
                 };
                 id.* += 1;
             }
         }
 
-        fn makeIntFields(fields: []std.builtin.Type.EnumField, id: *usize, name: []const u8, signVariance: ArithmeticOperandInfo.SignVariance) void {
+        fn makeIntField(enumFields: []std.builtin.Type.EnumField, unionFields: []std.builtin.Type.UnionField, id: *usize, fieldName: [:0]const u8, operands: anytype) void {
+            enumFields[id.*] = .{
+                .name = fieldName,
+                .value = id.*,
+            };
+            const T = @TypeOf(operands);
+            unionFields[id.*] = .{
+                .name = fieldName,
+                .type = T,
+                .alignment = @alignOf(T),
+            };
+            id.* += 1;
+        }
+
+        fn makeIntFields(enumFields: []std.builtin.Type.EnumField, unionFields: []std.builtin.Type.UnionField, id: *usize, name: [:0]const u8, operands: anytype, signVariance: ArithmeticValueInfo.SignVariance) void {
             for (INTEGER_SIZE) |size| {
                 switch (signVariance) {
                     .different => {
                         for (SIGNEDNESS) |sign| {
-                            fields[id.*] = .{
-                                .name = std.fmt.comptimePrint("{u}_{s}{}", .{sign, name, size}),
-                                .value = id.*,
-                            };
-                            id.* += 1;
+                            makeIntField(enumFields, unionFields, id, std.fmt.comptimePrint("{u}_{s}{}", .{sign, name, size}), operands);
                         }
                     },
                     .same => {
-                        fields[id.*] = .{
-                            .name = std.fmt.comptimePrint("i_{s}{}", .{name, size}),
-                            .value = id.*,
-                        };
-                        id.* += 1;
+                        makeIntField(enumFields, unionFields, id, std.fmt.comptimePrint("i_{s}{}", .{name, size}), operands);
                     },
                     .only_unsigned => {
-                        fields[id.*] = .{
-                            .name = std.fmt.comptimePrint("u_{s}{}", .{name, size}),
-                            .value = id.*,
-                        };
-                        id.* += 1;
+                        makeIntField(enumFields, unionFields, id, std.fmt.comptimePrint("u_{s}{}", .{name, size}), operands);
                     },
                     .only_signed => {
-                        fields[id.*] = .{
-                            .name = std.fmt.comptimePrint("s_{s}{}", .{name, size}),
-                            .value = id.*,
-                        };
-                        id.* += 1;
+                        makeIntField(enumFields, unionFields, id, std.fmt.comptimePrint("s_{s}{}", .{name, size}), operands);
                     }
                 }
             }
         }
     };
 
-    var fields = [1]std.builtin.Type.EnumField {undefined} ** max;
+    var enumFields = [1]std.builtin.Type.EnumField {undefined} ** max;
+    var unionFields = [1]std.builtin.Type.UnionField {undefined} ** max;
 
     var id: usize = 0;
 
@@ -782,28 +871,63 @@ const OpCode = op: {
 
                 const name = proto[0];
                 // const doc = proto[1];
-                const multipliers: ArithmeticOperandInfo = proto[2];
-                // const operands = proto[3];
+                const multipliers: ArithmeticValueInfo = proto[2];
+                const operands = proto[3];
 
                 switch (multipliers) {
                     .none => {
-                        fields[id] = .{
+                        enumFields[id] = .{
                             .name = name,
                             .value = id,
                         };
                         id += 1;
                     },
                     .int_only => |signVariance| {
-                        Tools.makeIntFields(&fields, &id, name, signVariance);
+                        Tools.makeIntFields(&enumFields, &unionFields, &id, name, operands, signVariance);
                     },
                     .float_only => {
-                        Tools.makeFloatFields(&fields, &id, name);
+                        Tools.makeFloatFields(&enumFields, &unionFields, &id, name, operands);
                     },
                     .int_float => |signVariance| {
-                        Tools.makeIntFields(&fields, &id, name, signVariance);
-                        Tools.makeFloatFields(&fields, &id, name);
+                        Tools.makeIntFields(&enumFields, &unionFields, &id, name, operands, signVariance);
+                        Tools.makeFloatFields(&enumFields, &unionFields, &id, name, operands);
                     }
                 }
+            }
+        } else if (std.mem.endsWith(u8, categoryName, "_v")) {
+            for (0..category.len) |i| {
+                const proto = category[i];
+
+                const name = proto[0];
+                // const doc = proto[1];
+                const operands = proto[2];
+                // const vDoc = proto[3];
+                const vOperands = proto[4];
+
+                enumFields[id] = .{
+                    .name = name,
+                    .value = id,
+                };
+                const OpT = @TypeOf(operands);
+                unionFields[id] = .{
+                    .name = name,
+                    .type = OpT,
+                    .alignment = @alignOf(OpT),
+                };
+                id += 1;
+
+                const fieldName = std.fmt.comptimePrint("{s}_v", .{name});
+                enumFields[id] = .{
+                    .name = fieldName,
+                    .value = id,
+                };
+                const VT = TypeUtils.StructConcat(.{operands, vOperands});
+                unionFields[id] = .{
+                    .name = fieldName,
+                    .type = VT,
+                    .alignment = @alignOf(VT),
+                };
+                id += 1;
             }
         } else if (std.mem.startsWith(u8, categoryName, "size_cast")) {
             for (0..category.len) |i| {
@@ -812,7 +936,7 @@ const OpCode = op: {
                 const name = proto[0];
                 // const doc = proto[1];
                 const order: enum { up, down } = proto[2];
-                // const operands = proto[3];
+                const operands = proto[3];
 
                 const SIZE =
                     if (std.mem.endsWith(u8, categoryName, "int")) INTEGER_SIZE
@@ -827,9 +951,16 @@ const OpCode = op: {
                             const xsize = SIZE[x];
                             for (x + 1..SIZE.len) |y| {
                                 const ysize = SIZE[y];
-                                fields[id] = .{
-                                    .name = std.fmt.comptimePrint("{s}{}x{}", .{name, xsize, ysize}),
+                                const fieldName = std.fmt.comptimePrint("{s}{}x{}", .{name, xsize, ysize});
+                                enumFields[id] = .{
+                                    .name = fieldName,
                                     .value = id,
+                                };
+                                const T = @TypeOf(operands);
+                                unionFields[id] = .{
+                                    .name = fieldName,
+                                    .type = T,
+                                    .alignment = @alignOf(T),
                                 };
                                 id += 1;
                             }
@@ -842,9 +973,16 @@ const OpCode = op: {
                             var y: usize = x - 1;
                             while (y > 0) : (y -= 1) {
                                 const ysize = SIZE[y - 1];
-                                fields[id] = .{
-                                    .name = std.fmt.comptimePrint("{s}{}x{}", .{name, xsize, ysize}),
+                                const fieldName = std.fmt.comptimePrint("{s}{}x{}", .{name, xsize, ysize});
+                                enumFields[id] = .{
+                                    .name = fieldName,
                                     .value = id,
+                                };
+                                const T = @TypeOf(operands);
+                                unionFields[id] = .{
+                                    .name = fieldName,
+                                    .type = T,
+                                    .alignment = @alignOf(T),
                                 };
                                 id += 1;
                             }
@@ -857,20 +995,33 @@ const OpCode = op: {
 
             const name = proto[0];
             // const doc = proto[1];
-            // const operands = proto[2];
+            const operands = proto[2];
 
             for (SIGNEDNESS) |sign| {
                 for (INTEGER_SIZE) |int_size| {
                     for (FLOAT_SIZE) |float_size| {
-                        fields[id] = .{
-                            .name = std.fmt.comptimePrint("{u}{}_{s}_f{}", .{sign, int_size, name, float_size}),
+                        const fieldNameA = std.fmt.comptimePrint("{u}{}_{s}_f{}", .{sign, int_size, name, float_size});
+                        enumFields[id] = .{
+                            .name = fieldNameA,
                             .value = id,
+                        };
+                        const T = @TypeOf(operands);
+                        unionFields[id] = .{
+                            .name = fieldNameA,
+                            .type = T,
+                            .alignment = @alignOf(T),
                         };
                         id += 1;
 
-                        fields[id] = .{
-                            .name = std.fmt.comptimePrint("f{}_{s}_{u}{}", .{float_size, name, sign, int_size}),
+                        const fieldNameB = std.fmt.comptimePrint("{s}_f{}_{u}{}", .{name, float_size, sign, int_size});
+                        enumFields[id] = .{
+                            .name = fieldNameB,
                             .value = id,
+                        };
+                        unionFields[id] = .{
+                            .name = fieldNameB,
+                            .type = T,
+                            .alignment = @alignOf(T),
                         };
                         id += 1;
                     }
@@ -882,27 +1033,57 @@ const OpCode = op: {
 
                 const name = proto[0];
                 // const doc = proto[1];
-                // const operands = proto[2];
+                const operands = proto[2];
 
-                fields[id] = .{
+                enumFields[id] = .{
                     .name = name,
                     .value = id,
+                };
+                const OpT = @TypeOf(operands);
+                unionFields[id] = .{
+                    .name = name,
+                    .type = OpT,
+                    .alignment = @alignOf(OpT),
                 };
                 id += 1;
             }
         }
     }
 
-    break :op @Type(.{ .@"enum" = .{
+    const OpCodeEnum = @Type(.{ .@"enum" = .{
         .tag_type = TagType,
-        .fields = fields[0..id],
+        .fields = enumFields[0..id],
         .decls = &[0]std.builtin.Type.Declaration{},
         .is_exhaustive = true,
     }});
+
+    const OpUnion = @Type(.{ .@"union" = .{
+        .layout = .auto,
+        .tag_type = OpCodeEnum,
+        .fields = unionFields[0..id],
+        .decls = &[0]std.builtin.Type.Declaration{},
+    }});
+
+    break :ops .{
+        .Op = OpUnion,
+        .OpCode = OpCodeEnum,
+    };
 };
+
+pub const OpCode = Ops.OpCode;
+pub const Op = Ops.Op;
 
 test {
     for (std.meta.fieldNames(OpCode)) |name| {
         std.debug.print("`{s}`\n", .{name});
     }
+
+    const fields = std.meta.fieldNames(@TypeOf((Op { .break_v = undefined }).break_v));
+    for (fields) |name| {
+        std.debug.print("`{s}`\n", .{name});
+    }
+
+    const op: Op = .{ .break_v = .{ .block = 0, .src = .{ .register = .r0, .offset = 0 } } };
+
+    std.debug.print("{}\n", .{op});
 }

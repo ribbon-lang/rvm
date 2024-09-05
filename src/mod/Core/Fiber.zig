@@ -114,7 +114,7 @@ pub const Evidence = struct {
 pub const BlockFrame = struct {
     index: Bytecode.BlockIndex,
     ip_offset: Bytecode.InstructionPointerOffset,
-    out: Bytecode.Argument,
+    out: Bytecode.Operand,
 };
 
 pub const CallFrame = struct {

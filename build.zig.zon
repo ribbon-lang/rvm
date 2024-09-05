@@ -15,8 +15,8 @@
             .hash = "12203aee906d0a12ca91875b067ce4e71a2bdd197309eb2a0792ae4aaa37629ac8f2",
         },
         .ZigTypeUtils = .{
-            .url = "https://github.com/noxabellus/zig-type-utils/archive/b840360feabbfaf57747815279fa2a38611538d1.tar.gz",
-            .hash = "12208dc685cffed38ce36ee5269983657ff526d11ce83f9807a34f67645ba58bcb48",
+            .url = "https://github.com/noxabellus/zig-type-utils/archive/e218bf71c2519edfe5528ce3c50abf1f0657f955.tar.gz",
+            .hash = "1220782a3a23a54e1343fe991efbb83c2e0fa8f8509c50e5a55fb5260edb07c598b1",
         },
     },
     .paths = .{
