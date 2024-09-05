@@ -24,12 +24,38 @@ const Fiber = @This();
 
 
 context: *Context,
-data_stack: DataStack,
-call_stack: CallStack,
-block_stack: BlockStack,
-evidence_vector: []Evidence,
+stack: StackSet,
+evidence: []Evidence,
 diagnostic: ?*?Diagnostic,
 
+pub const StackSet = struct {
+    data: DataStack,
+    call: CallStack,
+    block: BlockStack,
+
+    pub fn init(allocator: std.mem.Allocator) !StackSet {
+        const data_stack = try DataStack.init(allocator, DATA_STACK_SIZE);
+        errdefer data_stack.deinit(allocator);
+
+        const call_stack = try CallStack.init(allocator, CALL_STACK_SIZE);
+        errdefer call_stack.deinit(allocator);
+
+        const block_stack = try BlockStack.init(allocator, BLOCK_STACK_SIZE);
+        errdefer block_stack.deinit(allocator);
+
+        return StackSet {
+            .data_stack = data_stack,
+            .call_stack = call_stack,
+            .block_stack = block_stack,
+        };
+    }
+
+    pub fn deinit(self: StackSet, allocator: std.mem.Allocator) void {
+        self.data_stack.deinit(allocator);
+        self.call_stack.deinit(allocator);
+        self.block_stack.deinit(allocator);
+    }
+};
 
 pub const DATA_STACK_SIZE: usize = (1024 * 1024 * 8)
     // take a little bit off to account for the other stacks,
@@ -53,7 +79,6 @@ comptime {
     ) catch unreachable;
 }
 
-pub const EvidenceIndex = u16;
 pub const DataStack = Stack(u8, u24);
 pub const CallStack = Stack(CallFrame, u16);
 pub const BlockStack = Stack(BlockFrame, u16);
@@ -94,9 +119,13 @@ pub const BlockFrame = struct {
 
 pub const CallFrame = struct {
     function: Bytecode.FunctionIndex,
-    evidence: ?EvidenceIndex,
-    stack_base: DataStack.Ptr,
-    stack_origin: DataStack.Ptr,
+    evidence: ?Bytecode.EvidenceIndex,
+    stack: StackRef,
+
+    pub const StackRef = struct {
+        base: DataStack.Ptr,
+        origin: DataStack.Ptr,
+    };
 };
 
 
@@ -104,24 +133,16 @@ pub fn init(context: *Context) !*Fiber {
     const ptr = try context.allocator.create(Fiber);
     errdefer context.allocator.destroy(ptr);
 
-    const data_stack = try DataStack.init(context.allocator, DATA_STACK_SIZE);
-    errdefer data_stack.deinit(context.allocator);
+    const stack = try StackSet.init(context.allocator);
+    errdefer stack.deinit(context.allocator);
 
-    const call_stack = try CallStack.init(context.allocator, CALL_STACK_SIZE);
-    errdefer call_stack.deinit(context.allocator);
-
-    const block_stack = try BlockStack.init(context.allocator, BLOCK_STACK_SIZE);
-    errdefer block_stack.deinit(context.allocator);
-
-    const evidence_stack = try context.allocator.alloc(EVIDENCE_VECTOR_SIZE);
-    errdefer context.allocator.free(evidence_stack);
+    const evidence = try context.allocator.alloc(EVIDENCE_VECTOR_SIZE);
+    errdefer context.allocator.free(evidence);
 
     ptr.* = Fiber {
         .context = context,
-        .data_stack = data_stack,
-        .call_stack = call_stack,
-        .block_stack = block_stack,
-        .evidence_stack = evidence_stack,
+        .stack = stack,
+        .evidence = evidence,
         .trap = null,
     };
 
@@ -129,10 +150,8 @@ pub fn init(context: *Context) !*Fiber {
 }
 
 pub fn deinit(self: *Fiber) void {
-    self.data_stack.deinit(self.context.allocator);
-    self.call_stack.deinit(self.context.allocator);
-    self.block_stack.deinit(self.context.allocator);
-    self.context.allocator.free(self.evidence_stack);
+    self.stack.deinit(self.context.allocator);
+    self.context.allocator.free(self.evidence);
     self.context.allocator.destroy(self);
 }
 
