@@ -140,6 +140,16 @@ pub inline fn makeSliceConst(comptime T: type, ptr: [*]const T, len: usize) []co
     return ptr[0..len];
 }
 
+pub inline fn byteSlice(value: anytype) []const u8 {
+    const info = @typeInfo(@TypeOf(value));
+    const T = info.pointer.child;
+    comptime std.debug.assert(info.pointer.size == .One);
+
+    const size = @sizeOf(T);
+
+    return @as([*]const u8, @ptrCast(value))[0..size];
+}
+
 pub inline fn tryCreateObj(al: std.mem.Allocator, comptime T: type) !*T {
     const obj = try al.create(T);
     obj.* = try T.init(al);
