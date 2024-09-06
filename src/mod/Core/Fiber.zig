@@ -15,10 +15,12 @@
 
 const std = @import("std");
 
+const Bytecode = @import("Bytecode");
+
 const Core = @import("root.zig");
 const Context = Core.Context;
 const Stack = Core.Stack;
-const Bytecode = Core.Bytecode;
+
 
 const Fiber = @This();
 
@@ -27,6 +29,7 @@ context: *Context,
 stack: StackSet,
 evidence: []Evidence,
 diagnostic: ?*?Diagnostic,
+
 
 pub const StackSet = struct {
     data: DataStack,

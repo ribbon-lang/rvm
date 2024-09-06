@@ -5,19 +5,18 @@ const std = @import("std");
 const TextUtils = @import("ZigTextUtils");
 const TypeUtils = @import("ZigTypeUtils");
 
-const Core = @import("root.zig");
-const Decoder = Core.Decoder;
-const Encoder = Core.Encoder;
-const Writer = Core.Writer;
-const Reader = Core.Reader;
-const Fiber = Core.Fiber;
-const ISA = Core.ISA;
+const IO = @import("IO");
+
 
 const Bytecode = @This();
+
 
 blocks: []const Block,
 instructions: []const u8,
 
+
+pub const Op = @import("ISA.zig").Op;
+pub const OpCode = @typeInfo(Op).@"union".tag_type.?;
 
 pub const InstructionPointer = u24;
 pub const InstructionPointerOffset = u16;
@@ -36,6 +35,8 @@ pub const GlobalIndex = u16;
 pub const ConstantIndex = u16;
 pub const EvidenceIndex = u16;
 
+
+pub const MAX_REGISTERS = std.math.maxInt(RegisterIndex);
 
 pub const Register = reg: {
     const TagType = RegisterIndex;
@@ -56,9 +57,6 @@ pub const Register = reg: {
         .is_exhaustive = true,
     }});
 };
-
-
-pub const MAX_REGISTERS = std.math.maxInt(Register);
 
 pub const Operand = packed struct {
     register: Register,
@@ -157,7 +155,7 @@ pub const Function = struct {
         native,
     };
 
-    pub const Native = *const fn (*Fiber) callconv(.C) NativeControl;
+    pub const Native = *const fn (fiber: *anyopaque) callconv(.C) NativeControl;
 
     pub const NativeControl = enum(u8) {
         returning,
@@ -194,35 +192,35 @@ pub const Location = struct {
 };
 
 
-pub fn write(self: *const Bytecode, writer: Writer) !void {
+pub fn write(self: *const Bytecode, writer: IO.Writer) !void {
     try writeBlocks(self.blocks, writer);
     try writeInstructions(self.instructions, writer);
 }
 
-pub fn writeBlocks(blocks: []const Block, writer: Writer) !void {
+pub fn writeBlocks(blocks: []const Block, writer: IO.Writer) !void {
     try writer.write(@as(BlockIndex, @intCast(blocks.len)));
     for (blocks) |block| {
         try block.write(writer);
     }
 }
 
-pub fn writeInstructions(instructions: []const u8, writer: Writer) !void {
+pub fn writeInstructions(instructions: []const u8, writer: IO.Writer) !void {
     try writer.write(@as(InstructionPointer, @intCast(instructions.len)));
 
-    var ip: InstructionPointer = 0;
-    var decoder = Decoder.init(instructions, &ip);
+    var decoder = IO.Decoder.init(instructions);
 
-    while (try decoder.next()) |op| {
+    while (!decoder.isEof()) {
+        const op = try decoder.decode(Op);
         try writer.write(op);
     }
 }
 
-pub fn read(tempAl: std.mem.Allocator, bytecodeAl: std.mem.Allocator, reader: Reader) !Bytecode {
-    const blocks = try readBlocks(tempAl, bytecodeAl, reader);
-    errdefer bytecodeAl.free(blocks);
+pub fn read(reader: IO.Reader, context: anytype) !Bytecode {
+    const blocks = try readBlocks(reader, context);
+    errdefer context.allocator.free(blocks);
 
-    const instructions = try readInstructions(tempAl, bytecodeAl, reader);
-    errdefer bytecodeAl.free(instructions);
+    const instructions = try readInstructions(reader, context);
+    errdefer context.allocator.free(instructions);
 
     return .{
         .blocks = blocks,
@@ -230,31 +228,31 @@ pub fn read(tempAl: std.mem.Allocator, bytecodeAl: std.mem.Allocator, reader: Re
     };
 }
 
-pub fn readBlocks(tempAl: std.mem.Allocator, blockAl: std.mem.Allocator, reader: Reader) ![]const Block {
-    const blockCount: usize = try reader.read(BlockIndex, tempAl);
-    var blocks = try blockAl.alloc(Block, blockCount);
-    errdefer blockAl.free(blocks);
+pub fn readBlocks(reader: IO.Reader, context: anytype) ![]const Block {
+    const blockCount: usize = try reader.read(BlockIndex, context);
+    var blocks = try context.allocator.alloc(Block, blockCount);
+    errdefer context.allocator.free(blocks);
 
     for (0..blockCount) |i| {
-        const block = try reader.read(Block, tempAl);
+        const block = try reader.read(Block, context);
         blocks[i] = block;
     }
 
     return blocks;
 }
 
-pub fn readInstructions(tempAl: std.mem.Allocator, instructionAl: std.mem.Allocator, reader: Reader) ![]const u8 {
-    var encoder = Encoder.init();
-    defer encoder.deinit(instructionAl);
+pub fn readInstructions(reader: IO.Reader, context: anytype) ![]const u8 {
+    var encoder = IO.Encoder {};
+    defer encoder.deinit(context.allocator);
 
-    const instructionBytes: usize = try reader.read(InstructionPointer, tempAl);
+    const instructionBytes: usize = try reader.read(InstructionPointer, context);
 
     while (encoder.len() < instructionBytes) {
-        const op = try reader.read(ISA.Op, tempAl);
-        try encoder.encode(instructionAl, op);
+        const op = try reader.read(Op, context);
+        try encoder.encode(context.allocator, op);
     }
 
-    return try encoder.finalize(instructionAl);
+    return try encoder.finalize(context.allocator);
 }
 
 
@@ -263,18 +261,17 @@ test {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    const arenaAllocator = arena.allocator();
-
-    var encoder = Encoder.init();
+    var encoder = IO.Encoder {};
     defer encoder.deinit(allocator);
 
-    const nop = ISA.Op { .nop = {} };
+
+    const nop = Op { .nop = {} };
     try encoder.encode(allocator, nop);
 
-    const trap = ISA.Op { .trap = {} };
+    const trap = Op { .trap = {} };
     try encoder.encode(allocator, trap);
 
-    const call = ISA.Op { .call = .{
+    const call = Op { .call = .{
         .fun = Bytecode.Operand {
             .register = .r12,
             .offset = 45,
@@ -286,13 +283,13 @@ test {
     }};
     try encoder.encode(allocator, call);
 
-    const break_imm = ISA.Op { .break_imm = .{
+    const break_imm = Op { .break_imm = .{
         .block = 36,
         .imm = 22,
     }};
     try encoder.encode(allocator, break_imm);
 
-    const prompt = ISA.Op { .prompt = .{
+    const prompt = Op { .prompt = .{
         .evidence = 234,
         .ret_reg = .r55,
         .arg_regs = &[_]Bytecode.Register {
@@ -314,28 +311,31 @@ test {
     const nativeEndian = @import("builtin").cpu.arch.endian();
     const nonNativeEndian: std.builtin.Endian = switch (nativeEndian) { .little => .big, .big => .little };
 
-    const writer = Writer.initEndian(instructionsEndian.writer().any(), nonNativeEndian);
+    const writer = IO.Writer.initEndian(instructionsEndian.writer().any(), nonNativeEndian);
 
     try Bytecode.writeInstructions(instructionsNative, writer);
 
     var bufferStream = std.io.fixedBufferStream(instructionsEndian.items);
 
-    const reader = Reader.initEndian(bufferStream.reader().any(), nonNativeEndian);
+    const reader = IO.Reader.initEndian(bufferStream.reader().any(), nonNativeEndian);
+    const readerContext = .{
+        .allocator = allocator,
+        .tempAllocator = arena.allocator(),
+    };
 
-    const instructions = try Bytecode.readInstructions(arenaAllocator, allocator, reader);
+    const instructions = try Bytecode.readInstructions(reader, readerContext);
     defer allocator.free(instructions);
 
     try std.testing.expectEqualSlices(u8, instructionsNative, instructions);
 
-    var ip: Bytecode.InstructionPointer = 0;
-    var decoder = Decoder.init(instructions, &ip);
+    var decoder = IO.Decoder.init(instructions);
 
-    try std.testing.expectEqualDeep(nop, try decoder.next());
-    try std.testing.expectEqualDeep(trap, try decoder.next());
-    try std.testing.expectEqualDeep(call, try decoder.next());
-    try std.testing.expectEqualDeep(break_imm, try decoder.next());
-    try std.testing.expectEqualDeep(prompt, try decoder.next());
-    try std.testing.expectEqualDeep(nop, try decoder.next());
-    try std.testing.expectEqualDeep(trap, try decoder.next());
+    try std.testing.expectEqualDeep(nop, try decoder.decode(Op));
+    try std.testing.expectEqualDeep(trap, try decoder.decode(Op));
+    try std.testing.expectEqualDeep(call, try decoder.decode(Op));
+    try std.testing.expectEqualDeep(break_imm, try decoder.decode(Op));
+    try std.testing.expectEqualDeep(prompt, try decoder.decode(Op));
+    try std.testing.expectEqualDeep(nop, try decoder.decode(Op));
+    try std.testing.expectEqualDeep(trap, try decoder.decode(Op));
     try std.testing.expect(decoder.isEof());
 }

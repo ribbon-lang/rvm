@@ -3,8 +3,7 @@ const std = @import("std");
 const TextUtils = @import("ZigTextUtils");
 const TypeUtils = @import("ZigTypeUtils");
 
-const Core = @import("root.zig");
-const Bytecode = Core.Bytecode;
+const Bytecode = @import("root.zig");
 const Operand = Bytecode.Operand;
 const Register = Bytecode.Register;
 const RegisterLocalOffset = Bytecode.RegisterLocalOffset;
@@ -14,8 +13,6 @@ const ConstantIndex = Bytecode.ConstantIndex;
 const HandlerSetIndex = Bytecode.HandlerSetIndex;
 
 const OpCodeIndex = u8;
-
-pub const ENDIANNESS: std.builtin.Endian = .little;
 
 const InstructionPrototypes = .{
     .basic = .{
@@ -622,7 +619,7 @@ fn intFloat(signVariance: ArithmeticValueInfo.SignVariance) ArithmeticValueInfo 
     return .{ .int_float = signVariance };
 }
 
-const GenOps = ops: {
+pub const Op = ops: {
     const TagType = OpCodeIndex;
     const max = std.math.maxInt(TagType);
 
@@ -884,16 +881,12 @@ const GenOps = ops: {
         .decls = &[0]std.builtin.Type.Declaration{},
     }});
 
-    break :ops .{
-        .Op = OpUnion,
-        .OpCode = OpCodeEnum,
-    };
+    break :ops OpUnion;
 };
 
-pub const OpCode = GenOps.OpCode;
-pub const Op = GenOps.Op;
-
 test {
+
+const OpCode = @typeInfo(Op).@"union".tag_type.?;
     const isa_snapshot =
         "{ trap, nop, call, prompt, return, terminate, when, unless, loop, break_imm, break_if_imm, reiter, reiter_if, block, block_v, with, with_v, if_else, if_else_v, case, case_v, break, break_v, break_if, break_if_v, addr_of_upvalue, addr_of, load, store, load_imm, store_imm, i_add8, i_add16, i_add32, i_add64, f_add32, f_add64, i_sub8, i_sub16, i_sub32, i_sub64, f_sub32, f_sub64, i_mul8, i_mul16, i_mul32, i_mul64, f_mul32, f_mul64, u_div8, s_div8, u_div16, s_div16, u_div32, s_div32, u_div64, s_div64, f_div32, f_div64, u_rem8, s_rem8, u_rem16, s_rem16, u_rem32, s_rem32, u_rem64, s_rem64, f_rem32, f_rem64, s_neg8, s_neg16, s_neg32, s_neg64, f_neg32, f_neg64, i_bitnot8, i_bitnot16, i_bitnot32, i_bitnot64, i_bitand8, i_bitand16, i_bitand32, i_bitand64, i_bitor8, i_bitor16, i_bitor32, i_bitor64, i_bitxor8, i_bitxor16, i_bitxor32, i_bitxor64, i_shiftl8, i_shiftl16, i_shiftl32, i_shiftl64, i_shiftar8, i_shiftar16, i_shiftar32, i_shiftar64, i_shiftlr8, i_shiftlr16, i_shiftlr32, i_shiftlr64, i_eq8, i_eq16, i_eq32, i_eq64, f_eq32, f_eq64, i_ne8, i_ne16, i_ne32, i_ne64, f_ne32, f_ne64, i_lt8, i_lt16, i_lt32, i_lt64, f_lt32, f_lt64, i_le8, i_le16, i_le32, i_le64, f_le32, f_le64, i_gt8, i_gt16, i_gt32, i_gt64, f_gt32, f_gt64, i_ge8, i_ge16, i_ge32, i_ge64, f_ge32, f_ge64, b_and, b_or, b_xor, b_not, u_ext8x16, u_ext8x32, u_ext8x64, u_ext16x32, u_ext16x64, u_ext32x64, s_ext8x16, s_ext8x32, s_ext8x64, s_ext16x32, s_ext16x64, s_ext32x64, i_trunc64x32, i_trunc64x16, i_trunc64x8, i_trunc32x16, i_trunc32x8, i_trunc16x8, f_ext32x64, f_trunc64x32, u8_to_f32, to_f32_u8, u8_to_f64, to_f64_u8, u16_to_f32, to_f32_u16, u16_to_f64, to_f64_u16, u32_to_f32, to_f32_u32, u32_to_f64, to_f64_u32, u64_to_f32, to_f32_u64, u64_to_f64, to_f64_u64, s8_to_f32, to_f32_s8, s8_to_f64, to_f64_s8, s16_to_f32, to_f32_s16, s16_to_f64, to_f64_s16, s32_to_f32, to_f32_s32, s32_to_f64, to_f64_s32, s64_to_f32, to_f32_s64, s64_to_f64, to_f64_s64 }";
 

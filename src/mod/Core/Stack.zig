@@ -1,5 +1,6 @@
 const std = @import("std");
 
+
 pub fn Stack(comptime T: type, comptime A: type) type {
     return struct {
         mem: []T,

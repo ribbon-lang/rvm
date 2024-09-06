@@ -1,13 +1,15 @@
 pub const std = @import("std");
 
-const Core = @import("root.zig");
-const ISA = Core.ISA;
-const Endian = Core.Endian;
+const IO = @import("root.zig");
+const Endian = IO.Endian;
+
 
 const Reader = @This();
 
+
 inner: std.io.AnyReader,
-endian: std.builtin.Endian = ISA.ENDIANNESS,
+endian: std.builtin.Endian = Endian.ENCODING,
+
 
 pub fn init(inner: std.io.AnyReader) Reader {
     return .{
@@ -26,7 +28,7 @@ pub fn readByte(self: Reader, value: u8) !void {
     try self.inner.readByte(value);
 }
 
-pub fn readBytes(self: Reader, values: []u8) !void {
+pub fn readAll(self: Reader, values: []u8) !void {
     try self.inner.readAll(values);
 }
 
@@ -41,66 +43,56 @@ pub fn readRaw(self: Reader, comptime T: type) !T {
     return value;
 }
 
-pub fn read(self: Reader, comptime T: type, allocator: std.mem.Allocator) !T {
+/// `context` must be a struct or a pointer to a struct,
+/// with at least one field: `tempAllocator: std.mem.Allocator`.
+///
+/// `context` is passed to the `read` method of custom types
+pub fn read(self: Reader, comptime T: type, context: anytype) !T {
     if (T == void) return {};
 
     if (comptime std.meta.hasFn(T, "read")) {
-        return T.read(self, allocator);
+        return T.read(self, context);
     }
 
     if (comptime Endian.IntType(T)) |I| {
         const int = try self.inner.readInt(I, self.endian);
         return Endian.bitCastFrom(T, int);
     } else {
-        return self.readStructure(T, allocator);
+        return self.readStructure(T, context);
     }
 }
 
-fn readStructure(self: Reader, comptime T: type, allocator: std.mem.Allocator) !T {
+fn readStructure(self: Reader, comptime T: type, context: anytype) !T {
     switch (@typeInfo(T)) {
-        // handled by read:
-        // .void
-
-        // handled by Endian.IntType:
-        // .int => T,
-        // .vector => std.meta.Int(.unsigned, @sizeOf(T) * 8),
-
-        // .float => |info| std.meta.Int(.unsigned, info.bits),
-
-        // .@"struct" => |info|
-        //     if (info.backing_integer) |i| i
-        //     else null,
-
-        // .@"enum" => |info| IntType(info.tag_type),
-
         .@"struct" => |info| {
             var value: T = undefined;
 
             inline for (info.fields) |field| {
-                @field(value, field.name) = try self.read(field.type, allocator);
+                @field(value, field.name) = try self.read(field.type, context);
             }
 
             return value;
         },
 
         .@"union" => |info| if (info.tag_type) |TT| {
-            const tag = try self.read(TT, allocator);
+            const tag = try self.read(TT, context);
 
             inline for (info.fields) |field| {
                 if (tag == @field(TT, field.name)) {
-                    return @unionInit(T, field.name, try self.read(field.type, allocator));
+                    return @unionInit(T, field.name, try self.read(field.type, context));
                 }
             }
-        } else
+        } else {
             @compileError(std.fmt.comptimePrint("cannot read union `{s}` without tag type", .{
                 @typeName(T),
-            })),
+            }));
+        },
 
         .array => |info| {
             var value: T = undefined;
 
             for (0..info.len) |i| {
-                value[i] = try self.read(info.child, allocator);
+                value[i] = try self.read(info.child, context);
             }
 
             return value;
@@ -108,10 +100,10 @@ fn readStructure(self: Reader, comptime T: type, allocator: std.mem.Allocator) !
 
         .pointer => |info| switch (info.size) {
             .One => {
-                const value = try allocator.create(info.child);
-                errdefer allocator.free(value);
+                const value = try context.tempAllocator.create(info.child);
+                errdefer context.tempAllocator.free(value);
 
-                value.* = try self.read(info.child, allocator);
+                value.* = try self.read(info.child, context);
 
                 return value;
             },
@@ -119,33 +111,34 @@ fn readStructure(self: Reader, comptime T: type, allocator: std.mem.Allocator) !
                 const sentinel = @as(*const info.child, @ptrCast(sPtr)).*;
 
                 var buffer = std.ArrayListUnmanaged(info.child) {};
-                defer buffer.deinit(allocator);
+                defer buffer.deinit(context.tempAllocator);
 
                 while (true) {
-                    const value = try self.read(info.child, allocator);
+                    const value = try self.read(info.child, context.tempAllocator);
                     if (value == sentinel) break;
                     try buffer.append(value);
                 }
 
-                return buffer.toOwnedSliceSentinel(allocator, sentinel);
-            } else
+                return buffer.toOwnedSliceSentinel(context.tempAllocator, sentinel);
+            } else {
                 @compileError(std.fmt.comptimePrint("cannot read pointer `{s}` with kind Many, requires sentinel", .{
                     @typeName(T),
-                })),
+                }));
+            },
             .Slice => {
-                const len = try self.read(usize, allocator);
+                const len = try self.read(usize, context);
 
                 const sentinel = if (info.sentinel) |sPtr| @as(*const info.child, @ptrCast(sPtr)).* else null;
 
-                var buffer = try allocator.alloc(info.child, if (sentinel != null) len + 1 else len);
-                errdefer allocator.free(buffer);
+                var buffer = try context.tempAllocator.alloc(info.child, if (sentinel != null) len + 1 else len);
+                errdefer context.tempAllocator.free(buffer);
 
                 for (0..len) |i| {
-                    buffer[i] = try self.read(info.child, allocator);
+                    buffer[i] = try self.read(info.child, context);
                 }
 
                 if (sentinel) |s| {
-                    if (try self.read(info.child, allocator) != s) {
+                    if (try self.read(info.child, context) != s) {
                         return error.BadEncoding;
                     }
 
@@ -154,18 +147,28 @@ fn readStructure(self: Reader, comptime T: type, allocator: std.mem.Allocator) !
 
                 return buffer.ptr[0..len];
             },
-            else =>
+            else => {
                 @compileError(std.fmt.comptimePrint("cannot read pointer `{s}` with kind {s}", .{
                     @typeName(T),
                     info.size,
-                }))
+                }));
+            }
         },
 
-        else =>
+        .optional => |info| {
+            if (try self.read(bool, context)) {
+                return try self.read(info.child, context);
+            } else {
+                return null;
+            }
+        },
+
+        else => {
             @compileError(std.fmt.comptimePrint("cannot read type `{s}` with type info: {}", .{
                 @typeName(T),
                 @typeInfo(T),
-            }))
+            }));
+        }
     }
 
     unreachable;

@@ -1,13 +1,15 @@
 pub const std = @import("std");
 
-const Core = @import("root.zig");
-const ISA = Core.ISA;
-const Endian = Core.Endian;
+const IO = @import("./root.zig");
+const Endian = IO.Endian;
+
 
 const Writer = @This();
 
+
 inner: std.io.AnyWriter,
-endian: std.builtin.Endian = ISA.ENDIANNESS,
+endian: std.builtin.Endian = Endian.ENCODING,
+
 
 pub fn init(inner: std.io.AnyWriter) Writer {
     return .{
@@ -26,7 +28,7 @@ pub fn writeByte(self: Writer, value: u8) !void {
     try self.inner.writeByte(value);
 }
 
-pub fn writeBytes(self: Writer, values: []u8) !void {
+pub fn writeAll(self: Writer, values: []u8) !void {
     try self.inner.writeAll(values);
 }
 
@@ -45,7 +47,7 @@ pub fn write(self: Writer, value: anytype) !void {
     if (T == void) return;
 
     if (comptime std.meta.hasFn(T, "write")) {
-        return T.write(self, value);
+        return T.write(value, self);
     }
 
     if (comptime Endian.IntType(T)) |I| {
@@ -57,22 +59,8 @@ pub fn write(self: Writer, value: anytype) !void {
 
 fn writeStructure(self: Writer, value: anytype) !void {
     const T = @TypeOf(value);
+
     switch (@typeInfo(T)) {
-        // handled by write:
-        // .void
-
-        // handled by Endian.IntType:
-        // .int => T,
-        // .vector => std.meta.Int(.unsigned, @sizeOf(T) * 8),
-
-        // .float => |info| std.meta.Int(.unsigned, info.bits),
-
-        // .@"struct" => |info|
-        //     if (info.backing_integer) |i| i
-        //     else null,
-
-        // .@"enum" => |info| IntType(info.tag_type),
-
         .@"struct" => |info| {
             inline for (info.fields) |field| {
                 const fieldValue = @field(value, field.name);
@@ -96,10 +84,11 @@ fn writeStructure(self: Writer, value: anytype) !void {
             }
 
             unreachable;
-        } else
+        } else {
             @compileError(std.fmt.comptimePrint("cannot read union `{s}` without tag type", .{
                 @typeName(T),
-            })),
+            }));
+        },
 
         .array => |info| {
             for (0..info.len) |i| {
@@ -141,18 +130,27 @@ fn writeStructure(self: Writer, value: anytype) !void {
 
                 return;
             },
-            else =>
+            else => {
                 @compileError(std.fmt.comptimePrint("cannot write pointer `{s}` with kind {s}", .{
                     @typeName(T),
                     info.size,
-                }))
+                }));
+            }
         },
 
-        else =>
+        .optional => if (value) |v| {
+            try self.write(true);
+            try self.write(v);
+        } else {
+            try self.write(false);
+        },
+
+        else => {
             @compileError(std.fmt.comptimePrint("cannot write type `{s}` with type info: {}", .{
                 @typeName(T),
                 @typeInfo(T),
-            }))
+            }));
+        }
     }
 
     unreachable;
