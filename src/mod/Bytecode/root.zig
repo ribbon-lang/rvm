@@ -133,7 +133,7 @@ pub const Type = union(enum) {
 
 pub const LayoutTable = struct {
     type: TypeIndex,
-    local_types: []Type,
+    local_types: []TypeIndex,
     local_layouts: []Layout,
     local_offsets: []RegisterBaseOffset,
     size: LayoutTableSize,
@@ -193,15 +193,13 @@ pub const Location = struct {
 
 
 pub fn write(self: *const Bytecode, writer: IO.Writer) !void {
-    try writeBlocks(self.blocks, writer);
-    try writeInstructions(self.instructions, writer);
-}
+    try writer.write(@as(BlockIndex, @intCast(self.blocks.len)));
 
-pub fn writeBlocks(blocks: []const Block, writer: IO.Writer) !void {
-    try writer.write(@as(BlockIndex, @intCast(blocks.len)));
-    for (blocks) |block| {
+    for (self.blocks) |block| {
         try block.write(writer);
     }
+
+    try writeInstructions(self.instructions, writer);
 }
 
 pub fn writeInstructions(instructions: []const u8, writer: IO.Writer) !void {
@@ -216,8 +214,14 @@ pub fn writeInstructions(instructions: []const u8, writer: IO.Writer) !void {
 }
 
 pub fn read(reader: IO.Reader, context: anytype) !Bytecode {
-    const blocks = try readBlocks(reader, context);
+    const blockCount: usize = try reader.read(BlockIndex, context);
+    var blocks = try context.allocator.alloc(Block, blockCount);
     errdefer context.allocator.free(blocks);
+
+    for (0..blockCount) |i| {
+        const block = try reader.read(Block, context);
+        blocks[i] = block;
+    }
 
     const instructions = try readInstructions(reader, context);
     errdefer context.allocator.free(instructions);
@@ -228,31 +232,29 @@ pub fn read(reader: IO.Reader, context: anytype) !Bytecode {
     };
 }
 
-pub fn readBlocks(reader: IO.Reader, context: anytype) ![]const Block {
-    const blockCount: usize = try reader.read(BlockIndex, context);
-    var blocks = try context.allocator.alloc(Block, blockCount);
-    errdefer context.allocator.free(blocks);
+pub fn readInstructions(reader: IO.Reader, context: anytype) ![]const u8 {
+    if (comptime @hasField(@TypeOf(context), "tempAllocator")) {
+        return readInstructionsImpl(reader, context.allocator, .{ .allocator = context.tempAllocator });
+    } else {
+        var arena = std.heap.ArenaAllocator.init(context.allocator);
+        defer arena.deinit();
 
-    for (0..blockCount) |i| {
-        const block = try reader.read(Block, context);
-        blocks[i] = block;
+        return readInstructionsImpl(reader, context.allocator, .{ .allocator = arena.allocator() });
     }
-
-    return blocks;
 }
 
-pub fn readInstructions(reader: IO.Reader, context: anytype) ![]const u8 {
+pub fn readInstructionsImpl(reader: IO.Reader, encoderAllocator: std.mem.Allocator, context: anytype) ![]const u8 {
     var encoder = IO.Encoder {};
-    defer encoder.deinit(context.allocator);
+    defer encoder.deinit(encoderAllocator);
 
     const instructionBytes: usize = try reader.read(InstructionPointer, context);
 
     while (encoder.len() < instructionBytes) {
         const op = try reader.read(Op, context);
-        try encoder.encode(context.allocator, op);
+        try encoder.encode(encoderAllocator, op);
     }
 
-    return try encoder.finalize(context.allocator);
+    return try encoder.finalize(encoderAllocator);
 }
 
 

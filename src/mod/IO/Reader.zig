@@ -44,7 +44,7 @@ pub fn readRaw(self: Reader, comptime T: type) !T {
 }
 
 /// `context` must be a struct or a pointer to a struct,
-/// with at least one field: `tempAllocator: std.mem.Allocator`.
+/// with at least one field: `allocator: std.mem.Allocator`.
 ///
 /// `context` is passed to the `read` method of custom types
 pub fn read(self: Reader, comptime T: type, context: anytype) !T {
@@ -83,9 +83,7 @@ fn readStructure(self: Reader, comptime T: type, context: anytype) !T {
                 }
             }
         } else {
-            @compileError(std.fmt.comptimePrint("cannot read union `{s}` without tag type", .{
-                @typeName(T),
-            }));
+            @compileError("cannot read union `" ++ @typeName(T) ++ "` without tag type");
         },
 
         .array => |info| {
@@ -100,8 +98,8 @@ fn readStructure(self: Reader, comptime T: type, context: anytype) !T {
 
         .pointer => |info| switch (info.size) {
             .One => {
-                const value = try context.tempAllocator.create(info.child);
-                errdefer context.tempAllocator.free(value);
+                const value = try context.allocator.create(info.child);
+                errdefer context.allocator.free(value);
 
                 value.* = try self.read(info.child, context);
 
@@ -111,27 +109,25 @@ fn readStructure(self: Reader, comptime T: type, context: anytype) !T {
                 const sentinel = @as(*const info.child, @ptrCast(sPtr)).*;
 
                 var buffer = std.ArrayListUnmanaged(info.child) {};
-                defer buffer.deinit(context.tempAllocator);
+                defer buffer.deinit(context.allocator);
 
                 while (true) {
-                    const value = try self.read(info.child, context.tempAllocator);
+                    const value = try self.read(info.child, context.allocator);
                     if (value == sentinel) break;
                     try buffer.append(value);
                 }
 
-                return buffer.toOwnedSliceSentinel(context.tempAllocator, sentinel);
+                return buffer.toOwnedSliceSentinel(context.allocator, sentinel);
             } else {
-                @compileError(std.fmt.comptimePrint("cannot read pointer `{s}` with kind Many, requires sentinel", .{
-                    @typeName(T),
-                }));
+                @compileError("cannot read pointer `" ++ @typeName(T) ++ "` with kind Many, requires sentinel");
             },
             .Slice => {
                 const len = try self.read(usize, context);
 
                 const sentinel = if (info.sentinel) |sPtr| @as(*const info.child, @ptrCast(sPtr)).* else null;
 
-                var buffer = try context.tempAllocator.alloc(info.child, if (sentinel != null) len + 1 else len);
-                errdefer context.tempAllocator.free(buffer);
+                var buffer = try context.allocator.alloc(info.child, if (sentinel != null) len + 1 else len);
+                errdefer context.allocator.free(buffer);
 
                 for (0..len) |i| {
                     buffer[i] = try self.read(info.child, context);
