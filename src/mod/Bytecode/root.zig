@@ -278,23 +278,23 @@ test {
             .register = .r12,
             .offset = 45,
         },
-        .ret_reg = .r33,
-        .arg_regs = &[_]Bytecode.Register {
+        .ret = .r33,
+        .args = &[_]Bytecode.Register {
             .r1, .r2, .r3, .r44
         },
     }};
     try encoder.encode(allocator, call);
 
-    const break_imm = Op { .break_imm = .{
+    const br_imm = Op { .br_imm = .{
         .block = 36,
         .imm = 22,
     }};
-    try encoder.encode(allocator, break_imm);
+    try encoder.encode(allocator, br_imm);
 
     const prompt = Op { .prompt = .{
-        .evidence = 234,
-        .ret_reg = .r55,
-        .arg_regs = &[_]Bytecode.Register {
+        .ev = 234,
+        .ret = .r55,
+        .args = &[_]Bytecode.Register {
             .r4, .r6, .r9, .r133
         },
     }};
@@ -335,7 +335,7 @@ test {
     try std.testing.expectEqualDeep(nop, try decoder.decode(Op));
     try std.testing.expectEqualDeep(trap, try decoder.decode(Op));
     try std.testing.expectEqualDeep(call, try decoder.decode(Op));
-    try std.testing.expectEqualDeep(break_imm, try decoder.decode(Op));
+    try std.testing.expectEqualDeep(br_imm, try decoder.decode(Op));
     try std.testing.expectEqualDeep(prompt, try decoder.decode(Op));
     try std.testing.expectEqualDeep(nop, try decoder.decode(Op));
     try std.testing.expectEqualDeep(trap, try decoder.decode(Op));

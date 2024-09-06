@@ -30,27 +30,19 @@ const InstructionPrototypes = .{
     .functional = .{
         .{ "call"
          , \\call the function at the address stored in `fun`,
-           \\using the registers `arg_regs` as arguments,
-           \\and placing the result in `ret_reg`
-         , struct {
-            fun: Operand,
-            ret_reg: Register,
-            arg_regs: []const Register,
-           }
+           \\using the registers `args` as arguments,
+           \\and placing the result in `ret`
+         , Function
         },
 
         .{ "prompt"
-         , \\prompt the given `evidence`,
-           \\using the registers `arg_regs` as arguments,
-           \\and placing the result in `ret_reg`
-         , struct {
-            evidence: EvidenceIndex,
-            ret_reg: Register,
-            arg_regs: []const Register,
-           }
+         , \\prompt the evidence given by `ev`,
+           \\using the registers `args` as arguments,
+           \\and placing the result in `ret`
+         , Prompt
         },
 
-        .{ "return"
+        .{ "ret"
          , \\return control from the current function
          , void
         },
@@ -64,533 +56,429 @@ const InstructionPrototypes = .{
     .control_flow = .{
         .{ "when"
          , \\enter the designated `block`,
-           \\if the condition in `cond` is non-zero
-         , struct {
-            block: BlockIndex,
-            cond: Operand,
-           }
+           \\if the condition in `x` is non-zero
+         , BlockOperand
         },
         .{ "unless"
          , \\enter the designated `block`,
-           \\if the condition in `cond` is zero
-         , struct {
-            block: BlockIndex,
-            cond: Operand,
-           }
+           \\if the condition in `x` is zero
+         , BlockOperand
         },
         .{ "loop"
          , \\enter the designated `block`, looping
-         , struct {
-            block: BlockIndex
-           }
+         , Block
         },
-        .{ "break_imm"
+        .{ "br_imm"
          , \\exit the designated block,
            \\copy the immediate value `imm`,
            \\and place the result in the block's yield register
-         , struct {
-            block: BlockIndex,
-            imm: ConstantIndex,
-           }
+         , BlockImm
         },
-        .{ "break_if_imm"
+        .{ "br_if_imm"
          , \\exit the designated block,
            \\if the condition in `cond` is non-zero
            \\copy the immediate value `imm`,
            \\and place the result in the block's yield register
-         , struct {
-            block: BlockIndex,
-            imm: ConstantIndex,
-            cond: Operand,
-           }
+         , BlockImmOperand
         },
         .{ "reiter"
-         , \\restart the designated loop block
-         , struct {
-            block: BlockIndex,
-           }
+         , \\restart the designated loop `block`
+         , Block
         },
         .{ "reiter_if"
          , \\restart the designated loop block,
-           \\if the condition in `cond` is non-zero
-         , struct {
-            block: BlockIndex,
-            cond: Operand,
-           }
+           \\if the condition in `x` is non-zero
+         , BlockOperand
         },
     },
 
     .control_flow_v = .{
         .{ "block"
          , \\enter the designated `block`
-         , struct {
-            block: BlockIndex
-           }
-         , \\place the result of the block in `yield`
-         , struct {
-            yield: Operand,
-           }
+         , Block
+         , \\place the result of the block in `y`
+         , YieldOperand
         },
         .{ "with"
          , \\enter the designated `block`,
            \\using the `handler_set` to handle effects
-         , struct {
-            handler_set: HandlerSetIndex,
-            block: BlockIndex,
-           }
-         , \\place the result of the block in `yield`
-         , struct {
-            yield: Operand,
-           }
+         , With
+         , \\place the result of the block in `y`
+         , YieldOperand
         },
         .{ "if_else"
          , \\enter the `then_block`,
-           \\if the condition in `cond` is non-zero
+           \\if the condition in `x` is non-zero
            \\otherwise enter the `else_block`
-         , struct {
-            then_block: BlockIndex,
-            else_block: BlockIndex,
-            cond: Operand,
-           }
-         , \\place the result of the block in `yield`,
-         , struct {
-            yield: Operand,
-           }
+         , Branch
+         , \\place the result of the block in `y`,
+         , YieldOperand
         },
         .{ "case"
          , \\enter the indexed `block`,
-           \\based on the value in `case_reg`
-         , struct {
-            case_reg: Register,
-            blocks: []const BlockIndex,
-           }
-         , \\place the result of the block in `yield`
-         , struct {
-            yield: Operand,
-           }
+           \\based on the value in `case`
+         , Case
+         , \\place the result of the block in `y`
+         , YieldOperand
         },
-        .{ "break"
+        .{ "br"
          , \\exit the designated `block`
-         , struct {
-            block: BlockIndex
-           }
-         , \\copy the value in `src`,
+         , Block
+         , \\copy the value in `y`,
            \\placing the result in the block's yield register
-         , struct {
-            src: Operand
-           }
+         , YieldOperand
         },
-        .{ "break_if"
+        .{ "br_if"
          , \\exit the designated `block`,
-           \\if the condition in `cond` is non-zero
-         , struct {
-            block: BlockIndex,
-            cond: Operand,
-           }
-         , \\copy the value in `src`,
+           \\if the condition in `x` is non-zero
+         , BlockOperand
+         , \\copy the value in `y`,
            \\placing the result in the block's yield register
-         , struct {
-            src: Operand
-           }
+         , YieldOperand
         },
     },
 
     .memory = .{
         .{ "addr_of_upvalue"
-         , \\take the address of the upvalue register `src`,
-           \\and store the result in `dst`
-         , struct {
-            src: Operand,
-            dst: Operand,
-           }
+         , \\take the address of the upvalue register `a`,
+           \\and store the result in `b`
+         , TwoOperand
         },
         .{ "addr_of"
-         , \\take the address of `src`,
-           \\offset it by `offset`,
-           \\and store the result in `dst`
-         , struct {
-            offset: RegisterLocalOffset,
-            src: Operand,
-            dst: Operand,
-           }
+         , \\take the address of `a`,
+           \\and store the result in `b`
+         , TwoOperand
         },
         .{ "load"
-         , \\copy the value from the address stored in `addr`,
-           \\and store the result in `dst`
-         , struct {
-            addr: Operand,
-            dst: Operand,
-           }
+         , \\copy the value from the address stored in `a`,
+           \\and store the result in `b`
+         , TwoOperand
         },
 
         .{ "store"
-         , \\copy the value from `src`
-           \\and store the result at the address stored in `addr`
-         , struct {
-            src: Operand,
-            addr: Operand,
-           }
+         , \\copy the value from `a`
+           \\and store the result at the address stored in `b`
+         , TwoOperand
         },
 
         .{ "load_imm"
          , \\copy the immediate value `imm`
-           \\and store the result in `dst`
-         , struct {
-            imm: ConstantIndex,
-            dst: Operand,
-           }
+           \\and store the result in `x`
+         , ImmOperand
         },
 
         .{ "store_imm"
          , \\copy the immediate value `imm`
-           \\and store the result at the address stored in `addr`
-         , struct {
-            imm: ConstantIndex,
-            addr: Operand,
-           }
+           \\and store the result at the address stored in `x`
+         , ImmOperand
         },
     },
 
     .arithmetic = .{
         .{ "add"
-         , \\load two values from `lhs` and `rhs`,
+         , \\load two values from `a` and `b`,
            \\perform addition,
-           \\and store the result in `dst`
+           \\and store the result in `c`
          , intFloat(.same)
-         , struct {
-            lhs: Operand,
-            rhs: Operand,
-            dst: Operand,
-           }
+         , ThreeOperand
         },
 
         .{ "sub"
-         , \\load two values from `lhs` and `rhs`,
+         , \\load two values from `a` and `b`,
            \\perform subtraction,
-           \\and store the result in `dst`
+           \\and store the result in `c`
          , intFloat(.same)
-         , struct {
-            lhs: Operand,
-            rhs: Operand,
-            dst: Operand,
-           }
+         , ThreeOperand
         },
 
         .{ "mul"
-         , \\load two values from `lhs` and `rhs`,
+         , \\load two values from `a` and `b`,
            \\perform division,
-           \\and store the result in `dst`
+           \\and store the result in `c`
          , intFloat(.same)
-         , struct {
-            lhs: Operand,
-            rhs: Operand,
-            dst: Operand,
-           }
+         , ThreeOperand
         },
 
         .{ "div"
-         , \\load two values from `lhs` and `rhs`,
+         , \\load two values from `a` and `b`,
            \\perform division,
-           \\and store the result in `dst`
+           \\and store the result in `c`
          , intFloat(.different)
-         , struct {
-            lhs: Operand,
-            rhs: Operand,
-            dst: Operand,
-           }
+         , ThreeOperand
         },
 
         .{ "rem"
-         , \\load two values from `lhs` and `rhs`,
+         , \\load two values from `a` and `b`,
            \\perform remainder division,
-           \\and store the result in `dst`
+           \\and store the result in `c`
          , intFloat(.different)
-         , struct {
-            lhs: Operand,
-            rhs: Operand,
-            dst: Operand,
-           }
+         , ThreeOperand
         },
 
         .{ "neg"
-         , \\load a value from `val`,
+         , \\load a value from `a`,
            \\perform negative,
-           \\and store the result in `dst`
+           \\and store the result in `b`
          , intFloat(.only_signed)
-         , struct {
-            val: Operand,
-            dst: Operand,
-           }
+         , TwoOperand
         },
 
         .{ "bitnot"
-         , \\load a value from `val`,
+         , \\load a value from `a`,
            \\perform bitwise not,
-           \\and store the result in `dst`
+           \\and store the result in `b`
          , intOnly(.same)
-         , struct {
-            val: Operand,
-            dst: Operand,
-           }
+         , TwoOperand
         },
 
         .{ "bitand"
-         , \\load two values from `lhs` and `rhs`,
+         , \\load two values from `a` and `b`,
            \\perform bitwise and,
-           \\and store the result in `dst`
+           \\and store the result in `c`
          , intOnly(.same)
-         , struct {
-            lhs: Operand,
-            rhs: Operand,
-            dst: Operand,
-           }
+         , ThreeOperand
         },
 
         .{ "bitor"
-         , \\load two values from `lhs` and `rhs`,
+         , \\load two values from `a` and `b`,
            \\perform bitwise or,
-           \\and store the result in `dst`
+           \\and store the result in `c`
          , intOnly(.same)
-         , struct {
-            lhs: Operand,
-            rhs: Operand,
-            dst: Operand,
-           }
+         , ThreeOperand
         },
 
         .{ "bitxor"
-         , \\load two values from `lhs` and `rhs`,
+         , \\load two values from `a` and `b`,
            \\perform bitwise xor,
-           \\and store the result in `dst`
+           \\and store the result in `c`
          , intOnly(.same)
-         , struct {
-            lhs: Operand,
-            rhs: Operand,
-            dst: Operand,
-           }
+         , ThreeOperand
         },
 
         .{ "shiftl"
-         , \\load two values from `lhs` and `rhs`,
+         , \\load two values from `a` and `b`,
            \\perform bitwise left shift,
-           \\and store the result in `dst`
+           \\and store the result in `c`
          , intOnly(.same)
-         , struct {
-            lhs: Operand,
-            rhs: Operand,
-            dst: Operand,
-           }
+         , ThreeOperand
         },
 
         .{ "shiftar"
-         , \\load two values from `lhs` and `rhs`,
+         , \\load two values from `a` and `b`,
            \\perform bitwise arithmetic right shift,
-           \\and store the result in `dst`
+           \\and store the result in `c`
          , intOnly(.same)
-         , struct {
-            lhs: Operand,
-            rhs: Operand,
-            dst: Operand,
-           }
+         , ThreeOperand
         },
 
         .{ "shiftlr"
-         , \\load two values from `lhs` and `rhs`,
+         , \\load two values from `a` and `b`,
            \\perform bitwise logical right shift,
-           \\and store the result in `dst`
+           \\and store the result in `c`
          , intOnly(.same)
-         , struct {
-            lhs: Operand,
-            rhs: Operand,
-            dst: Operand,
-           }
+         , ThreeOperand
         },
 
         .{ "eq"
-         , \\load two values from `lhs` and `rhs`,
+         , \\load two values from `a` and `b`,
            \\perform equality comparison,
-           \\and store the result in `dst`
+           \\and store the result in `c`
          , intFloat(.same)
-         , struct {
-            lhs: Operand,
-            rhs: Operand,
-            dst: Operand,
-           }
+         , ThreeOperand
         },
 
         .{ "ne"
-         , \\load two values from `lhs` and `rhs`,
+         , \\load two values from `a` and `b`,
            \\perform inequality comparison,
-           \\and store the result in `dst`
+           \\and store the result in `c`
          , intFloat(.same)
-         , struct {
-            lhs: Operand,
-            rhs: Operand,
-            dst: Operand,
-           }
+         , ThreeOperand
         },
 
         .{ "lt"
-         , \\load two values from `lhs` and `rhs`,
+         , \\load two values from `a` and `b`,
            \\perform less than comparison,
-           \\and store the result in `dst`
+           \\and store the result in `c`
          , intFloat(.same)
-         , struct {
-            lhs: Operand,
-            rhs: Operand,
-            dst: Operand,
-           }
+         , ThreeOperand
         },
 
         .{ "le"
-         , \\load two values from `lhs` and `rhs`,
+         , \\load two values from `a` and `b`,
            \\perform less than or equal comparison,
-           \\and store the result in `dst`
+           \\and store the result in `c`
          , intFloat(.same)
-         , struct {
-            lhs: Operand,
-            rhs: Operand,
-            dst: Operand,
-           }
+         , ThreeOperand
         },
 
         .{ "gt"
-         , \\load two values from `lhs` and `rhs`,
+         , \\load two values from `a` and `b`,
            \\perform greater than comparison,
-           \\and store the result in `dst`
+           \\and store the result in `c`
          , intFloat(.same)
-         , struct {
-            lhs: Operand,
-            rhs: Operand,
-            dst: Operand,
-           }
+         , ThreeOperand
         },
 
         .{ "ge"
-         , \\load two values from `lhs` and `rhs`,
+         , \\load two values from `a` and `b`,
            \\perform greater than or equal comparison,
-           \\and store the result in `dst`
+           \\and store the result in `c`
          , intFloat(.same)
-         , struct {
-            lhs: Operand,
-            rhs: Operand,
-            dst: Operand,
-           }
+         , ThreeOperand
         },
     },
 
     .boolean = .{
         .{ "b_and"
-         , \\load two values from `lhs` and `rhs`,
+         , \\load two values from `a` and `b`,
            \\perform logical and,
-           \\and store the result in `dst`
-         , struct {
-            lhs: Operand,
-            rhs: Operand,
-            dst: Operand,
-           }
+           \\and store the result in `c`
+         , ThreeOperand
         },
 
         .{ "b_or"
-         , \\load two values from `lhs` and `rhs`,
+         , \\load two values from `a` and `b`,
            \\perform logical or,
-           \\and store the result in `dst`
-         , struct {
-            lhs: Operand,
-            rhs: Operand,
-            dst: Operand,
-           }
+           \\and store the result in `c`
+         , ThreeOperand
         },
 
         .{ "b_xor"
-         , \\load two values from `lhs` and `rhs`,
+         , \\load two values from `a` and `b`,
            \\perform logical xor,
-           \\and store the result in `dst`
-         , struct {
-            lhs: Operand,
-            rhs: Operand,
-            dst: Operand,
-           }
+           \\and store the result in `c`
+         , ThreeOperand
         },
 
         .{ "b_not"
-         , \\load a value from `val`,
+         , \\load a value from `a`,
            \\perform logical not,
-           \\and store the result in `dst`
-         , struct {
-            val: Operand,
-            dst: Operand,
-           }
+           \\and store the result in `b`
+         , TwoOperand
         },
     },
 
     .size_cast_int = .{
         .{ "u_ext"
-         , \\load a value from `src`,
+         , \\load a value from a
            \\perform zero extension,
-           \\and store the result in `dst`
+           \\and store the result in `b`
          , .up
-         , struct {
-            src: Operand,
-            dst: Operand,
-           }
+         , TwoOperand
         },
         .{ "s_ext"
-         , \\load a value from `src`,
+         , \\load a value from a
            \\perform sign extension,
-           \\and store the result in `dst`
+           \\and store the result in `b`
          , .up
-         , struct {
-            src: Operand,
-            dst: Operand,
-           }
+         , TwoOperand
         },
         .{ "i_trunc"
-         , \\load a value from `src`,
+         , \\load a value from a
            \\perform sign extension,
-           \\and store the result in `dst`
+           \\and store the result in `b`
          , .down
-         , struct {
-            src: Operand,
-            dst: Operand,
-           }
+         , TwoOperand
         },
     },
 
     .size_cast_float = .{
         .{ "f_ext"
-         , \\load a value from `src`,
+         , \\load a value from a
            \\perform floating point extension,
-           \\and store the result in `dst`
+           \\and store the result in `b`
          , .up
-         , struct {
-            src: Operand,
-            dst: Operand,
-           }
+         , TwoOperand
         },
         .{ "f_trunc"
-         , \\load a value from `src`,
+         , \\load a value from a
            \\perform floating point truncation,
-           \\and store the result in `dst`
+           \\and store the result in `b`
          , .down
-         , struct {
-            src: Operand,
-            dst: Operand,
-           }
+         , TwoOperand
         },
     },
 
     .int_float_cast = .{
         .{ "to"
-         , \\load a value from `src`,
+         , \\load a value from a
            \\perform int/float conversion,
-           \\and store the result in `dst`
-         , struct {
-            src: Operand,
-            dst: Operand,
-           }
+           \\and store the result in `b`
+         , TwoOperand
         },
     },
+};
+
+pub const OneOperand = struct {
+    x: Operand,
+};
+
+pub const YieldOperand = struct {
+    y: Operand,
+};
+
+pub const TwoOperand = struct {
+    a: Operand,
+    b: Operand,
+};
+
+pub const ThreeOperand = struct {
+    a: Operand,
+    b: Operand,
+    c: Operand,
+};
+
+pub const Block = struct {
+    block: BlockIndex,
+};
+
+pub const BlockOperand = struct {
+    block: BlockIndex,
+    x: Operand,
+};
+
+pub const BlockImm = struct {
+    block: BlockIndex,
+    imm: ConstantIndex,
+};
+
+pub const BlockImmOperand = struct {
+    block: BlockIndex,
+    imm: ConstantIndex,
+    cond: Operand,
+};
+
+pub const ImmOperand = struct {
+    imm: Operand,
+    x: Operand,
+};
+
+pub const Function = struct {
+    fun: Operand,
+    ret: Register,
+    args: []const Register,
+};
+
+pub const Prompt = struct {
+    ev: EvidenceIndex,
+    ret: Register,
+    args: []const Register,
+};
+
+pub const With = struct {
+    handler_set: HandlerSetIndex,
+    block: BlockIndex,
+};
+
+pub const Branch = struct {
+    then_block: BlockIndex,
+    else_block: BlockIndex,
+    x: Operand,
+};
+
+pub const Case = struct {
+    case: Operand,
+    blocks: []const BlockIndex,
 };
 
 
@@ -831,7 +719,7 @@ pub const Op = ops: {
                         };
                         id += 1;
 
-                        const fieldNameB = std.fmt.comptimePrint("{s}_f{}_{u}{}", .{name, float_size, sign, int_size});
+                        const fieldNameB = std.fmt.comptimePrint("f{}_{s}_{u}{}", .{float_size, name, sign, int_size});
                         enumFields[id] = .{
                             .name = fieldNameB,
                             .value = id,
@@ -888,7 +776,7 @@ test {
 
 const OpCode = @typeInfo(Op).@"union".tag_type.?;
     const isa_snapshot =
-        "{ trap, nop, call, prompt, return, terminate, when, unless, loop, break_imm, break_if_imm, reiter, reiter_if, block, block_v, with, with_v, if_else, if_else_v, case, case_v, break, break_v, break_if, break_if_v, addr_of_upvalue, addr_of, load, store, load_imm, store_imm, i_add8, i_add16, i_add32, i_add64, f_add32, f_add64, i_sub8, i_sub16, i_sub32, i_sub64, f_sub32, f_sub64, i_mul8, i_mul16, i_mul32, i_mul64, f_mul32, f_mul64, u_div8, s_div8, u_div16, s_div16, u_div32, s_div32, u_div64, s_div64, f_div32, f_div64, u_rem8, s_rem8, u_rem16, s_rem16, u_rem32, s_rem32, u_rem64, s_rem64, f_rem32, f_rem64, s_neg8, s_neg16, s_neg32, s_neg64, f_neg32, f_neg64, i_bitnot8, i_bitnot16, i_bitnot32, i_bitnot64, i_bitand8, i_bitand16, i_bitand32, i_bitand64, i_bitor8, i_bitor16, i_bitor32, i_bitor64, i_bitxor8, i_bitxor16, i_bitxor32, i_bitxor64, i_shiftl8, i_shiftl16, i_shiftl32, i_shiftl64, i_shiftar8, i_shiftar16, i_shiftar32, i_shiftar64, i_shiftlr8, i_shiftlr16, i_shiftlr32, i_shiftlr64, i_eq8, i_eq16, i_eq32, i_eq64, f_eq32, f_eq64, i_ne8, i_ne16, i_ne32, i_ne64, f_ne32, f_ne64, i_lt8, i_lt16, i_lt32, i_lt64, f_lt32, f_lt64, i_le8, i_le16, i_le32, i_le64, f_le32, f_le64, i_gt8, i_gt16, i_gt32, i_gt64, f_gt32, f_gt64, i_ge8, i_ge16, i_ge32, i_ge64, f_ge32, f_ge64, b_and, b_or, b_xor, b_not, u_ext8x16, u_ext8x32, u_ext8x64, u_ext16x32, u_ext16x64, u_ext32x64, s_ext8x16, s_ext8x32, s_ext8x64, s_ext16x32, s_ext16x64, s_ext32x64, i_trunc64x32, i_trunc64x16, i_trunc64x8, i_trunc32x16, i_trunc32x8, i_trunc16x8, f_ext32x64, f_trunc64x32, u8_to_f32, to_f32_u8, u8_to_f64, to_f64_u8, u16_to_f32, to_f32_u16, u16_to_f64, to_f64_u16, u32_to_f32, to_f32_u32, u32_to_f64, to_f64_u32, u64_to_f32, to_f32_u64, u64_to_f64, to_f64_u64, s8_to_f32, to_f32_s8, s8_to_f64, to_f64_s8, s16_to_f32, to_f32_s16, s16_to_f64, to_f64_s16, s32_to_f32, to_f32_s32, s32_to_f64, to_f64_s32, s64_to_f32, to_f32_s64, s64_to_f64, to_f64_s64 }";
+        "{ trap, nop, call, prompt, ret, terminate, when, unless, loop, br_imm, br_if_imm, reiter, reiter_if, block, block_v, with, with_v, if_else, if_else_v, case, case_v, br, br_v, br_if, br_if_v, addr_of_upvalue, addr_of, load, store, load_imm, store_imm, i_add8, i_add16, i_add32, i_add64, f_add32, f_add64, i_sub8, i_sub16, i_sub32, i_sub64, f_sub32, f_sub64, i_mul8, i_mul16, i_mul32, i_mul64, f_mul32, f_mul64, u_div8, s_div8, u_div16, s_div16, u_div32, s_div32, u_div64, s_div64, f_div32, f_div64, u_rem8, s_rem8, u_rem16, s_rem16, u_rem32, s_rem32, u_rem64, s_rem64, f_rem32, f_rem64, s_neg8, s_neg16, s_neg32, s_neg64, f_neg32, f_neg64, i_bitnot8, i_bitnot16, i_bitnot32, i_bitnot64, i_bitand8, i_bitand16, i_bitand32, i_bitand64, i_bitor8, i_bitor16, i_bitor32, i_bitor64, i_bitxor8, i_bitxor16, i_bitxor32, i_bitxor64, i_shiftl8, i_shiftl16, i_shiftl32, i_shiftl64, i_shiftar8, i_shiftar16, i_shiftar32, i_shiftar64, i_shiftlr8, i_shiftlr16, i_shiftlr32, i_shiftlr64, i_eq8, i_eq16, i_eq32, i_eq64, f_eq32, f_eq64, i_ne8, i_ne16, i_ne32, i_ne64, f_ne32, f_ne64, i_lt8, i_lt16, i_lt32, i_lt64, f_lt32, f_lt64, i_le8, i_le16, i_le32, i_le64, f_le32, f_le64, i_gt8, i_gt16, i_gt32, i_gt64, f_gt32, f_gt64, i_ge8, i_ge16, i_ge32, i_ge64, f_ge32, f_ge64, b_and, b_or, b_xor, b_not, u_ext8x16, u_ext8x32, u_ext8x64, u_ext16x32, u_ext16x64, u_ext32x64, s_ext8x16, s_ext8x32, s_ext8x64, s_ext16x32, s_ext16x64, s_ext32x64, i_trunc64x32, i_trunc64x16, i_trunc64x8, i_trunc32x16, i_trunc32x8, i_trunc16x8, f_ext32x64, f_trunc64x32, u8_to_f32, f32_to_u8, u8_to_f64, f64_to_u8, u16_to_f32, f32_to_u16, u16_to_f64, f64_to_u16, u32_to_f32, f32_to_u32, u32_to_f64, f64_to_u32, u64_to_f32, f32_to_u64, u64_to_f64, f64_to_u64, s8_to_f32, f32_to_s8, s8_to_f64, f64_to_s8, s16_to_f32, f32_to_s16, s16_to_f64, f64_to_s16, s32_to_f32, f32_to_s32, s32_to_f64, f64_to_s32, s64_to_f32, f32_to_s64, s64_to_f64, f64_to_s64 }";
 
     try std.testing.expectFmt(
         isa_snapshot,
@@ -900,6 +788,6 @@ const OpCode = @typeInfo(Op).@"union".tag_type.?;
         "{s}", .{std.meta.fieldNames(Op)}
     );
 
-    const op: Op = .{ .break_v = .{ .block = 10, .src = .{ .register = .r245, .offset = 440 } } };
+    const op: Op = .{ .br_v = .{ .block = 10, .y = .{ .register = .r245, .offset = 440 } } };
     _ = op;
 }
