@@ -366,7 +366,7 @@ pub const InstructionPrototypes = .{
         },
         .{ "i_trunc"
          , \\load a value from `x`
-           \\perform sign extension
+           \\perform truncation
            \\store the result in `y`
          , .down
          , TwoOperand

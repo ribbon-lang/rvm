@@ -186,7 +186,7 @@ but here is a preliminary rundown.
 #### Basic
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">trap</th>
+        <th colspan="3" align="left" width="100%">trap<img width="10000px" height="1" align="right"></th>
         <td>Params</td>
     </tr>
     <tr>
@@ -201,7 +201,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">nop</th>
+        <th colspan="3" align="left" width="100%">nop<img width="10000px" height="1" align="right"></th>
         <td>Params</td>
     </tr>
     <tr>
@@ -218,7 +218,7 @@ but here is a preliminary rundown.
 #### Functional
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">call</th>
+        <th colspan="3" align="left" width="100%">call<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -233,7 +233,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">prompt</th>
+        <th colspan="3" align="left" width="100%">prompt<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -248,7 +248,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">ret</th>
+        <th colspan="3" align="left" width="100%">ret<img width="10000px" height="1" align="right"></th>
         <td>Params</td>
     </tr>
     <tr>
@@ -263,7 +263,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">terminate</th>
+        <th colspan="3" align="left" width="100%">terminate<img width="10000px" height="1" align="right"></th>
         <td>Params</td>
     </tr>
     <tr>
@@ -280,7 +280,7 @@ but here is a preliminary rundown.
 #### Control Flow
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">when</th>
+        <th colspan="3" align="left" width="100%">when<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -295,7 +295,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">unless</th>
+        <th colspan="3" align="left" width="100%">unless<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -310,7 +310,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">br_imm</th>
+        <th colspan="3" align="left" width="100%">br_imm<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -325,7 +325,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">br_if_imm</th>
+        <th colspan="3" align="left" width="100%">br_if_imm<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -340,7 +340,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">reiter</th>
+        <th colspan="3" align="left" width="100%">reiter<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -355,7 +355,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">reiter_if</th>
+        <th colspan="3" align="left" width="100%">reiter_if<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -370,7 +370,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">block</th>
+        <th colspan="3" align="left" width="100%">block<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params&nbsp;(both)</td>
     </tr>
     <tr>
@@ -394,7 +394,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">with</th>
+        <th colspan="3" align="left" width="100%">with<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params&nbsp;(both)</td>
     </tr>
     <tr>
@@ -418,7 +418,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">if_else</th>
+        <th colspan="3" align="left" width="100%">if_else<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params&nbsp;(both)</td>
     </tr>
     <tr>
@@ -442,7 +442,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">case</th>
+        <th colspan="3" align="left" width="100%">case<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params&nbsp;(both)</td>
     </tr>
     <tr>
@@ -466,7 +466,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">br</th>
+        <th colspan="3" align="left" width="100%">br<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params&nbsp;(both)</td>
     </tr>
     <tr>
@@ -490,7 +490,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">br_if</th>
+        <th colspan="3" align="left" width="100%">br_if<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params&nbsp;(both)</td>
     </tr>
     <tr>
@@ -516,7 +516,7 @@ but here is a preliminary rundown.
 #### Memory
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">addr_of_upvalue</th>
+        <th colspan="3" align="left" width="100%">addr_of_upvalue<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -531,7 +531,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">addr_of</th>
+        <th colspan="3" align="left" width="100%">addr_of<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -546,7 +546,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">load</th>
+        <th colspan="3" align="left" width="100%">load<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -561,7 +561,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">store</th>
+        <th colspan="3" align="left" width="100%">store<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -576,7 +576,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">load_imm</th>
+        <th colspan="3" align="left" width="100%">load_imm<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -591,7 +591,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">store_imm</th>
+        <th colspan="3" align="left" width="100%">store_imm<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -606,7 +606,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">clear</th>
+        <th colspan="3" align="left" width="100%">clear<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -623,7 +623,7 @@ but here is a preliminary rundown.
 #### Arithmetic
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">add</th>
+        <th colspan="3" align="left" width="100%">add<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -634,7 +634,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">sub</th>
+        <th colspan="3" align="left" width="100%">sub<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -645,7 +645,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">mul</th>
+        <th colspan="3" align="left" width="100%">mul<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -656,7 +656,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">div</th>
+        <th colspan="3" align="left" width="100%">div<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -667,7 +667,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">rem</th>
+        <th colspan="3" align="left" width="100%">rem<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -678,7 +678,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">neg</th>
+        <th colspan="3" align="left" width="100%">neg<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -689,7 +689,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">bitnot</th>
+        <th colspan="3" align="left" width="100%">bitnot<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -700,7 +700,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">bitand</th>
+        <th colspan="3" align="left" width="100%">bitand<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -711,7 +711,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">bitor</th>
+        <th colspan="3" align="left" width="100%">bitor<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -722,7 +722,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">bitxor</th>
+        <th colspan="3" align="left" width="100%">bitxor<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -733,7 +733,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">shiftl</th>
+        <th colspan="3" align="left" width="100%">shiftl<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -744,7 +744,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">shiftr</th>
+        <th colspan="3" align="left" width="100%">shiftr<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -755,7 +755,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">eq</th>
+        <th colspan="3" align="left" width="100%">eq<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -766,7 +766,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">ne</th>
+        <th colspan="3" align="left" width="100%">ne<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -777,7 +777,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">lt</th>
+        <th colspan="3" align="left" width="100%">lt<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -788,7 +788,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">le</th>
+        <th colspan="3" align="left" width="100%">le<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -799,7 +799,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">gt</th>
+        <th colspan="3" align="left" width="100%">gt<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -810,7 +810,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">ge</th>
+        <th colspan="3" align="left" width="100%">ge<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -823,7 +823,7 @@ but here is a preliminary rundown.
 #### Boolean
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">b_and</th>
+        <th colspan="3" align="left" width="100%">b_and<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -838,7 +838,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">b_or</th>
+        <th colspan="3" align="left" width="100%">b_or<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -853,7 +853,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">b_xor</th>
+        <th colspan="3" align="left" width="100%">b_xor<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -868,7 +868,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">b_not</th>
+        <th colspan="3" align="left" width="100%">b_not<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -885,7 +885,7 @@ but here is a preliminary rundown.
 #### Size Cast Int
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">u_ext</th>
+        <th colspan="3" align="left" width="100%">u_ext<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -896,7 +896,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">s_ext</th>
+        <th colspan="3" align="left" width="100%">s_ext<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -907,11 +907,11 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">i_trunc</th>
+        <th colspan="3" align="left" width="100%">i_trunc<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">load a value from <code>x</code><br>perform sign extension<br>store the result in <code>y</code></td>
+        <td colspan="3" rowspan="3" width="100%" align="center">load a value from <code>x</code><br>perform truncation<br>store the result in <code>y</code></td>
     </tr>
     <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr>
     <tr><td align="right" width="1%"><code>0xab</code></td><td align="left" width="1%"><code>i_trunc64x32</code></td><td align="center" colspan="3">64 bit to 32 bit sign-agnostic integer truncation</td></tr><tr><td align="right" width="1%"><code>0xac</code></td><td align="left" width="1%"><code>i_trunc64x16</code></td><td align="center" colspan="3">64 bit to 16 bit sign-agnostic integer truncation</td></tr><tr><td align="right" width="1%"><code>0xad</code></td><td align="left" width="1%"><code>i_trunc64x8</code></td><td align="center" colspan="3">64 bit to 8 bit sign-agnostic integer truncation</td></tr><tr><td align="right" width="1%"><code>0xae</code></td><td align="left" width="1%"><code>i_trunc32x16</code></td><td align="center" colspan="3">32 bit to 16 bit sign-agnostic integer truncation</td></tr><tr><td align="right" width="1%"><code>0xaf</code></td><td align="left" width="1%"><code>i_trunc32x8</code></td><td align="center" colspan="3">32 bit to 8 bit sign-agnostic integer truncation</td></tr><tr><td align="right" width="1%"><code>0xb0</code></td><td align="left" width="1%"><code>i_trunc16x8</code></td><td align="center" colspan="3">16 bit to 8 bit sign-agnostic integer truncation</td></tr>
@@ -920,7 +920,7 @@ but here is a preliminary rundown.
 #### Size Cast Float
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">f_ext</th>
+        <th colspan="3" align="left" width="100%">f_ext<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -931,7 +931,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">f_trunc</th>
+        <th colspan="3" align="left" width="100%">f_trunc<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -944,7 +944,7 @@ but here is a preliminary rundown.
 #### Int <-> Float Cast
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">a_to_b</th>
+        <th colspan="3" align="left" width="100%">a_to_b<img width="10000px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
