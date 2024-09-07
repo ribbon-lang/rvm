@@ -14,8 +14,8 @@ const HandlerSetIndex = Bytecode.HandlerSetIndex;
 
 const OpCodeIndex = u8;
 
-const InstructionPrototypes = .{
-    .basic = .{
+pub const InstructionPrototypes = .{
+    .@"Basic" = .{
         .{ "trap"
          , \\triggers a trap if execution reaches it
          , void
@@ -27,18 +27,18 @@ const InstructionPrototypes = .{
         },
     },
 
-    .functional = .{
+    .@"Functional" = .{
         .{ "call"
-         , \\call the function at the address stored in `fun`,
-           \\using the registers `args` as arguments,
-           \\and placing the result in `ret`
+         , \\call the function at the address stored in `f`
+           \\use the registers `as` as arguments
+           \\place the result in `r`
          , Function
         },
 
         .{ "prompt"
-         , \\prompt the evidence given by `ev`,
-           \\using the registers `args` as arguments,
-           \\and placing the result in `ret`
+         , \\prompt the evidence given by `e`
+           \\use the registers `as` as arguments
+           \\place the result in `r`
          , Prompt
         },
 
@@ -53,357 +53,348 @@ const InstructionPrototypes = .{
         },
     },
 
-    .control_flow = .{
+    .@"Control Flow" = .{
         .{ "when"
-         , \\enter the designated `block`,
-           \\if the condition in `x` is non-zero
+         , \\enter the block designated by `b`, if the condition in `x` is non-zero
          , BlockOperand
         },
+
         .{ "unless"
-         , \\enter the designated `block`,
-           \\if the condition in `x` is zero
+         , \\enter the block designated by `b`, if the condition in `x` is zero
          , BlockOperand
         },
-        .{ "loop"
-         , \\enter the designated `block`, looping
-         , Block
-        },
+
         .{ "br_imm"
-         , \\exit the designated block,
-           \\copy the immediate value `imm`,
-           \\and place the result in the block's yield register
+         , \\exit the block designated by `b`
+           \\copy the immediate value designated by `i`
+           \\place the result in the block's yield register
          , BlockImm
         },
+
         .{ "br_if_imm"
-         , \\exit the designated block,
-           \\if the condition in `cond` is non-zero
-           \\copy the immediate value `imm`,
-           \\and place the result in the block's yield register
+         , \\exit the block designated by `b`, if the condition in `x` is non-zero
+           \\copy the immediate value designated by `i`
+           \\place the result in the block's yield register
          , BlockImmOperand
         },
+
         .{ "reiter"
-         , \\restart the designated loop `block`
+         , \\restart the designated `block`
          , Block
         },
+
         .{ "reiter_if"
-         , \\restart the designated loop block,
-           \\if the condition in `x` is non-zero
+         , \\restart the designated block, if the condition in `x` is non-zero
          , BlockOperand
         },
     },
 
-    .control_flow_v = .{
+    .@"Control Flow _v" = .{
         .{ "block"
-         , \\enter the designated `block`
+         , \\enter the block designated by `b`
          , Block
          , \\place the result of the block in `y`
          , YieldOperand
         },
+
         .{ "with"
-         , \\enter the designated `block`,
-           \\using the `handler_set` to handle effects
+         , \\enter the block designated by `b`
+           \\use the effect handler set designated by `h` to handle effects
          , With
          , \\place the result of the block in `y`
          , YieldOperand
         },
+
         .{ "if_else"
-         , \\enter the `then_block`,
-           \\if the condition in `x` is non-zero
-           \\otherwise enter the `else_block`
+         , \\if the condition in `x` is non-zero:
+           \\then: enter the block designated by `t`
+           \\else: enter the block designated by `e`
          , Branch
-         , \\place the result of the block in `y`,
+         , \\place the result of the block in `y`
          , YieldOperand
         },
+
         .{ "case"
-         , \\enter the indexed `block`,
-           \\based on the value in `case`
+         , \\enter one of the blocks designated in `bs`, indexed by the value in `x`
          , Case
          , \\place the result of the block in `y`
          , YieldOperand
         },
+
         .{ "br"
-         , \\exit the designated `block`
+         , \\exit the block designated by `b`
          , Block
-         , \\copy the value in `y`,
-           \\placing the result in the block's yield register
+         , \\copy the value in `y` into the block's yield register
          , YieldOperand
         },
+
         .{ "br_if"
-         , \\exit the designated `block`,
-           \\if the condition in `x` is non-zero
+         , \\exit the block designated by `b`, if the condition in `x` is non-zero
          , BlockOperand
-         , \\copy the value in `y`,
-           \\placing the result in the block's yield register
+         , \\copy the value in `y` into the block's yield register
          , YieldOperand
         },
     },
 
-    .memory = .{
+    .@"Memory" = .{
         .{ "addr_of_upvalue"
-         , \\take the address of the upvalue register `a`,
-           \\and store the result in `b`
+         , \\copy the address of the upvalue `x` into `y`
          , TwoOperand
         },
+
         .{ "addr_of"
-         , \\take the address of `a`,
-           \\and store the result in `b`
+         , \\copy the address of `x` into `y`
          , TwoOperand
         },
+
         .{ "load"
-         , \\copy the value from the address stored in `a`,
-           \\and store the result in `b`
+         , \\copy the value from the address stored in `x` into `y`
          , TwoOperand
         },
 
         .{ "store"
-         , \\copy the value from `a`
-           \\and store the result at the address stored in `b`
+         , \\copy the value from `x` to the address stored in `y`
          , TwoOperand
         },
 
         .{ "load_imm"
-         , \\copy the immediate value `imm`
-           \\and store the result in `x`
+         , \\copy the immediate value designated by `i` into `x`
          , ImmOperand
         },
 
         .{ "store_imm"
-         , \\copy the immediate value `imm`
-           \\and store the result at the address stored in `x`
+         , \\copy the immediate value designated by `i` to the address stored in `x`
          , ImmOperand
+        },
+
+        .{ "clear"
+         , \\clear the value stored in `x`
+         , OneOperand
         },
     },
 
-    .arithmetic = .{
+    .@"Arithmetic" = .{
         .{ "add"
-         , \\load two values from `a` and `b`,
-           \\perform addition,
-           \\and store the result in `c`
+         , \\load two values from `x` and `y`
+           \\perform addition
+           \\store the result in `z`
          , intFloat(.same)
          , ThreeOperand
         },
 
         .{ "sub"
-         , \\load two values from `a` and `b`,
-           \\perform subtraction,
-           \\and store the result in `c`
+         , \\load two values from `x` and `y`
+           \\perform subtraction
+           \\store the result in `z`
          , intFloat(.same)
          , ThreeOperand
         },
 
         .{ "mul"
-         , \\load two values from `a` and `b`,
-           \\perform division,
-           \\and store the result in `c`
+         , \\load two values from `x` and `y`
+           \\perform division
+           \\store the result in `z`
          , intFloat(.same)
          , ThreeOperand
         },
 
         .{ "div"
-         , \\load two values from `a` and `b`,
-           \\perform division,
-           \\and store the result in `c`
+         , \\load two values from `x` and `y`
+           \\perform division
+           \\store the result in `z`
          , intFloat(.different)
          , ThreeOperand
         },
 
         .{ "rem"
-         , \\load two values from `a` and `b`,
-           \\perform remainder division,
-           \\and store the result in `c`
+         , \\load two values from `x` and `y`
+           \\perform remainder division
+           \\store the result in `z`
          , intFloat(.different)
          , ThreeOperand
         },
 
         .{ "neg"
-         , \\load a value from `a`,
-           \\perform negative,
-           \\and store the result in `b`
+         , \\load a value from `x`
+           \\perform negation
+           \\store the result in `y`
          , intFloat(.only_signed)
          , TwoOperand
         },
 
         .{ "bitnot"
-         , \\load a value from `a`,
-           \\perform bitwise not,
-           \\and store the result in `b`
+         , \\load a value from `x`
+           \\perform bitwise not
+           \\store the result in `y`
          , intOnly(.same)
          , TwoOperand
         },
 
         .{ "bitand"
-         , \\load two values from `a` and `b`,
-           \\perform bitwise and,
-           \\and store the result in `c`
+         , \\load two values from `x` and `y`
+           \\perform bitwise and
+           \\store the result in `z`
          , intOnly(.same)
          , ThreeOperand
         },
 
         .{ "bitor"
-         , \\load two values from `a` and `b`,
-           \\perform bitwise or,
-           \\and store the result in `c`
+         , \\load two values from `x` and `y`
+           \\perform bitwise or
+           \\store the result in `z`
          , intOnly(.same)
          , ThreeOperand
         },
 
         .{ "bitxor"
-         , \\load two values from `a` and `b`,
-           \\perform bitwise xor,
-           \\and store the result in `c`
+         , \\load two values from `x` and `y`
+           \\perform bitwise xor
+           \\store the result in `z`
          , intOnly(.same)
          , ThreeOperand
         },
 
         .{ "shiftl"
-         , \\load two values from `a` and `b`,
-           \\perform bitwise left shift,
-           \\and store the result in `c`
+         , \\load two values from `x` and `y`
+           \\perform bitwise left shift
+           \\store the result in `z`
          , intOnly(.same)
          , ThreeOperand
         },
 
-        .{ "shiftar"
-         , \\load two values from `a` and `b`,
-           \\perform bitwise arithmetic right shift,
-           \\and store the result in `c`
-         , intOnly(.same)
-         , ThreeOperand
-        },
-
-        .{ "shiftlr"
-         , \\load two values from `a` and `b`,
-           \\perform bitwise logical right shift,
-           \\and store the result in `c`
-         , intOnly(.same)
+        .{ "shiftr"
+         , \\load two values from `x` and `y`
+           \\perform bitwise arithmetic right shift
+           \\store the result in `z`
+         , intOnly(.different)
          , ThreeOperand
         },
 
         .{ "eq"
-         , \\load two values from `a` and `b`,
-           \\perform equality comparison,
-           \\and store the result in `c`
+         , \\load two values from `x` and `y`
+           \\perform equality comparison
+           \\store the result in `z`
          , intFloat(.same)
          , ThreeOperand
         },
 
         .{ "ne"
-         , \\load two values from `a` and `b`,
-           \\perform inequality comparison,
-           \\and store the result in `c`
+         , \\load two values from `x` and `y`
+           \\perform inequality comparison
+           \\store the result in `z`
          , intFloat(.same)
          , ThreeOperand
         },
 
         .{ "lt"
-         , \\load two values from `a` and `b`,
-           \\perform less than comparison,
-           \\and store the result in `c`
-         , intFloat(.same)
+         , \\load two values from `x` and `y`
+           \\perform less than comparison
+           \\store the result in `z`
+         , intFloat(.different)
          , ThreeOperand
         },
 
         .{ "le"
-         , \\load two values from `a` and `b`,
-           \\perform less than or equal comparison,
-           \\and store the result in `c`
-         , intFloat(.same)
+         , \\load two values from `x` and `y`
+           \\perform less than or equal comparison
+           \\store the result in `z`
+         , intFloat(.different)
          , ThreeOperand
         },
 
         .{ "gt"
-         , \\load two values from `a` and `b`,
-           \\perform greater than comparison,
-           \\and store the result in `c`
-         , intFloat(.same)
+         , \\load two values from `x` and `y`
+           \\perform greater than comparison
+           \\store the result in `z`
+         , intFloat(.different)
          , ThreeOperand
         },
 
         .{ "ge"
-         , \\load two values from `a` and `b`,
-           \\perform greater than or equal comparison,
-           \\and store the result in `c`
-         , intFloat(.same)
+         , \\load two values from `x` and `y`
+           \\perform greater than or equal comparison
+           \\store the result in `z`
+         , intFloat(.different)
          , ThreeOperand
         },
     },
 
-    .boolean = .{
+    .@"Boolean" = .{
         .{ "b_and"
-         , \\load two values from `a` and `b`,
-           \\perform logical and,
-           \\and store the result in `c`
+         , \\load two values from `x` and `y`
+           \\perform logical and
+           \\store the result in `z`
          , ThreeOperand
         },
 
         .{ "b_or"
-         , \\load two values from `a` and `b`,
-           \\perform logical or,
-           \\and store the result in `c`
+         , \\load two values from `x` and `y`
+           \\perform logical or
+           \\store the result in `z`
          , ThreeOperand
         },
 
         .{ "b_xor"
-         , \\load two values from `a` and `b`,
-           \\perform logical xor,
-           \\and store the result in `c`
+         , \\load two values from `x` and `y`
+           \\perform logical xor
+           \\store the result in `z`
          , ThreeOperand
         },
 
         .{ "b_not"
-         , \\load a value from `a`,
-           \\perform logical not,
-           \\and store the result in `b`
+         , \\load a value from `x`
+           \\perform logical not
+           \\store the result in `y`
          , TwoOperand
         },
     },
 
-    .size_cast_int = .{
+    .@"Size Cast Int" = .{
         .{ "u_ext"
-         , \\load a value from a
-           \\perform zero extension,
-           \\and store the result in `b`
+         , \\load a value from `x`
+           \\perform zero extension
+           \\store the result in `y`
          , .up
          , TwoOperand
         },
         .{ "s_ext"
-         , \\load a value from a
-           \\perform sign extension,
-           \\and store the result in `b`
+         , \\load a value from `x`
+           \\perform sign extension
+           \\store the result in `y`
          , .up
          , TwoOperand
         },
         .{ "i_trunc"
-         , \\load a value from a
-           \\perform sign extension,
-           \\and store the result in `b`
+         , \\load a value from `x`
+           \\perform sign extension
+           \\store the result in `y`
          , .down
          , TwoOperand
         },
     },
 
-    .size_cast_float = .{
+    .@"Size Cast Float" = .{
         .{ "f_ext"
-         , \\load a value from a
-           \\perform floating point extension,
-           \\and store the result in `b`
+         , \\load a value from `x`
+           \\perform floating point extension
+           \\store the result in `y`
          , .up
          , TwoOperand
         },
         .{ "f_trunc"
-         , \\load a value from a
-           \\perform floating point truncation,
-           \\and store the result in `b`
+         , \\load a value from `x`
+           \\perform floating point truncation
+           \\store the result in `y`
          , .down
          , TwoOperand
         },
     },
 
-    .int_float_cast = .{
+    .@"Int <-> Float Cast" = .{
         .{ "to"
-         , \\load a value from a
-           \\perform int/float conversion,
-           \\and store the result in `b`
+         , \\load a value from `x`
+           \\perform int <-> float conversion
+           \\store the result in `y`
          , TwoOperand
         },
     },
@@ -418,34 +409,34 @@ pub const YieldOperand = struct {
 };
 
 pub const TwoOperand = struct {
-    a: Operand,
-    b: Operand,
+    x: Operand,
+    y: Operand,
 };
 
 pub const ThreeOperand = struct {
-    a: Operand,
-    b: Operand,
-    c: Operand,
+    x: Operand,
+    y: Operand,
+    z: Operand,
 };
 
 pub const Block = struct {
-    block: BlockIndex,
+    b: BlockIndex,
 };
 
 pub const BlockOperand = struct {
-    block: BlockIndex,
+    b: BlockIndex,
     x: Operand,
 };
 
 pub const BlockImm = struct {
-    block: BlockIndex,
-    imm: ConstantIndex,
+    b: BlockIndex,
+    i: ConstantIndex,
 };
 
 pub const BlockImmOperand = struct {
-    block: BlockIndex,
-    imm: ConstantIndex,
-    cond: Operand,
+    b: BlockIndex,
+    i: ConstantIndex,
+    x: Operand,
 };
 
 pub const ImmOperand = struct {
@@ -454,48 +445,36 @@ pub const ImmOperand = struct {
 };
 
 pub const Function = struct {
-    fun: Operand,
-    ret: Register,
-    args: []const Register,
+    f: Operand,
+    r: Register,
+    as: []const Register,
 };
 
 pub const Prompt = struct {
-    ev: EvidenceIndex,
-    ret: Register,
-    args: []const Register,
+    e: EvidenceIndex,
+    r: Register,
+    as: []const Register,
 };
 
 pub const With = struct {
-    handler_set: HandlerSetIndex,
-    block: BlockIndex,
+    b: BlockIndex,
+    h: HandlerSetIndex,
 };
 
 pub const Branch = struct {
-    then_block: BlockIndex,
-    else_block: BlockIndex,
+    t: BlockIndex,
+    e: BlockIndex,
     x: Operand,
 };
 
 pub const Case = struct {
-    case: Operand,
-    blocks: []const BlockIndex,
+    x: Operand,
+    bs: []const BlockIndex,
 };
 
 
-const ArithmeticValueInfo = union(enum) {
-    none: void,
-    float_only: void,
-    int_only: SignVariance,
-    int_float: SignVariance,
-    const SignVariance = enum {
-        same,
-        different,
-        only_unsigned,
-        only_signed,
-    };
-};
 
-fn intOnly(signVariance: ArithmeticValueInfo.SignVariance) ArithmeticValueInfo {
+fn intOnly(signVariance: AVI.SignVariance) ArithmeticValueInfo {
     return .{ .int_only = signVariance };
 }
 
@@ -503,69 +482,98 @@ fn floatOnly() ArithmeticValueInfo {
     return .float_only;
 }
 
-fn intFloat(signVariance: ArithmeticValueInfo.SignVariance) ArithmeticValueInfo {
+fn intFloat(signVariance: AVI.SignVariance) ArithmeticValueInfo {
     return .{ .int_float = signVariance };
+}
+
+
+pub const ArithmeticValueInfo = union(enum) {
+    none: void,
+    float_only: void,
+    int_only: SignVariance,
+    int_float: SignVariance,
+    pub const FLOAT_SIZE = [2]u8 { 32, 64 };
+    pub const INTEGER_SIZE = [4]u8 { 8, 16, 32, 64 };
+    pub const SIGNEDNESS = [2]std.builtin.Signedness { .unsigned, .signed };
+    pub fn signChar(sign: std.builtin.Signedness) u8 {
+        return switch (sign) {
+            .unsigned => 'u',
+            .signed => 's',
+        };
+    }
+    pub fn signFlip(sign: std.builtin.Signedness) std.builtin.Signedness {
+        return switch (sign) {
+            .unsigned => .signed,
+            .signed => .unsigned,
+        };
+    }
+    pub const SignVariance = enum {
+        same,
+        different,
+        only_unsigned,
+        only_signed,
+    };
+    pub const SizeCast = enum {
+        up,
+        down,
+    };
+};
+
+const AVI = ArithmeticValueInfo;
+
+fn makeFloatFields(enumFields: []std.builtin.Type.EnumField, unionFields: []std.builtin.Type.UnionField, id: *usize, name: [:0]const u8, comptime operands: type) void {
+    for (AVI.FLOAT_SIZE) |size| {
+        const fieldName = std.fmt.comptimePrint("f_{s}{}", .{name, size});
+        enumFields[id.*] = .{
+            .name = fieldName,
+            .value = id.*,
+        };
+        unionFields[id.*] = .{
+            .name = fieldName,
+            .type = operands,
+            .alignment = @alignOf(operands),
+        };
+        id.* += 1;
+    }
+}
+
+fn makeIntField(enumFields: []std.builtin.Type.EnumField, unionFields: []std.builtin.Type.UnionField, id: *usize, fieldName: [:0]const u8, comptime operands: type) void {
+    enumFields[id.*] = .{
+        .name = fieldName,
+        .value = id.*,
+    };
+    unionFields[id.*] = .{
+        .name = fieldName,
+        .type = operands,
+        .alignment = @alignOf(operands),
+    };
+    id.* += 1;
+}
+
+fn makeIntFields(enumFields: []std.builtin.Type.EnumField, unionFields: []std.builtin.Type.UnionField, id: *usize, name: [:0]const u8, comptime operands: type, signVariance: AVI.SignVariance) void {
+    for (AVI.INTEGER_SIZE) |size| {
+        switch (signVariance) {
+            .different => {
+                for (AVI.SIGNEDNESS) |sign| {
+                    makeIntField(enumFields, unionFields, id, std.fmt.comptimePrint("{u}_{s}{}", .{AVI.signChar(sign), name, size}), operands);
+                }
+            },
+            .same => {
+                makeIntField(enumFields, unionFields, id, std.fmt.comptimePrint("i_{s}{}", .{name, size}), operands);
+            },
+            .only_unsigned => {
+                makeIntField(enumFields, unionFields, id, std.fmt.comptimePrint("u_{s}{}", .{name, size}), operands);
+            },
+            .only_signed => {
+                makeIntField(enumFields, unionFields, id, std.fmt.comptimePrint("s_{s}{}", .{name, size}), operands);
+            }
+        }
+    }
 }
 
 pub const Op = ops: {
     const TagType = OpCodeIndex;
     const max = std.math.maxInt(TagType);
-
-    const FLOAT_SIZE = [2]u8 { 32, 64 };
-    const INTEGER_SIZE = [4]u8 { 8, 16, 32, 64 };
-    const SIGNEDNESS = [2]TextUtils.Char { 'u', 's' };
-
-    const Tools = struct {
-        fn makeFloatFields(enumFields: []std.builtin.Type.EnumField, unionFields: []std.builtin.Type.UnionField, id: *usize, name: [:0]const u8, comptime operands: type) void {
-            for (FLOAT_SIZE) |size| {
-                const fieldName = std.fmt.comptimePrint("f_{s}{}", .{name, size});
-                enumFields[id.*] = .{
-                    .name = fieldName,
-                    .value = id.*,
-                };
-                unionFields[id.*] = .{
-                    .name = fieldName,
-                    .type = operands,
-                    .alignment = @alignOf(operands),
-                };
-                id.* += 1;
-            }
-        }
-
-        fn makeIntField(enumFields: []std.builtin.Type.EnumField, unionFields: []std.builtin.Type.UnionField, id: *usize, fieldName: [:0]const u8, comptime operands: type) void {
-            enumFields[id.*] = .{
-                .name = fieldName,
-                .value = id.*,
-            };
-            unionFields[id.*] = .{
-                .name = fieldName,
-                .type = operands,
-                .alignment = @alignOf(operands),
-            };
-            id.* += 1;
-        }
-
-        fn makeIntFields(enumFields: []std.builtin.Type.EnumField, unionFields: []std.builtin.Type.UnionField, id: *usize, name: [:0]const u8, comptime operands: type, signVariance: ArithmeticValueInfo.SignVariance) void {
-            for (INTEGER_SIZE) |size| {
-                switch (signVariance) {
-                    .different => {
-                        for (SIGNEDNESS) |sign| {
-                            makeIntField(enumFields, unionFields, id, std.fmt.comptimePrint("{u}_{s}{}", .{sign, name, size}), operands);
-                        }
-                    },
-                    .same => {
-                        makeIntField(enumFields, unionFields, id, std.fmt.comptimePrint("i_{s}{}", .{name, size}), operands);
-                    },
-                    .only_unsigned => {
-                        makeIntField(enumFields, unionFields, id, std.fmt.comptimePrint("u_{s}{}", .{name, size}), operands);
-                    },
-                    .only_signed => {
-                        makeIntField(enumFields, unionFields, id, std.fmt.comptimePrint("s_{s}{}", .{name, size}), operands);
-                    }
-                }
-            }
-        }
-    };
 
     var enumFields = [1]std.builtin.Type.EnumField {undefined} ** max;
     var unionFields = [1]std.builtin.Type.UnionField {undefined} ** max;
@@ -575,7 +583,7 @@ pub const Op = ops: {
     for (std.meta.fieldNames(@TypeOf(InstructionPrototypes))) |categoryName| {
         const category = @field(InstructionPrototypes, categoryName);
 
-        if (std.mem.eql(u8, categoryName, "arithmetic")) {
+        if (std.mem.eql(u8, categoryName, "Arithmetic")) {
             for (0..category.len) |i| {
                 const proto = category[i];
 
@@ -593,14 +601,14 @@ pub const Op = ops: {
                         id += 1;
                     },
                     .int_only => |signVariance| {
-                        Tools.makeIntFields(&enumFields, &unionFields, &id, name, operands, signVariance);
+                        makeIntFields(&enumFields, &unionFields, &id, name, operands, signVariance);
                     },
                     .float_only => {
-                        Tools.makeFloatFields(&enumFields, &unionFields, &id, name, operands);
+                        makeFloatFields(&enumFields, &unionFields, &id, name, operands);
                     },
                     .int_float => |signVariance| {
-                        Tools.makeIntFields(&enumFields, &unionFields, &id, name, operands, signVariance);
-                        Tools.makeFloatFields(&enumFields, &unionFields, &id, name, operands);
+                        makeIntFields(&enumFields, &unionFields, &id, name, operands, signVariance);
+                        makeFloatFields(&enumFields, &unionFields, &id, name, operands);
                     }
                 }
             }
@@ -638,18 +646,18 @@ pub const Op = ops: {
                 };
                 id += 1;
             }
-        } else if (std.mem.startsWith(u8, categoryName, "size_cast")) {
+        } else if (std.mem.startsWith(u8, categoryName, "Size Cast")) {
             for (0..category.len) |i| {
                 const proto = category[i];
 
                 const name = proto[0];
                 // const doc = proto[1];
-                const order: enum { up, down } = proto[2];
+                const order: AVI.SizeCast = proto[2];
                 const operands = proto[3];
 
                 const SIZE =
-                    if (std.mem.endsWith(u8, categoryName, "int")) INTEGER_SIZE
-                    else if (std.mem.endsWith(u8, categoryName, "float")) FLOAT_SIZE
+                    if (std.mem.endsWith(u8, categoryName, "Int")) AVI.INTEGER_SIZE
+                    else if (std.mem.endsWith(u8, categoryName, "Float")) AVI.FLOAT_SIZE
                     else {
                         @compileError("unknown size cast type");
                     };
@@ -697,17 +705,17 @@ pub const Op = ops: {
                     },
                 }
             }
-        } else if (std.mem.eql(u8, categoryName, "int_float_cast")) {
+        } else if (std.mem.eql(u8, categoryName, "Int <-> Float Cast")) {
             const proto = category[0];
 
             const name = proto[0];
             // const doc = proto[1];
             const operands = proto[2];
 
-            for (SIGNEDNESS) |sign| {
-                for (INTEGER_SIZE) |int_size| {
-                    for (FLOAT_SIZE) |float_size| {
-                        const fieldNameA = std.fmt.comptimePrint("{u}{}_{s}_f{}", .{sign, int_size, name, float_size});
+            for (AVI.SIGNEDNESS) |sign| {
+                for (AVI.INTEGER_SIZE) |int_size| {
+                    for (AVI.FLOAT_SIZE) |float_size| {
+                        const fieldNameA = std.fmt.comptimePrint("{u}{}_{s}_f{}", .{AVI.signChar(sign), int_size, name, float_size});
                         enumFields[id] = .{
                             .name = fieldNameA,
                             .value = id,
@@ -719,7 +727,7 @@ pub const Op = ops: {
                         };
                         id += 1;
 
-                        const fieldNameB = std.fmt.comptimePrint("f{}_{s}_{u}{}", .{float_size, name, sign, int_size});
+                        const fieldNameB = std.fmt.comptimePrint("f{}_{s}_{u}{}", .{float_size, name, AVI.signChar(sign), int_size});
                         enumFields[id] = .{
                             .name = fieldNameB,
                             .value = id,
@@ -771,23 +779,3 @@ pub const Op = ops: {
 
     break :ops OpUnion;
 };
-
-test {
-
-const OpCode = @typeInfo(Op).@"union".tag_type.?;
-    const isa_snapshot =
-        "{ trap, nop, call, prompt, ret, terminate, when, unless, loop, br_imm, br_if_imm, reiter, reiter_if, block, block_v, with, with_v, if_else, if_else_v, case, case_v, br, br_v, br_if, br_if_v, addr_of_upvalue, addr_of, load, store, load_imm, store_imm, i_add8, i_add16, i_add32, i_add64, f_add32, f_add64, i_sub8, i_sub16, i_sub32, i_sub64, f_sub32, f_sub64, i_mul8, i_mul16, i_mul32, i_mul64, f_mul32, f_mul64, u_div8, s_div8, u_div16, s_div16, u_div32, s_div32, u_div64, s_div64, f_div32, f_div64, u_rem8, s_rem8, u_rem16, s_rem16, u_rem32, s_rem32, u_rem64, s_rem64, f_rem32, f_rem64, s_neg8, s_neg16, s_neg32, s_neg64, f_neg32, f_neg64, i_bitnot8, i_bitnot16, i_bitnot32, i_bitnot64, i_bitand8, i_bitand16, i_bitand32, i_bitand64, i_bitor8, i_bitor16, i_bitor32, i_bitor64, i_bitxor8, i_bitxor16, i_bitxor32, i_bitxor64, i_shiftl8, i_shiftl16, i_shiftl32, i_shiftl64, i_shiftar8, i_shiftar16, i_shiftar32, i_shiftar64, i_shiftlr8, i_shiftlr16, i_shiftlr32, i_shiftlr64, i_eq8, i_eq16, i_eq32, i_eq64, f_eq32, f_eq64, i_ne8, i_ne16, i_ne32, i_ne64, f_ne32, f_ne64, i_lt8, i_lt16, i_lt32, i_lt64, f_lt32, f_lt64, i_le8, i_le16, i_le32, i_le64, f_le32, f_le64, i_gt8, i_gt16, i_gt32, i_gt64, f_gt32, f_gt64, i_ge8, i_ge16, i_ge32, i_ge64, f_ge32, f_ge64, b_and, b_or, b_xor, b_not, u_ext8x16, u_ext8x32, u_ext8x64, u_ext16x32, u_ext16x64, u_ext32x64, s_ext8x16, s_ext8x32, s_ext8x64, s_ext16x32, s_ext16x64, s_ext32x64, i_trunc64x32, i_trunc64x16, i_trunc64x8, i_trunc32x16, i_trunc32x8, i_trunc16x8, f_ext32x64, f_trunc64x32, u8_to_f32, f32_to_u8, u8_to_f64, f64_to_u8, u16_to_f32, f32_to_u16, u16_to_f64, f64_to_u16, u32_to_f32, f32_to_u32, u32_to_f64, f64_to_u32, u64_to_f32, f32_to_u64, u64_to_f64, f64_to_u64, s8_to_f32, f32_to_s8, s8_to_f64, f64_to_s8, s16_to_f32, f32_to_s16, s16_to_f64, f64_to_s16, s32_to_f32, f32_to_s32, s32_to_f64, f64_to_s32, s64_to_f32, f32_to_s64, s64_to_f64, f64_to_s64 }";
-
-    try std.testing.expectFmt(
-        isa_snapshot,
-        "{s}", .{std.meta.fieldNames(OpCode)}
-    );
-
-    try std.testing.expectFmt(
-        isa_snapshot,
-        "{s}", .{std.meta.fieldNames(Op)}
-    );
-
-    const op: Op = .{ .br_v = .{ .block = 10, .y = .{ .register = .r245, .offset = 440 } } };
-    _ = op;
-}

@@ -15,7 +15,9 @@ blocks: []const Block,
 instructions: []const u8,
 
 
-pub const Op = @import("ISA.zig").Op;
+pub const ISA = @import("ISA.zig");
+
+pub const Op = ISA.Op;
 pub const OpCode = @typeInfo(Op).@"union".tag_type.?;
 
 pub const InstructionPointer = u24;
@@ -99,7 +101,6 @@ pub const Type = union(enum) {
 
     pub const Int = struct {
         bit_width: u8,
-        signed: bool,
     };
 
     pub const Float = struct {
@@ -274,27 +275,27 @@ test {
     try encoder.encode(allocator, trap);
 
     const call = Op { .call = .{
-        .fun = Bytecode.Operand {
+        .f = Bytecode.Operand {
             .register = .r12,
             .offset = 45,
         },
-        .ret = .r33,
-        .args = &[_]Bytecode.Register {
+        .r = .r33,
+        .as = &[_]Bytecode.Register {
             .r1, .r2, .r3, .r44
         },
     }};
     try encoder.encode(allocator, call);
 
     const br_imm = Op { .br_imm = .{
-        .block = 36,
-        .imm = 22,
+        .b = 36,
+        .i = 22,
     }};
     try encoder.encode(allocator, br_imm);
 
     const prompt = Op { .prompt = .{
-        .ev = 234,
-        .ret = .r55,
-        .args = &[_]Bytecode.Register {
+        .e = 234,
+        .r = .r55,
+        .as = &[_]Bytecode.Register {
             .r4, .r6, .r9, .r133
         },
     }};

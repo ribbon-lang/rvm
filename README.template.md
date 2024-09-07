@@ -31,7 +31,7 @@ discouraged.
         * [From C](#from-c)
         * [From other languages](#from-other-languages)
     - [CLI](#cli)
-
++ [ISA](#isa)
 
 ## Discussion
 
@@ -107,3 +107,39 @@ The `ribboni` executable is a work in progress, but offers a functional command 
 
 #### CLI Options
 <!--#Readme:CLI options-->
+
+
+## ISA
+
+The instruction set architecture for RibbonI is still in flux,
+but here is a preliminary rundown.
+
+
+### High level properties
+
++ Little-endian encoding
++ Separated address spaces for constant data, executable, and working memory
++ Full 48-bit address space for working memory
++ 16-bit address spaces for constant data
++ Floating point values are IEEE754
++ Floats are fixed width, in sizes `32` and `64`
++ Integers are always two's complement
++ Integers are fixed width, in sizes `8`, `16`, `32`, and `64`
++ Sign of integers is not a property of types; only instructions
++ Structured control flow
++ Effects-aware
++ Tail recursion
+
+### Parameter Legend
+
+| Symbol | Type | Description | Bit Size |
+|-|-|-|-|
+| `R` | `Register` | a plain register with no offset | `8` |
+| `O` | `Operand` | a register paired with an offset into it | `24` |
+| `I` | `Index` (Varies) | a static index, varying kinds based on context (ie. `BlockIndex`, `HandlerSetIndex`, `ConstantIndex`) | `16` |
+| `[x]` | A variable-length array of `x` | a set of parameters; for example, the set of argument registers to provide to a function call | `64 + bits(x) * length` |
+
+
+### Op codes
+
+<!--#Readme:ISA-->
