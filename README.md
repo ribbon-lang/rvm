@@ -370,7 +370,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">block<img width="200px" height="1" align="right"></th>
+        <th colspan="3" align="left" width="100%">block<img width="900px" height="1" align="right"></th>
         <td colspan="2">Params&nbsp;(both)</td>
     </tr>
     <tr>
@@ -394,7 +394,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">with<img width="200px" height="1" align="right"></th>
+        <th colspan="3" align="left" width="100%">with<img width="900px" height="1" align="right"></th>
         <td colspan="2">Params&nbsp;(both)</td>
     </tr>
     <tr>
@@ -418,7 +418,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">if_else<img width="200px" height="1" align="right"></th>
+        <th colspan="3" align="left" width="100%">if_else<img width="900px" height="1" align="right"></th>
         <td colspan="2">Params&nbsp;(both)</td>
     </tr>
     <tr>
@@ -442,7 +442,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">case<img width="200px" height="1" align="right"></th>
+        <th colspan="3" align="left" width="100%">case<img width="900px" height="1" align="right"></th>
         <td colspan="2">Params&nbsp;(both)</td>
     </tr>
     <tr>
@@ -466,7 +466,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">br<img width="200px" height="1" align="right"></th>
+        <th colspan="3" align="left" width="100%">br<img width="900px" height="1" align="right"></th>
         <td colspan="2">Params&nbsp;(both)</td>
     </tr>
     <tr>
@@ -490,7 +490,7 @@ but here is a preliminary rundown.
 </table>
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">br_if<img width="200px" height="1" align="right"></th>
+        <th colspan="3" align="left" width="100%">br_if<img width="900px" height="1" align="right"></th>
         <td colspan="2">Params&nbsp;(both)</td>
     </tr>
     <tr>

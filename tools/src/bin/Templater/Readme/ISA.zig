@@ -366,7 +366,7 @@ pub fn main() !void {
                 try out.print(
                     \\<table>
                     \\    <tr>
-                    \\        <th colspan="3" align="left" width="100%">{s}<img width="200px" height="1" align="right"></th>
+                    \\        <th colspan="3" align="left" width="100%">{s}<img width="900px" height="1" align="right"></th>
                     \\        <td colspan="2">Params&nbsp;(both)</td>
                     \\    </tr>
                     \\    <tr>
