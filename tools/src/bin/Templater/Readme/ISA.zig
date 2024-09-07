@@ -326,7 +326,7 @@ pub fn main() !void {
                 try out.print(
                     \\<table>
                     \\    <tr>
-                    \\        <th colspan="3" align="left" width="100%">{s}<img width="10000px" height="1" align="right"></th>
+                    \\        <th colspan="3" align="left" width="100%">{s}<img width="200px" height="1" align="right"></th>
                     \\        <td colspan="2">Params</td>
                     \\    </tr>
                     \\    <tr>
@@ -366,7 +366,7 @@ pub fn main() !void {
                 try out.print(
                     \\<table>
                     \\    <tr>
-                    \\        <th colspan="3" align="left" width="100%">{s}<img width="10000px" height="1" align="right"></th>
+                    \\        <th colspan="3" align="left" width="100%">{s}<img width="200px" height="1" align="right"></th>
                     \\        <td colspan="2">Params&nbsp;(both)</td>
                     \\    </tr>
                     \\    <tr>
@@ -415,7 +415,7 @@ pub fn main() !void {
                 try out.print(
                     \\<table>
                     \\    <tr>
-                    \\        <th colspan="3" align="left" width="100%">{s}<img width="10000px" height="1" align="right"></th>
+                    \\        <th colspan="3" align="left" width="100%">{s}<img width="200px" height="1" align="right"></th>
                     \\        <td colspan="2">Params</td>
                     \\    </tr>
                     \\    <tr>
@@ -446,7 +446,7 @@ pub fn main() !void {
             try out.print(
                 \\<table>
                 \\    <tr>
-                \\        <th colspan="3" align="left" width="100%">a_to_b<img width="10000px" height="1" align="right"></th>
+                \\        <th colspan="3" align="left" width="100%">a_to_b<img width="200px" height="1" align="right"></th>
                 \\        <td colspan="2">Params</td>
                 \\    </tr>
                 \\    <tr>
@@ -477,7 +477,7 @@ pub fn main() !void {
                     try out.print(
                         \\<table>
                         \\    <tr>
-                        \\        <th colspan="3" align="left" width="100%">{s}<img width="10000px" height="1" align="right"></th>
+                        \\        <th colspan="3" align="left" width="100%">{s}<img width="200px" height="1" align="right"></th>
                         \\        <td>Params</td>
                         \\    </tr>
                         \\    <tr>
@@ -504,7 +504,7 @@ pub fn main() !void {
                     try out.print(
                         \\<table>
                         \\    <tr>
-                        \\        <th colspan="3" align="left" width="100%">{s}<img width="10000px" height="1" align="right"></th>
+                        \\        <th colspan="3" align="left" width="100%">{s}<img width="200px" height="1" align="right"></th>
                         \\        <td colspan="2">Params</td>
                         \\    </tr>
                         \\    <tr>
