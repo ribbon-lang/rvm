@@ -25,7 +25,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             allocator.free(self.mem);
         }
 
-        pub fn top(self: *const Self) Error!T {
+        pub inline fn top(self: *const Self) Error!T {
             if (self.ptr == 0) {
                 @branchHint(.cold);
                 return Error.Underflow;
@@ -34,7 +34,16 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             return self.mem[self.ptr - 1];
         }
 
-        pub fn topSlice(self: *const Self, n: Ptr) Error![]T {
+        pub inline fn topPtr(self: *const Self) Error!*T {
+            if (self.ptr == 0) {
+                @branchHint(.cold);
+                return Error.Underflow;
+            }
+
+            return &self.mem[self.ptr - 1];
+        }
+
+        pub inline fn topSlice(self: *const Self, n: Ptr) Error![]T {
             if (self.ptr < n) {
                 @branchHint(.cold);
                 return Error.Underflow;
@@ -43,7 +52,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             return self.mem[self.ptr - n..self.ptr];
         }
 
-        pub fn get(self: *const Self, i: Ptr) Error!T {
+        pub inline fn get(self: *const Self, i: Ptr) Error!T {
             if (i >= self.ptr) {
                 @branchHint(.cold);
                 return Error.OutOfBounds;
@@ -52,7 +61,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             return self.mem[i];
         }
 
-        pub fn getSlice(self: *const Self, i: Ptr, n: Ptr) Error![]T {
+        pub inline fn getSlice(self: *const Self, i: Ptr, n: usize) Error![]T {
             if (i + n > self.ptr) {
                 @branchHint(.cold);
                 return Error.OutOfBounds;
@@ -61,7 +70,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             return self.mem[i..i + n];
         }
 
-        pub fn set(self: *Self, i: Ptr, value: T) Error!void {
+        pub inline fn set(self: *Self, i: Ptr, value: T) Error!void {
             if (i >= self.ptr) {
                 @branchHint(.cold);
                 return Error.OutOfBounds;
@@ -70,7 +79,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             self.mem[i] = value;
         }
 
-        pub fn setSlice(self: *Self, i: Ptr, slice: []const T) Error!void {
+        pub inline fn setSlice(self: *Self, i: Ptr, slice: []const T) Error!void {
             if (i + slice.len > self.ptr) {
                 @branchHint(.cold);
                 return Error.OutOfBounds;
@@ -81,7 +90,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             }
         }
 
-        pub fn push(self: *Self, value: T) Error!void {
+        pub inline fn push(self: *Self, value: T) Error!void {
             if (self.ptr >= self.mem.len) {
                 @branchHint(.cold);
                 return Error.Overflow;
@@ -91,7 +100,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             self.ptr += 1;
         }
 
-        pub fn pushSlice(self: *Self, slice: []const T) Error!void {
+        pub inline fn pushSlice(self: *Self, slice: []const T) Error!void {
             if (self.ptr + slice.len > self.mem.len) {
                 @branchHint(.cold);
                 return Error.Overflow;
@@ -103,7 +112,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             }
         }
 
-        pub fn pop(self: *Self) Error!T {
+        pub inline fn pop(self: *Self) Error!T {
             if (self.ptr == 0) {
                 @branchHint(.cold);
                 return Error.Underflow;
@@ -113,7 +122,17 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             return self.mem[self.ptr];
         }
 
-        pub fn popSlice(self: *Self, n: Ptr) Error![]T {
+        pub inline fn popPtr(self: *Self) Error!*T {
+            if (self.ptr == 0) {
+                @branchHint(.cold);
+                return Error.Underflow;
+            }
+
+            self.ptr -= 1;
+            return &self.mem[self.ptr];
+        }
+
+        pub inline fn popSlice(self: *Self, n: Ptr) Error![]T {
             if (self.ptr < n) {
                 @branchHint(.cold);
                 return Error.Underflow;

@@ -26,9 +26,33 @@ const Fiber = @This();
 
 
 context: *Context,
+program: *Bytecode.Program,
 stack: StackSet,
 evidence: []Evidence,
 diagnostic: ?*?Diagnostic,
+
+
+pub const Error = std.mem.Allocator.Error || DataStack.Error || error {};
+
+pub const Trap = error {
+    Unreachable,
+    Underflow,
+    Overflow,
+    OutOfBounds,
+};
+
+pub const Diagnostic = struct {
+    message: []const u8,
+    location: ?Bytecode.Location,
+
+    pub const FailedToAllocateMessage: []const u8 = "failed to allocate memory for error message";
+
+    pub fn deinit(self: Diagnostic, allocator: std.mem.Allocator) void {
+        if (self.message.ptr != FailedToAllocateMessage.ptr) {
+            allocator.free(self.message);
+        }
+    }
+};
 
 
 pub const StackSet = struct {
@@ -60,7 +84,8 @@ pub const StackSet = struct {
     }
 };
 
-pub const DATA_STACK_SIZE: usize = (1024 * 1024 * 8)
+pub const DATA_STACK_SIZE: usize
+    = (1024 * 1024 * 8)
     // take a little bit off to account for the other stacks,
     // making a nice even number of mb for the total fiber size  (16mb, currently)
     - @rem(CALL_STACK_SIZE * @sizeOf(CallFrame)
@@ -86,28 +111,6 @@ pub const DataStack = Stack(u8, u24);
 pub const CallStack = Stack(CallFrame, u16);
 pub const BlockStack = Stack(BlockFrame, u16);
 
-pub const Trap = error {
-    Unreachable,
-    Underflow,
-    Overflow,
-    OutOfBounds,
-};
-
-pub const Error = std.mem.Allocator.Error;
-
-pub const Diagnostic = struct {
-    message: []const u8,
-    location: ?Bytecode.Location,
-
-    pub const FailedToAllocateMessage: []const u8 = "failed to allocate memory for error message";
-
-    pub fn deinit(self: Diagnostic, allocator: std.mem.Allocator) void {
-        if (self.message.ptr != FailedToAllocateMessage.ptr) {
-            allocator.free(self.message);
-        }
-    }
-};
-
 pub const Evidence = struct {
     handler: Bytecode.HandlerIndex,
     call: CallStack.Ptr,
@@ -123,6 +126,8 @@ pub const BlockFrame = struct {
 pub const CallFrame = struct {
     function: Bytecode.FunctionIndex,
     evidence: ?Bytecode.EvidenceIndex,
+    argument_offsets: []DataStack.Ptr,
+
     stack: StackRef,
 
     pub const StackRef = struct {
@@ -132,7 +137,7 @@ pub const CallFrame = struct {
 };
 
 
-pub fn init(context: *Context) !*Fiber {
+pub fn init(context: *Context, program: *Bytecode.Program) !*Fiber {
     const ptr = try context.allocator.create(Fiber);
     errdefer context.allocator.destroy(ptr);
 
@@ -143,6 +148,7 @@ pub fn init(context: *Context) !*Fiber {
     errdefer context.allocator.free(evidence);
 
     ptr.* = Fiber {
+        .program = program,
         .context = context,
         .stack = stack,
         .evidence = evidence,

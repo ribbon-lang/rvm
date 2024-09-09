@@ -6,6 +6,14 @@ const IO = @import("root.zig");
 pub const ENCODING: std.builtin.Endian = .little;
 
 
+pub fn flip(value: std.builtin.Endian) std.builtin.Endian {
+    return switch (value) {
+        .little => .big,
+        .big => .little,
+    };
+}
+
+
 pub fn bitCastTo(value: anytype) IntType(@TypeOf(value)).? {
     return switch (@typeInfo(@TypeOf(value))) {
         .@"enum" => @bitCast(@intFromEnum(value)),

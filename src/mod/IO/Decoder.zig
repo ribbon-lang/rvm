@@ -2,12 +2,15 @@ const std = @import("std");
 
 const Support = @import("Support");
 
+const Bytecode = @import("Bytecode");
+
 
 const Decoder = @This();
 
 
 memory: []const u8,
-ip: usize,
+base: Bytecode.InstructionPointer,
+offset: *Bytecode.InstructionPointerOffset,
 
 
 pub const Error = error {
@@ -16,56 +19,64 @@ pub const Error = error {
 };
 
 
-pub fn init(memory: []const u8) Decoder {
-    return .{
-        .memory = memory,
-        .ip = 0,
-    };
+pub inline fn isEof(self: *const Decoder) bool {
+    return self.ip() >= self.memory.len;
 }
 
-pub fn isEof(self: *const Decoder) bool {
-    return self.ip >= self.memory.len;
+pub inline fn inbounds(self: *const Decoder, offset: usize) bool {
+    return self.relIp(offset) <= self.memory.len;
 }
 
-pub fn decodeByte(self: *Decoder) Error!u8 {
-    if (self.ip >= self.memory.len) {
+pub inline fn ip(self: *const Decoder) Bytecode.InstructionPointer {
+    return self.base + self.offset.*;
+}
+
+pub inline fn relIp(self: *const Decoder, offset: usize) usize {
+    return self.ip() + offset;
+}
+
+pub inline fn decodeByte(self: *const Decoder) Error!u8 {
+    if (self.isEof()) {
+        @branchHint(.cold);
         return Error.OutOfBounds;
     }
 
-    const value = self.memory[self.ip];
-    self.ip += 1;
+    const value = self.memory[self.ip()];
+    self.offset.* += 1;
     return value;
 }
 
-pub fn decodeAll(self: *Decoder, count: usize) Error![]const u8 {
-    if (self.ip + count > self.memory.len) {
+pub inline fn decodeAll(self: *const Decoder, count: usize) Error![]const u8 {
+    if (!self.inbounds(count)) {
+        @branchHint(.cold);
         return Error.OutOfBounds;
     }
 
-    const start = self.ip;
-    self.ip += count;
-    return self.memory[start..self.ip];
+    const start = self.ip();
+    self.offset.* += @truncate(count);
+    return self.memory[start..self.ip()];
 }
 
-pub fn decodeRaw(self: *Decoder, comptime T: type) Error!T {
+pub inline fn decodeRaw(self: *const Decoder, comptime T: type) Error!T {
     const bytes = try self.decodeAll(@sizeOf(T));
     var out: T = undefined;
     @memcpy(@as([*]u8, @ptrCast(&out)), bytes);
     return out;
 }
 
-pub fn pad(self: *Decoder, alignment: usize) Error!void {
-    const addr = @intFromPtr(self.memory.ptr) + self.ip;
+pub inline fn pad(self: *const Decoder, alignment: usize) Error!void {
+    const addr = @intFromPtr(self.memory.ptr) + self.ip();
     const padding = Support.alignmentDelta(addr, alignment);
 
-    if (self.ip + padding > self.memory.len) {
+    if (!self.inbounds(padding)) {
+        @branchHint(.cold);
         return Error.OutOfBounds;
     }
 
-    self.ip += padding;
+    self.offset.* += @truncate(padding);
 }
 
-pub fn decode(self: *Decoder, comptime T: type) Error!T {
+pub fn decode(self: *const Decoder, comptime T: type) Error!T {
     if (comptime std.meta.hasFn(T, "decode")) {
         return T.decode(self);
     }
@@ -114,6 +125,7 @@ pub fn decode(self: *Decoder, comptime T: type) Error!T {
             }
 
             if (try self.decode(info.child) != sentinel) {
+                @branchHint(.cold);
                 return Error.BadEncoding;
             }
 
@@ -134,13 +146,14 @@ pub fn decode(self: *Decoder, comptime T: type) Error!T {
             .One => {
                 try self.pad(@alignOf(info.child));
 
-                if (self.ip + @sizeOf(info.child) > self.memory.len) {
-                    return Error.OutOfBounds;
+                if (!self.inbounds(@sizeOf(info.child))) {
+                    @branchHint(.cold);
+                    return Error.BadEncoding;
                 }
 
-                const ptr: T = @alignCast(@ptrCast(&self.memory[self.ip]));
+                const ptr: T = @alignCast(@ptrCast(&self.memory[self.ip()]));
 
-                self.ip += @sizeOf(info.child);
+                self.offset.* += @sizeOf(info.child);
 
                 return ptr;
             },
@@ -150,12 +163,10 @@ pub fn decode(self: *Decoder, comptime T: type) Error!T {
 
                     try self.pad(@alignOf(info.child));
 
-                    const ptr: T = @alignCast(@ptrCast(&self.memory[self.ip]));
+                    const ptr: T = @alignCast(@ptrCast(&self.memory[self.ip()]));
 
                     while (true) {
-                        const a = try self.decode(info.child);
-
-                        if (a == sentinel) break;
+                        if (try self.decode(info.child) == sentinel) break;
                     }
 
                     return ptr;
@@ -168,19 +179,23 @@ pub fn decode(self: *Decoder, comptime T: type) Error!T {
 
                 try self.pad(@alignOf(info.child));
 
-                const ptr: [*]const info.child = @alignCast(@ptrCast(&self.memory[self.ip]));
+                const ptr: [*]const info.child = @alignCast(@ptrCast(&self.memory[self.ip()]));
 
-                if (self.ip + len * @sizeOf(info.child) > self.memory.len) {
-                    return Error.OutOfBounds;
+                const size = len * @sizeOf(info.child);
+
+                if (!self.inbounds(size)) {
+                    @branchHint(.cold);
+                    return Error.BadEncoding;
                 }
 
                 const slice = ptr[0..len];
 
-                self.ip += len * @sizeOf(info.child);
+                self.offset.* += @truncate(size);
 
                 if (info.sentinel) |sPtr| {
                     const sentinel = @as(*const info.child, @ptrCast(sPtr)).*;
                     if (try self.decode(info.child) != sentinel) {
+                        @branchHint(.cold);
                         return Error.BadEncoding;
                     }
                 }

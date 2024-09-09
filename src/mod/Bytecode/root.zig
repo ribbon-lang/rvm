@@ -133,13 +133,25 @@ pub const Type = union(enum) {
 };
 
 pub const LayoutTable = struct {
-    type: TypeIndex,
-    local_types: []TypeIndex,
-    local_layouts: []Layout,
+    types: []TypeIndex,
+    layouts: []Layout,
     local_offsets: []RegisterBaseOffset,
     size: LayoutTableSize,
     alignment: ValueAlignment,
     num_params: Register,
+
+    pub inline fn getType(self: *const LayoutTable, register: Register) TypeIndex {
+        return self.types[@as(RegisterIndex, @intFromEnum(register))];
+    }
+
+    pub inline fn getLayout(self: *const LayoutTable, register: Register) Layout {
+        return self.layouts[@as(RegisterIndex, @intFromEnum(register))];
+    }
+
+    pub inline fn inbounds(self: *const LayoutTable, operand: Operand, size: ValueSize) bool {
+        const layout = self.getLayout(operand.register);
+        return operand.offset + size <= layout.size;
+    }
 };
 
 pub const Function = struct {
@@ -206,7 +218,8 @@ pub fn write(self: *const Bytecode, writer: IO.Writer) !void {
 pub fn writeInstructions(instructions: []const u8, writer: IO.Writer) !void {
     try writer.write(@as(InstructionPointer, @intCast(instructions.len)));
 
-    var decoder = IO.Decoder.init(instructions);
+    var decoderOffset: InstructionPointerOffset = 0;
+    const decoder = IO.Decoder { .memory = instructions, .base = 0, .offset = &decoderOffset };
 
     while (!decoder.isEof()) {
         const op = try decoder.decode(Op);
@@ -312,7 +325,7 @@ test {
     defer instructionsEndian.deinit();
 
     const nativeEndian = @import("builtin").cpu.arch.endian();
-    const nonNativeEndian: std.builtin.Endian = switch (nativeEndian) { .little => .big, .big => .little };
+    const nonNativeEndian = IO.Endian.flip(nativeEndian);
 
     const writer = IO.Writer.initEndian(instructionsEndian.writer().any(), nonNativeEndian);
 
@@ -331,7 +344,8 @@ test {
 
     try std.testing.expectEqualSlices(u8, instructionsNative, instructions);
 
-    var decoder = IO.Decoder.init(instructions);
+    var decodeOffset: InstructionPointerOffset = 0;
+    const decoder = IO.Decoder { .memory = instructions, .base = 0, .offset = &decodeOffset };
 
     try std.testing.expectEqualDeep(nop, try decoder.decode(Op));
     try std.testing.expectEqualDeep(trap, try decoder.decode(Op));
