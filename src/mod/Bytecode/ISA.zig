@@ -440,7 +440,7 @@ pub const BlockImmOperand = struct {
 };
 
 pub const ImmOperand = struct {
-    imm: Operand,
+    i: ConstantIndex,
     x: Operand,
 };
 

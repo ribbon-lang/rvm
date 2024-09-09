@@ -582,7 +582,7 @@ but here is a preliminary rundown.
     <tr>
         <td colspan="3" rowspan="3" width="100%" align="center">copy the immediate value designated by <code>i</code> into <code>x</code></td>
     </tr>
-    <tr><td>imm</td><td><code>O</code></td></tr><tr><td>x</td><td><code>O</code></td></tr>
+    <tr><td>i</td><td><code>I</code></td></tr><tr><td>x</td><td><code>O</code></td></tr>
     <tr>
         <td align="right" width="1%"><code>0x1c</code></td>
         <td align="left" width="1%"><code>load_imm</code></td>
@@ -597,7 +597,7 @@ but here is a preliminary rundown.
     <tr>
         <td colspan="3" rowspan="3" width="100%" align="center">copy the immediate value designated by <code>i</code> to the address stored in <code>x</code></td>
     </tr>
-    <tr><td>imm</td><td><code>O</code></td></tr><tr><td>x</td><td><code>O</code></td></tr>
+    <tr><td>i</td><td><code>I</code></td></tr><tr><td>x</td><td><code>O</code></td></tr>
     <tr>
         <td align="right" width="1%"><code>0x1d</code></td>
         <td align="left" width="1%"><code>store_imm</code></td>
