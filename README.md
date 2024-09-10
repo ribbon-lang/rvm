@@ -63,6 +63,7 @@ There are several commands available for `zig build` that can be run in usual fa
 |`quick`| Build a quick debug test version of ribboni only (No headers, readme, lib ...) |
 |`full`| Runs the following commands: test, readme, header |
 |`verify`| Runs the following commands: verify-readme, verify-header, verify-tests |
+|`check`| Run semantic analysis on all files referenced by a unit test; do not build artifacts (Useful with `zls` build on save) |
 |`release`| Build the release versions of RibbonI for all targets |
 |`unit-tests`| Run unit tests |
 |`cli-tests`| Run cli tests |

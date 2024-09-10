@@ -25,6 +25,7 @@ pub const basicCommands = .{
     .quick = "Build a quick debug test version of ribboni only (No headers, readme, lib ...)",
     .full = listCommand(fullCommandNames),
     .verify = listCommand(verifyCommandNames),
+    .check = "Run semantic analysis on all files referenced by a unit test; do not build artifacts (Useful with `zls` build on save)",
     .release = "Build the release versions of RibbonI for all targets",
 };
 

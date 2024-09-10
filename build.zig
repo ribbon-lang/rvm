@@ -63,6 +63,16 @@ pub fn build(b: *Build) !void {
         },
     );
 
+    const testCompSet = try Compilation.init(b, "tests", sourceTree, dependencies, .{
+        .meta = .{ .generative = nativeCompSet },
+        .vis = .private,
+        .target = defaultTarget,
+        .optimize = defaultOptimize,
+        .strip = defaultOptimize != .Debug,
+        .fileGen = false,
+        .tests = true,
+    });
+
     var snapshotHelper = try nativeCompSet.getSnapshotHelper("tests/.snapshot");
 
     const defaultFullBuild = defaultFullBuild: {
@@ -88,18 +98,17 @@ pub fn build(b: *Build) !void {
         runCommand.dependOn(&run.step);
     }
 
+    const checkCommand: *Build.Step = buildCommands.get("check").?;
+    {
+        for (testCompSet.tests.items) |testName| {
+            const t = try testCompSet.getTest(testName);
+
+            checkCommand.dependOn(&t.step);
+        }
+    }
+
     const unitTestsCommand: *Build.Step = buildCommands.get("unit-tests").?;
     {
-        const testCompSet = try Compilation.init(b, "tests", sourceTree, dependencies, .{
-            .meta = .{ .generative = nativeCompSet },
-            .vis = .private,
-            .target = defaultTarget,
-            .optimize = defaultOptimize,
-            .strip = defaultOptimize != .Debug,
-            .fileGen = false,
-            .tests = true,
-        });
-
         for (testCompSet.tests.items) |testName| {
             const t = try testCompSet.getTest(testName);
             const testStep = b.addRunArtifact(t);
