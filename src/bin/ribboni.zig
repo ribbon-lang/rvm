@@ -85,3 +85,8 @@ fn earlyTesting(output: std.fs.File.Writer, _: []const []const u8, _: []const []
     try output.print("Hello, world!\n", .{});
     return;
 }
+
+
+test {
+    std.testing.refAllDeclsRecursive(@This());
+}

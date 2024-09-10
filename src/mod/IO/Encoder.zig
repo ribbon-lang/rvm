@@ -156,4 +156,3 @@ fn encodeStructure(self: *Encoder, allocator: std.mem.Allocator, value: anytype)
         else => @compileError("cannot encode type `" ++ @typeName(T) ++ "` to encoder"),
     }
 }
-

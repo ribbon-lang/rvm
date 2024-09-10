@@ -239,7 +239,7 @@ pub fn write(self: *const Bytecode, writer: IO.Writer) !void {
     try writer.write(@as(BlockIndex, @intCast(self.blocks.len)));
 
     for (self.blocks) |block| {
-        try block.write(writer);
+        try writer.write(block);
     }
 
     try writeInstructions(self.instructions, writer);
@@ -384,4 +384,8 @@ test {
     try std.testing.expect(Support.equal(nop, try decoder.decode(Op)));
     try std.testing.expect(Support.equal(trap, try decoder.decode(Op)));
     try std.testing.expect(decoder.isEof());
+}
+
+test {
+    std.testing.refAllDeclsRecursive(@This());
 }

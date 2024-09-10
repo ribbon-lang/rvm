@@ -145,8 +145,3 @@ pub inline fn getRegisterOffset(callFrame: *Fiber.CallFrame, layout: *Bytecode.L
         }
     }
 }
-
-
-test {
-    std.testing.refAllDecls(@This());
-}

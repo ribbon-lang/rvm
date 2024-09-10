@@ -1,4 +1,4 @@
-pub const std = @import("std");
+const std = @import("std");
 
 const IO = @import("root.zig");
 const Endian = IO.Endian;
@@ -24,12 +24,14 @@ pub fn initEndian(inner: std.io.AnyReader, endian: std.builtin.Endian) Reader {
     };
 }
 
-pub fn readByte(self: Reader, value: u8) !void {
-    try self.inner.readByte(value);
+pub fn readByte(self: Reader) !u8 {
+    return try self.inner.readByte();
 }
 
 pub fn readAll(self: Reader, values: []u8) !void {
-    try self.inner.readAll(values);
+    if (try self.inner.readAll(values) != values.len) {
+        return error.BadEncoding;
+    }
 }
 
 pub fn readRaw(self: Reader, comptime T: type) !T {

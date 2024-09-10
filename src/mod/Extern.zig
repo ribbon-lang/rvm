@@ -181,7 +181,7 @@ pub const Hasher = extern struct {
         return self.proc(&self.state, bytes.ptr, bytes.len);
     }
 
-    pub fn hash(bytes: []const u8) void {
+    pub fn hash(bytes: []const u8) u32 {
         var hasher = initFnv1a32();
         hasher.update(bytes);
         return hasher.state;
@@ -209,7 +209,7 @@ pub const Writer = extern struct {
     }
 
     pub fn write(self: Self, bytes: [*]const u8, bytes_len: usize, outBytesWritten: ?*usize) bool {
-        const written = self.inner.write(Support.makeSliceConst(bytes, bytes_len)) catch return false;
+        const written = self.inner.write(bytes[0..bytes_len]) catch return false;
         if (outBytesWritten) |ptr| {
             ptr.* = written;
         }
@@ -217,7 +217,7 @@ pub const Writer = extern struct {
     }
 
     pub fn writeAll(self: Self, bytes: [*]const u8, bytes_len: usize) bool {
-        self.inner.writeAll(Support.makeSliceConst(bytes, bytes_len)) catch return false;
+        self.inner.writeAll(bytes[0..bytes_len]) catch return false;
         return true;
     }
 
@@ -282,3 +282,7 @@ pub const Error = enum(std.meta.Int(.unsigned, @sizeOf(anyerror) * 8)) {
         return @errorFromInt(@intFromEnum(self));
     }
 };
+
+test {
+    std.testing.refAllDeclsRecursive(@This());
+}

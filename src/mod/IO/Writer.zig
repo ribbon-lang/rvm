@@ -1,4 +1,4 @@
-pub const std = @import("std");
+const std = @import("std");
 
 const IO = @import("./root.zig");
 const Endian = IO.Endian;

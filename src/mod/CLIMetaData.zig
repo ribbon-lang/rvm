@@ -186,3 +186,7 @@ pub fn printOptions(out: anytype) !void {
         return error.ClapError;
     };
 }
+
+test {
+    std.testing.refAllDeclsRecursive(@This());
+}

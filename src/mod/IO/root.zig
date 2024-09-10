@@ -9,5 +9,5 @@ pub const Writer = @import("Writer.zig");
 
 
 test {
-    std.testing.refAllDecls(@This());
+    std.testing.refAllDeclsRecursive(@This());
 }

@@ -211,3 +211,7 @@ pub export fn BB_Allocator_free(allocator: BB_Allocator, buf: *anyopaque, size: 
     const alignLog2 = calcAlignLog2(alignment) catch unreachable;
     alloc.rawFree(@as([*]u8, @ptrCast(buf))[0..size], alignLog2, @returnAddress());
 }
+
+test {
+    std.testing.refAllDeclsRecursive(@This());
+}

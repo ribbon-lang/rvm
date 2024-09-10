@@ -13,7 +13,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
         pub const Error = error { Overflow, Underflow, OutOfBounds };
 
         pub fn init(allocator: std.mem.Allocator, size: usize) !Self {
-            const mem = try allocator.create(T, size);
+            const mem = try allocator.alloc(T, size);
             return Self{ .mem = mem, .ptr = 0 };
         }
 

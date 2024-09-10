@@ -587,6 +587,8 @@ pub inline fn notEqualAddress(a: anytype, b: @TypeOf(a)) bool {
 }
 
 test {
+    std.testing.refAllDeclsRecursive(@This());
+
     const expectEqual = std.testing.expectEqual;
 
     {

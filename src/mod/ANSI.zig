@@ -250,3 +250,9 @@ pub const StyleT = struct { Reset: []const u8, Decoration: struct {
         Default: []const u8,
     };
 } };
+
+
+
+test {
+    std.testing.refAllDeclsRecursive(@This());
+}

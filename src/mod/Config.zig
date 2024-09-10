@@ -12,3 +12,7 @@ pub var USE_EMOJI = USE_EMOJI_DEFAULT;
 
 pub const USE_ANSI_STYLES_DEFAULT: bool = zig_config.useAnsiStyles;
 pub var USE_ANSI_STYLES = USE_ANSI_STYLES_DEFAULT;
+
+test {
+    std.testing.refAllDeclsRecursive(@This());
+}

@@ -29,7 +29,7 @@ context: *Context,
 program: *Bytecode.Program,
 stack: StackSet,
 evidence: []Evidence,
-diagnostic: ?*?Diagnostic,
+diagnostic: ?*Diagnostic,
 
 
 pub const Error = std.mem.Allocator.Error || DataStack.Error || error { Trap, ImmediateWrite, };
@@ -61,26 +61,26 @@ pub const StackSet = struct {
     block: BlockStack,
 
     pub fn init(allocator: std.mem.Allocator) !StackSet {
-        const data_stack = try DataStack.init(allocator, DATA_STACK_SIZE);
-        errdefer data_stack.deinit(allocator);
+        const data = try DataStack.init(allocator, DATA_STACK_SIZE);
+        errdefer data.deinit(allocator);
 
-        const call_stack = try CallStack.init(allocator, CALL_STACK_SIZE);
-        errdefer call_stack.deinit(allocator);
+        const call = try CallStack.init(allocator, CALL_STACK_SIZE);
+        errdefer call.deinit(allocator);
 
-        const block_stack = try BlockStack.init(allocator, BLOCK_STACK_SIZE);
-        errdefer block_stack.deinit(allocator);
+        const block = try BlockStack.init(allocator, BLOCK_STACK_SIZE);
+        errdefer block.deinit(allocator);
 
         return StackSet {
-            .data_stack = data_stack,
-            .call_stack = call_stack,
-            .block_stack = block_stack,
+            .data = data,
+            .call = call,
+            .block = block,
         };
     }
 
     pub fn deinit(self: StackSet, allocator: std.mem.Allocator) void {
-        self.data_stack.deinit(allocator);
-        self.call_stack.deinit(allocator);
-        self.block_stack.deinit(allocator);
+        self.data.deinit(allocator);
+        self.call.deinit(allocator);
+        self.block.deinit(allocator);
     }
 };
 
@@ -144,7 +144,7 @@ pub fn init(context: *Context, program: *Bytecode.Program) !*Fiber {
     const stack = try StackSet.init(context.allocator);
     errdefer stack.deinit(context.allocator);
 
-    const evidence = try context.allocator.alloc(EVIDENCE_VECTOR_SIZE);
+    const evidence = try context.allocator.alloc(Evidence, EVIDENCE_VECTOR_SIZE);
     errdefer context.allocator.free(evidence);
 
     ptr.* = Fiber {
@@ -152,7 +152,7 @@ pub fn init(context: *Context, program: *Bytecode.Program) !*Fiber {
         .context = context,
         .stack = stack,
         .evidence = evidence,
-        .trap = null,
+        .diagnostic = null,
     };
 
     return ptr;
@@ -165,8 +165,8 @@ pub fn deinit(self: *Fiber) void {
 }
 
 pub fn getLocation(self: *const Fiber) Trap!Bytecode.Location {
-    const call = try self.call_stack.top();
-    const block = try self.block_stack.top();
+    const call = try self.stack.call.top();
+    const block = try self.stack.block.top();
 
     return .{
         .function = call.function,

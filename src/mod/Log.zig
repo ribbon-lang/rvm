@@ -8,7 +8,7 @@ pub const std_options = .{
 
 pub fn log(
     comptime message_level: std.log.Level,
-    comptime scope: @Type(.EnumLiteral),
+    comptime scope: @Type(.enum_literal),
     comptime format: []const u8,
     args: anytype,
 ) void {
@@ -84,4 +84,8 @@ pub fn filteredLogFn(
             return unfilteredLogFn(level, scope, format, args);
         }
     }
+}
+
+test {
+    std.testing.refAllDeclsRecursive(@This());
 }

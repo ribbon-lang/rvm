@@ -19,5 +19,5 @@ pub const Eval = @import("Eval.zig");
 
 
 test {
-    std.testing.refAllDecls(@This());
+    std.testing.refAllDeclsRecursive(@This());
 }
