@@ -177,6 +177,7 @@ but here is a preliminary rundown.
 |-|-|-|-|
 | `R` | `Register` | a plain register with no offset | `8` |
 | `O` | `Operand` | a register or a constant index paired with an offset into it | `32` |
+| `M` | `MemorySize` | an offset or size in main memory | `48` |
 | `I` | `Index` (Varies) | a static index, varying kinds based on context (ie. `BlockIndex`, `HandlerSetIndex`, etc) | `16` |
 | `[x]` | A variable-length array of `x` | a set of parameters; for example, the set of argument registers to provide to a function call | `64 + bits(x) * length` |
 
@@ -487,21 +488,6 @@ but here is a preliminary rundown.
 #### Memory
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">addr_of_upvalue<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">copy the address of the upvalue <code>x</code> into <code>y</code></td>
-    </tr>
-    <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x16</code></td>
-        <td align="left" width="1%"><code>addr_of_upvalue</code></td>
-        <td align="center" colspan="3">address extraction of operand in effect handler's enclosing scope</td>
-    </tr>
-</table>
-<table>
-    <tr>
         <th colspan="3" align="left" width="100%">addr_of<img width="960px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
@@ -510,7 +496,7 @@ but here is a preliminary rundown.
     </tr>
     <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr>
     <tr>
-        <td align="right" width="1%"><code>0x17</code></td>
+        <td align="right" width="1%"><code>0x16</code></td>
         <td align="left" width="1%"><code>addr_of</code></td>
         <td align="center" colspan="3">address extraction of operand</td>
     </tr>
@@ -521,11 +507,11 @@ but here is a preliminary rundown.
         <td colspan="2">Params</td>
     </tr>
     <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">copy the value from the address stored in <code>x</code> into <code>y</code></td>
+        <td colspan="3" rowspan="4" width="100%" align="center">copy <code>m</code> bytes from the address stored in <code>x</code> into <code>y</code></td>
     </tr>
-    <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr>
+    <tr><td>m</td><td><code>I</code></td></tr><tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr>
     <tr>
-        <td align="right" width="1%"><code>0x18</code></td>
+        <td align="right" width="1%"><code>0x17</code></td>
         <td align="left" width="1%"><code>load</code></td>
         <td align="center" colspan="3">read from address</td>
     </tr>
@@ -536,11 +522,11 @@ but here is a preliminary rundown.
         <td colspan="2">Params</td>
     </tr>
     <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">copy the value from <code>x</code> to the address stored in <code>y</code></td>
+        <td colspan="3" rowspan="4" width="100%" align="center">copy <code>m</code> bytes from <code>x</code> to the address stored in <code>y</code></td>
     </tr>
-    <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr>
+    <tr><td>m</td><td><code>I</code></td></tr><tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr>
     <tr>
-        <td align="right" width="1%"><code>0x19</code></td>
+        <td align="right" width="1%"><code>0x18</code></td>
         <td align="left" width="1%"><code>store</code></td>
         <td align="center" colspan="3">write to address</td>
     </tr>
@@ -551,13 +537,43 @@ but here is a preliminary rundown.
         <td colspan="2">Params</td>
     </tr>
     <tr>
-        <td colspan="3" rowspan="2" width="100%" align="center">clear the value stored in <code>x</code></td>
+        <td colspan="3" rowspan="3" width="100%" align="center">clear <code>m</code> bytes of <code>x</code></td>
     </tr>
-    <tr><td>x</td><td><code>O</code></td></tr>
+    <tr><td>m</td><td><code>I</code></td></tr><tr><td>x</td><td><code>O</code></td></tr>
     <tr>
-        <td align="right" width="1%"><code>0x1a</code></td>
+        <td align="right" width="1%"><code>0x19</code></td>
         <td align="left" width="1%"><code>clear</code></td>
         <td align="center" colspan="3">fill with zeroes</td>
+    </tr>
+</table>
+<table>
+    <tr>
+        <th colspan="3" align="left" width="100%">swap<img width="960px" height="1" align="right"></th>
+        <td colspan="2">Params</td>
+    </tr>
+    <tr>
+        <td colspan="3" rowspan="4" width="100%" align="center">swap <code>m</code> bytes stored in <code>x</code> and <code>y</code></td>
+    </tr>
+    <tr><td>m</td><td><code>I</code></td></tr><tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr>
+    <tr>
+        <td align="right" width="1%"><code>0x1a</code></td>
+        <td align="left" width="1%"><code>swap</code></td>
+        <td align="center" colspan="3">swap values</td>
+    </tr>
+</table>
+<table>
+    <tr>
+        <th colspan="3" align="left" width="100%">copy<img width="960px" height="1" align="right"></th>
+        <td colspan="2">Params</td>
+    </tr>
+    <tr>
+        <td colspan="3" rowspan="4" width="100%" align="center">copy <code>m</code> bytes from <code>x</code> into <code>y</code></td>
+    </tr>
+    <tr><td>m</td><td><code>I</code></td></tr><tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr>
+    <tr>
+        <td align="right" width="1%"><code>0x1b</code></td>
+        <td align="left" width="1%"><code>copy</code></td>
+        <td align="center" colspan="3">copy value</td>
     </tr>
 </table>
 
@@ -571,7 +587,7 @@ but here is a preliminary rundown.
         <td colspan="3" rowspan="4" width="100%" align="center">load two values from <code>x</code> and <code>y</code><br>perform addition<br>store the result in <code>z</code></td>
     </tr>
     <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr><tr><td>z</td><td><code>O</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x1b</code></td><td align="left" width="1%"><code>i_add8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer addition</td></tr><tr><td align="right" width="1%"><code>0x1c</code></td><td align="left" width="1%"><code>i_add16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer addition</td></tr><tr><td align="right" width="1%"><code>0x1d</code></td><td align="left" width="1%"><code>i_add32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer addition</td></tr><tr><td align="right" width="1%"><code>0x1e</code></td><td align="left" width="1%"><code>i_add64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer addition</td></tr> <tr><td align="right" width="1%"><code>0x1f</code></td><td align="left" width="1%"><code>f_add32</code></td><td align="center" colspan="3">32 bit floating point addition</td></tr><tr><td align="right" width="1%"><code>0x20</code></td><td align="left" width="1%"><code>f_add64</code></td><td align="center" colspan="3">64 bit floating point addition</td></tr>
+    <tr><td align="right" width="1%"><code>0x1c</code></td><td align="left" width="1%"><code>i_add8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer addition</td></tr><tr><td align="right" width="1%"><code>0x1d</code></td><td align="left" width="1%"><code>i_add16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer addition</td></tr><tr><td align="right" width="1%"><code>0x1e</code></td><td align="left" width="1%"><code>i_add32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer addition</td></tr><tr><td align="right" width="1%"><code>0x1f</code></td><td align="left" width="1%"><code>i_add64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer addition</td></tr> <tr><td align="right" width="1%"><code>0x20</code></td><td align="left" width="1%"><code>f_add32</code></td><td align="center" colspan="3">32 bit floating point addition</td></tr><tr><td align="right" width="1%"><code>0x21</code></td><td align="left" width="1%"><code>f_add64</code></td><td align="center" colspan="3">64 bit floating point addition</td></tr>
 </table>
 <table>
     <tr>
@@ -582,7 +598,7 @@ but here is a preliminary rundown.
         <td colspan="3" rowspan="4" width="100%" align="center">load two values from <code>x</code> and <code>y</code><br>perform subtraction<br>store the result in <code>z</code></td>
     </tr>
     <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr><tr><td>z</td><td><code>O</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x21</code></td><td align="left" width="1%"><code>i_sub8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer subtraction</td></tr><tr><td align="right" width="1%"><code>0x22</code></td><td align="left" width="1%"><code>i_sub16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer subtraction</td></tr><tr><td align="right" width="1%"><code>0x23</code></td><td align="left" width="1%"><code>i_sub32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer subtraction</td></tr><tr><td align="right" width="1%"><code>0x24</code></td><td align="left" width="1%"><code>i_sub64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer subtraction</td></tr> <tr><td align="right" width="1%"><code>0x25</code></td><td align="left" width="1%"><code>f_sub32</code></td><td align="center" colspan="3">32 bit floating point subtraction</td></tr><tr><td align="right" width="1%"><code>0x26</code></td><td align="left" width="1%"><code>f_sub64</code></td><td align="center" colspan="3">64 bit floating point subtraction</td></tr>
+    <tr><td align="right" width="1%"><code>0x22</code></td><td align="left" width="1%"><code>i_sub8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer subtraction</td></tr><tr><td align="right" width="1%"><code>0x23</code></td><td align="left" width="1%"><code>i_sub16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer subtraction</td></tr><tr><td align="right" width="1%"><code>0x24</code></td><td align="left" width="1%"><code>i_sub32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer subtraction</td></tr><tr><td align="right" width="1%"><code>0x25</code></td><td align="left" width="1%"><code>i_sub64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer subtraction</td></tr> <tr><td align="right" width="1%"><code>0x26</code></td><td align="left" width="1%"><code>f_sub32</code></td><td align="center" colspan="3">32 bit floating point subtraction</td></tr><tr><td align="right" width="1%"><code>0x27</code></td><td align="left" width="1%"><code>f_sub64</code></td><td align="center" colspan="3">64 bit floating point subtraction</td></tr>
 </table>
 <table>
     <tr>
@@ -593,7 +609,7 @@ but here is a preliminary rundown.
         <td colspan="3" rowspan="4" width="100%" align="center">load two values from <code>x</code> and <code>y</code><br>perform division<br>store the result in <code>z</code></td>
     </tr>
     <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr><tr><td>z</td><td><code>O</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x27</code></td><td align="left" width="1%"><code>i_mul8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer multiplication</td></tr><tr><td align="right" width="1%"><code>0x28</code></td><td align="left" width="1%"><code>i_mul16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer multiplication</td></tr><tr><td align="right" width="1%"><code>0x29</code></td><td align="left" width="1%"><code>i_mul32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer multiplication</td></tr><tr><td align="right" width="1%"><code>0x2a</code></td><td align="left" width="1%"><code>i_mul64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer multiplication</td></tr> <tr><td align="right" width="1%"><code>0x2b</code></td><td align="left" width="1%"><code>f_mul32</code></td><td align="center" colspan="3">32 bit floating point multiplication</td></tr><tr><td align="right" width="1%"><code>0x2c</code></td><td align="left" width="1%"><code>f_mul64</code></td><td align="center" colspan="3">64 bit floating point multiplication</td></tr>
+    <tr><td align="right" width="1%"><code>0x28</code></td><td align="left" width="1%"><code>i_mul8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer multiplication</td></tr><tr><td align="right" width="1%"><code>0x29</code></td><td align="left" width="1%"><code>i_mul16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer multiplication</td></tr><tr><td align="right" width="1%"><code>0x2a</code></td><td align="left" width="1%"><code>i_mul32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer multiplication</td></tr><tr><td align="right" width="1%"><code>0x2b</code></td><td align="left" width="1%"><code>i_mul64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer multiplication</td></tr> <tr><td align="right" width="1%"><code>0x2c</code></td><td align="left" width="1%"><code>f_mul32</code></td><td align="center" colspan="3">32 bit floating point multiplication</td></tr><tr><td align="right" width="1%"><code>0x2d</code></td><td align="left" width="1%"><code>f_mul64</code></td><td align="center" colspan="3">64 bit floating point multiplication</td></tr>
 </table>
 <table>
     <tr>
@@ -604,7 +620,7 @@ but here is a preliminary rundown.
         <td colspan="3" rowspan="4" width="100%" align="center">load two values from <code>x</code> and <code>y</code><br>perform division<br>store the result in <code>z</code></td>
     </tr>
     <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr><tr><td>z</td><td><code>O</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x2d</code></td><td align="left" width="1%"><code>u_div8</code></td><td align="center" colspan="3">8 bit unsigned integer division</td></tr><tr><td align="right" width="1%"><code>0x2e</code></td><td align="left" width="1%"><code>s_div8</code></td><td align="center" colspan="3">8 bit signed integer division</td></tr><tr><td align="right" width="1%"><code>0x2f</code></td><td align="left" width="1%"><code>u_div16</code></td><td align="center" colspan="3">16 bit unsigned integer division</td></tr><tr><td align="right" width="1%"><code>0x30</code></td><td align="left" width="1%"><code>s_div16</code></td><td align="center" colspan="3">16 bit signed integer division</td></tr><tr><td align="right" width="1%"><code>0x31</code></td><td align="left" width="1%"><code>u_div32</code></td><td align="center" colspan="3">32 bit unsigned integer division</td></tr><tr><td align="right" width="1%"><code>0x32</code></td><td align="left" width="1%"><code>s_div32</code></td><td align="center" colspan="3">32 bit signed integer division</td></tr><tr><td align="right" width="1%"><code>0x33</code></td><td align="left" width="1%"><code>u_div64</code></td><td align="center" colspan="3">64 bit unsigned integer division</td></tr><tr><td align="right" width="1%"><code>0x34</code></td><td align="left" width="1%"><code>s_div64</code></td><td align="center" colspan="3">64 bit signed integer division</td></tr> <tr><td align="right" width="1%"><code>0x35</code></td><td align="left" width="1%"><code>f_div32</code></td><td align="center" colspan="3">32 bit floating point division</td></tr><tr><td align="right" width="1%"><code>0x36</code></td><td align="left" width="1%"><code>f_div64</code></td><td align="center" colspan="3">64 bit floating point division</td></tr>
+    <tr><td align="right" width="1%"><code>0x2e</code></td><td align="left" width="1%"><code>u_div8</code></td><td align="center" colspan="3">8 bit unsigned integer division</td></tr><tr><td align="right" width="1%"><code>0x2f</code></td><td align="left" width="1%"><code>s_div8</code></td><td align="center" colspan="3">8 bit signed integer division</td></tr><tr><td align="right" width="1%"><code>0x30</code></td><td align="left" width="1%"><code>u_div16</code></td><td align="center" colspan="3">16 bit unsigned integer division</td></tr><tr><td align="right" width="1%"><code>0x31</code></td><td align="left" width="1%"><code>s_div16</code></td><td align="center" colspan="3">16 bit signed integer division</td></tr><tr><td align="right" width="1%"><code>0x32</code></td><td align="left" width="1%"><code>u_div32</code></td><td align="center" colspan="3">32 bit unsigned integer division</td></tr><tr><td align="right" width="1%"><code>0x33</code></td><td align="left" width="1%"><code>s_div32</code></td><td align="center" colspan="3">32 bit signed integer division</td></tr><tr><td align="right" width="1%"><code>0x34</code></td><td align="left" width="1%"><code>u_div64</code></td><td align="center" colspan="3">64 bit unsigned integer division</td></tr><tr><td align="right" width="1%"><code>0x35</code></td><td align="left" width="1%"><code>s_div64</code></td><td align="center" colspan="3">64 bit signed integer division</td></tr> <tr><td align="right" width="1%"><code>0x36</code></td><td align="left" width="1%"><code>f_div32</code></td><td align="center" colspan="3">32 bit floating point division</td></tr><tr><td align="right" width="1%"><code>0x37</code></td><td align="left" width="1%"><code>f_div64</code></td><td align="center" colspan="3">64 bit floating point division</td></tr>
 </table>
 <table>
     <tr>
@@ -615,7 +631,7 @@ but here is a preliminary rundown.
         <td colspan="3" rowspan="4" width="100%" align="center">load two values from <code>x</code> and <code>y</code><br>perform remainder division<br>store the result in <code>z</code></td>
     </tr>
     <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr><tr><td>z</td><td><code>O</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x37</code></td><td align="left" width="1%"><code>u_rem8</code></td><td align="center" colspan="3">8 bit unsigned integer remainder division</td></tr><tr><td align="right" width="1%"><code>0x38</code></td><td align="left" width="1%"><code>s_rem8</code></td><td align="center" colspan="3">8 bit signed integer remainder division</td></tr><tr><td align="right" width="1%"><code>0x39</code></td><td align="left" width="1%"><code>u_rem16</code></td><td align="center" colspan="3">16 bit unsigned integer remainder division</td></tr><tr><td align="right" width="1%"><code>0x3a</code></td><td align="left" width="1%"><code>s_rem16</code></td><td align="center" colspan="3">16 bit signed integer remainder division</td></tr><tr><td align="right" width="1%"><code>0x3b</code></td><td align="left" width="1%"><code>u_rem32</code></td><td align="center" colspan="3">32 bit unsigned integer remainder division</td></tr><tr><td align="right" width="1%"><code>0x3c</code></td><td align="left" width="1%"><code>s_rem32</code></td><td align="center" colspan="3">32 bit signed integer remainder division</td></tr><tr><td align="right" width="1%"><code>0x3d</code></td><td align="left" width="1%"><code>u_rem64</code></td><td align="center" colspan="3">64 bit unsigned integer remainder division</td></tr><tr><td align="right" width="1%"><code>0x3e</code></td><td align="left" width="1%"><code>s_rem64</code></td><td align="center" colspan="3">64 bit signed integer remainder division</td></tr> <tr><td align="right" width="1%"><code>0x3f</code></td><td align="left" width="1%"><code>f_rem32</code></td><td align="center" colspan="3">32 bit floating point remainder division</td></tr><tr><td align="right" width="1%"><code>0x40</code></td><td align="left" width="1%"><code>f_rem64</code></td><td align="center" colspan="3">64 bit floating point remainder division</td></tr>
+    <tr><td align="right" width="1%"><code>0x38</code></td><td align="left" width="1%"><code>u_rem8</code></td><td align="center" colspan="3">8 bit unsigned integer remainder division</td></tr><tr><td align="right" width="1%"><code>0x39</code></td><td align="left" width="1%"><code>s_rem8</code></td><td align="center" colspan="3">8 bit signed integer remainder division</td></tr><tr><td align="right" width="1%"><code>0x3a</code></td><td align="left" width="1%"><code>u_rem16</code></td><td align="center" colspan="3">16 bit unsigned integer remainder division</td></tr><tr><td align="right" width="1%"><code>0x3b</code></td><td align="left" width="1%"><code>s_rem16</code></td><td align="center" colspan="3">16 bit signed integer remainder division</td></tr><tr><td align="right" width="1%"><code>0x3c</code></td><td align="left" width="1%"><code>u_rem32</code></td><td align="center" colspan="3">32 bit unsigned integer remainder division</td></tr><tr><td align="right" width="1%"><code>0x3d</code></td><td align="left" width="1%"><code>s_rem32</code></td><td align="center" colspan="3">32 bit signed integer remainder division</td></tr><tr><td align="right" width="1%"><code>0x3e</code></td><td align="left" width="1%"><code>u_rem64</code></td><td align="center" colspan="3">64 bit unsigned integer remainder division</td></tr><tr><td align="right" width="1%"><code>0x3f</code></td><td align="left" width="1%"><code>s_rem64</code></td><td align="center" colspan="3">64 bit signed integer remainder division</td></tr> <tr><td align="right" width="1%"><code>0x40</code></td><td align="left" width="1%"><code>f_rem32</code></td><td align="center" colspan="3">32 bit floating point remainder division</td></tr><tr><td align="right" width="1%"><code>0x41</code></td><td align="left" width="1%"><code>f_rem64</code></td><td align="center" colspan="3">64 bit floating point remainder division</td></tr>
 </table>
 <table>
     <tr>
@@ -626,7 +642,7 @@ but here is a preliminary rundown.
         <td colspan="3" rowspan="3" width="100%" align="center">load a value from <code>x</code><br>perform negation<br>store the result in <code>y</code></td>
     </tr>
     <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x41</code></td><td align="left" width="1%"><code>s_neg8</code></td><td align="center" colspan="3">8 bit signed integer negation</td></tr><tr><td align="right" width="1%"><code>0x42</code></td><td align="left" width="1%"><code>s_neg16</code></td><td align="center" colspan="3">16 bit signed integer negation</td></tr><tr><td align="right" width="1%"><code>0x43</code></td><td align="left" width="1%"><code>s_neg32</code></td><td align="center" colspan="3">32 bit signed integer negation</td></tr><tr><td align="right" width="1%"><code>0x44</code></td><td align="left" width="1%"><code>s_neg64</code></td><td align="center" colspan="3">64 bit signed integer negation</td></tr> <tr><td align="right" width="1%"><code>0x45</code></td><td align="left" width="1%"><code>f_neg32</code></td><td align="center" colspan="3">32 bit floating point negation</td></tr><tr><td align="right" width="1%"><code>0x46</code></td><td align="left" width="1%"><code>f_neg64</code></td><td align="center" colspan="3">64 bit floating point negation</td></tr>
+    <tr><td align="right" width="1%"><code>0x42</code></td><td align="left" width="1%"><code>s_neg8</code></td><td align="center" colspan="3">8 bit signed integer negation</td></tr><tr><td align="right" width="1%"><code>0x43</code></td><td align="left" width="1%"><code>s_neg16</code></td><td align="center" colspan="3">16 bit signed integer negation</td></tr><tr><td align="right" width="1%"><code>0x44</code></td><td align="left" width="1%"><code>s_neg32</code></td><td align="center" colspan="3">32 bit signed integer negation</td></tr><tr><td align="right" width="1%"><code>0x45</code></td><td align="left" width="1%"><code>s_neg64</code></td><td align="center" colspan="3">64 bit signed integer negation</td></tr> <tr><td align="right" width="1%"><code>0x46</code></td><td align="left" width="1%"><code>f_neg32</code></td><td align="center" colspan="3">32 bit floating point negation</td></tr><tr><td align="right" width="1%"><code>0x47</code></td><td align="left" width="1%"><code>f_neg64</code></td><td align="center" colspan="3">64 bit floating point negation</td></tr>
 </table>
 <table>
     <tr>
@@ -637,7 +653,7 @@ but here is a preliminary rundown.
         <td colspan="3" rowspan="3" width="100%" align="center">load a value from <code>x</code><br>perform bitwise not<br>store the result in <code>y</code></td>
     </tr>
     <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x47</code></td><td align="left" width="1%"><code>i_bitnot8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer bitwise not</td></tr><tr><td align="right" width="1%"><code>0x48</code></td><td align="left" width="1%"><code>i_bitnot16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer bitwise not</td></tr><tr><td align="right" width="1%"><code>0x49</code></td><td align="left" width="1%"><code>i_bitnot32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer bitwise not</td></tr><tr><td align="right" width="1%"><code>0x4a</code></td><td align="left" width="1%"><code>i_bitnot64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer bitwise not</td></tr>
+    <tr><td align="right" width="1%"><code>0x48</code></td><td align="left" width="1%"><code>i_bitnot8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer bitwise not</td></tr><tr><td align="right" width="1%"><code>0x49</code></td><td align="left" width="1%"><code>i_bitnot16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer bitwise not</td></tr><tr><td align="right" width="1%"><code>0x4a</code></td><td align="left" width="1%"><code>i_bitnot32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer bitwise not</td></tr><tr><td align="right" width="1%"><code>0x4b</code></td><td align="left" width="1%"><code>i_bitnot64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer bitwise not</td></tr>
 </table>
 <table>
     <tr>
@@ -648,7 +664,7 @@ but here is a preliminary rundown.
         <td colspan="3" rowspan="4" width="100%" align="center">load two values from <code>x</code> and <code>y</code><br>perform bitwise and<br>store the result in <code>z</code></td>
     </tr>
     <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr><tr><td>z</td><td><code>O</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x4b</code></td><td align="left" width="1%"><code>i_bitand8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer bitwise and</td></tr><tr><td align="right" width="1%"><code>0x4c</code></td><td align="left" width="1%"><code>i_bitand16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer bitwise and</td></tr><tr><td align="right" width="1%"><code>0x4d</code></td><td align="left" width="1%"><code>i_bitand32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer bitwise and</td></tr><tr><td align="right" width="1%"><code>0x4e</code></td><td align="left" width="1%"><code>i_bitand64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer bitwise and</td></tr>
+    <tr><td align="right" width="1%"><code>0x4c</code></td><td align="left" width="1%"><code>i_bitand8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer bitwise and</td></tr><tr><td align="right" width="1%"><code>0x4d</code></td><td align="left" width="1%"><code>i_bitand16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer bitwise and</td></tr><tr><td align="right" width="1%"><code>0x4e</code></td><td align="left" width="1%"><code>i_bitand32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer bitwise and</td></tr><tr><td align="right" width="1%"><code>0x4f</code></td><td align="left" width="1%"><code>i_bitand64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer bitwise and</td></tr>
 </table>
 <table>
     <tr>
@@ -659,7 +675,7 @@ but here is a preliminary rundown.
         <td colspan="3" rowspan="4" width="100%" align="center">load two values from <code>x</code> and <code>y</code><br>perform bitwise or<br>store the result in <code>z</code></td>
     </tr>
     <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr><tr><td>z</td><td><code>O</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x4f</code></td><td align="left" width="1%"><code>i_bitor8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer bitwise or</td></tr><tr><td align="right" width="1%"><code>0x50</code></td><td align="left" width="1%"><code>i_bitor16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer bitwise or</td></tr><tr><td align="right" width="1%"><code>0x51</code></td><td align="left" width="1%"><code>i_bitor32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer bitwise or</td></tr><tr><td align="right" width="1%"><code>0x52</code></td><td align="left" width="1%"><code>i_bitor64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer bitwise or</td></tr>
+    <tr><td align="right" width="1%"><code>0x50</code></td><td align="left" width="1%"><code>i_bitor8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer bitwise or</td></tr><tr><td align="right" width="1%"><code>0x51</code></td><td align="left" width="1%"><code>i_bitor16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer bitwise or</td></tr><tr><td align="right" width="1%"><code>0x52</code></td><td align="left" width="1%"><code>i_bitor32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer bitwise or</td></tr><tr><td align="right" width="1%"><code>0x53</code></td><td align="left" width="1%"><code>i_bitor64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer bitwise or</td></tr>
 </table>
 <table>
     <tr>
@@ -670,7 +686,7 @@ but here is a preliminary rundown.
         <td colspan="3" rowspan="4" width="100%" align="center">load two values from <code>x</code> and <code>y</code><br>perform bitwise xor<br>store the result in <code>z</code></td>
     </tr>
     <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr><tr><td>z</td><td><code>O</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x53</code></td><td align="left" width="1%"><code>i_bitxor8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer bitwise exclusive or</td></tr><tr><td align="right" width="1%"><code>0x54</code></td><td align="left" width="1%"><code>i_bitxor16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer bitwise exclusive or</td></tr><tr><td align="right" width="1%"><code>0x55</code></td><td align="left" width="1%"><code>i_bitxor32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer bitwise exclusive or</td></tr><tr><td align="right" width="1%"><code>0x56</code></td><td align="left" width="1%"><code>i_bitxor64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer bitwise exclusive or</td></tr>
+    <tr><td align="right" width="1%"><code>0x54</code></td><td align="left" width="1%"><code>i_bitxor8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer bitwise exclusive or</td></tr><tr><td align="right" width="1%"><code>0x55</code></td><td align="left" width="1%"><code>i_bitxor16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer bitwise exclusive or</td></tr><tr><td align="right" width="1%"><code>0x56</code></td><td align="left" width="1%"><code>i_bitxor32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer bitwise exclusive or</td></tr><tr><td align="right" width="1%"><code>0x57</code></td><td align="left" width="1%"><code>i_bitxor64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer bitwise exclusive or</td></tr>
 </table>
 <table>
     <tr>
@@ -681,7 +697,7 @@ but here is a preliminary rundown.
         <td colspan="3" rowspan="4" width="100%" align="center">load two values from <code>x</code> and <code>y</code><br>perform bitwise left shift<br>store the result in <code>z</code></td>
     </tr>
     <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr><tr><td>z</td><td><code>O</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x57</code></td><td align="left" width="1%"><code>i_shiftl8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer left shift</td></tr><tr><td align="right" width="1%"><code>0x58</code></td><td align="left" width="1%"><code>i_shiftl16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer left shift</td></tr><tr><td align="right" width="1%"><code>0x59</code></td><td align="left" width="1%"><code>i_shiftl32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer left shift</td></tr><tr><td align="right" width="1%"><code>0x5a</code></td><td align="left" width="1%"><code>i_shiftl64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer left shift</td></tr>
+    <tr><td align="right" width="1%"><code>0x58</code></td><td align="left" width="1%"><code>i_shiftl8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer left shift</td></tr><tr><td align="right" width="1%"><code>0x59</code></td><td align="left" width="1%"><code>i_shiftl16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer left shift</td></tr><tr><td align="right" width="1%"><code>0x5a</code></td><td align="left" width="1%"><code>i_shiftl32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer left shift</td></tr><tr><td align="right" width="1%"><code>0x5b</code></td><td align="left" width="1%"><code>i_shiftl64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer left shift</td></tr>
 </table>
 <table>
     <tr>
@@ -692,7 +708,7 @@ but here is a preliminary rundown.
         <td colspan="3" rowspan="4" width="100%" align="center">load two values from <code>x</code> and <code>y</code><br>perform bitwise arithmetic right shift<br>store the result in <code>z</code></td>
     </tr>
     <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr><tr><td>z</td><td><code>O</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x5b</code></td><td align="left" width="1%"><code>u_shiftr8</code></td><td align="center" colspan="3">8 bit unsigned integer right shift</td></tr><tr><td align="right" width="1%"><code>0x5c</code></td><td align="left" width="1%"><code>s_shiftr8</code></td><td align="center" colspan="3">8 bit signed integer right shift</td></tr><tr><td align="right" width="1%"><code>0x5d</code></td><td align="left" width="1%"><code>u_shiftr16</code></td><td align="center" colspan="3">16 bit unsigned integer right shift</td></tr><tr><td align="right" width="1%"><code>0x5e</code></td><td align="left" width="1%"><code>s_shiftr16</code></td><td align="center" colspan="3">16 bit signed integer right shift</td></tr><tr><td align="right" width="1%"><code>0x5f</code></td><td align="left" width="1%"><code>u_shiftr32</code></td><td align="center" colspan="3">32 bit unsigned integer right shift</td></tr><tr><td align="right" width="1%"><code>0x60</code></td><td align="left" width="1%"><code>s_shiftr32</code></td><td align="center" colspan="3">32 bit signed integer right shift</td></tr><tr><td align="right" width="1%"><code>0x61</code></td><td align="left" width="1%"><code>u_shiftr64</code></td><td align="center" colspan="3">64 bit unsigned integer right shift</td></tr><tr><td align="right" width="1%"><code>0x62</code></td><td align="left" width="1%"><code>s_shiftr64</code></td><td align="center" colspan="3">64 bit signed integer right shift</td></tr>
+    <tr><td align="right" width="1%"><code>0x5c</code></td><td align="left" width="1%"><code>u_shiftr8</code></td><td align="center" colspan="3">8 bit unsigned integer right shift</td></tr><tr><td align="right" width="1%"><code>0x5d</code></td><td align="left" width="1%"><code>s_shiftr8</code></td><td align="center" colspan="3">8 bit signed integer right shift</td></tr><tr><td align="right" width="1%"><code>0x5e</code></td><td align="left" width="1%"><code>u_shiftr16</code></td><td align="center" colspan="3">16 bit unsigned integer right shift</td></tr><tr><td align="right" width="1%"><code>0x5f</code></td><td align="left" width="1%"><code>s_shiftr16</code></td><td align="center" colspan="3">16 bit signed integer right shift</td></tr><tr><td align="right" width="1%"><code>0x60</code></td><td align="left" width="1%"><code>u_shiftr32</code></td><td align="center" colspan="3">32 bit unsigned integer right shift</td></tr><tr><td align="right" width="1%"><code>0x61</code></td><td align="left" width="1%"><code>s_shiftr32</code></td><td align="center" colspan="3">32 bit signed integer right shift</td></tr><tr><td align="right" width="1%"><code>0x62</code></td><td align="left" width="1%"><code>u_shiftr64</code></td><td align="center" colspan="3">64 bit unsigned integer right shift</td></tr><tr><td align="right" width="1%"><code>0x63</code></td><td align="left" width="1%"><code>s_shiftr64</code></td><td align="center" colspan="3">64 bit signed integer right shift</td></tr>
 </table>
 <table>
     <tr>
@@ -703,7 +719,7 @@ but here is a preliminary rundown.
         <td colspan="3" rowspan="4" width="100%" align="center">load two values from <code>x</code> and <code>y</code><br>perform equality comparison<br>store the result in <code>z</code></td>
     </tr>
     <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr><tr><td>z</td><td><code>O</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x63</code></td><td align="left" width="1%"><code>i_eq8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer equality comparison</td></tr><tr><td align="right" width="1%"><code>0x64</code></td><td align="left" width="1%"><code>i_eq16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer equality comparison</td></tr><tr><td align="right" width="1%"><code>0x65</code></td><td align="left" width="1%"><code>i_eq32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer equality comparison</td></tr><tr><td align="right" width="1%"><code>0x66</code></td><td align="left" width="1%"><code>i_eq64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer equality comparison</td></tr> <tr><td align="right" width="1%"><code>0x67</code></td><td align="left" width="1%"><code>f_eq32</code></td><td align="center" colspan="3">32 bit floating point equality comparison</td></tr><tr><td align="right" width="1%"><code>0x68</code></td><td align="left" width="1%"><code>f_eq64</code></td><td align="center" colspan="3">64 bit floating point equality comparison</td></tr>
+    <tr><td align="right" width="1%"><code>0x64</code></td><td align="left" width="1%"><code>i_eq8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer equality comparison</td></tr><tr><td align="right" width="1%"><code>0x65</code></td><td align="left" width="1%"><code>i_eq16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer equality comparison</td></tr><tr><td align="right" width="1%"><code>0x66</code></td><td align="left" width="1%"><code>i_eq32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer equality comparison</td></tr><tr><td align="right" width="1%"><code>0x67</code></td><td align="left" width="1%"><code>i_eq64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer equality comparison</td></tr> <tr><td align="right" width="1%"><code>0x68</code></td><td align="left" width="1%"><code>f_eq32</code></td><td align="center" colspan="3">32 bit floating point equality comparison</td></tr><tr><td align="right" width="1%"><code>0x69</code></td><td align="left" width="1%"><code>f_eq64</code></td><td align="center" colspan="3">64 bit floating point equality comparison</td></tr>
 </table>
 <table>
     <tr>
@@ -714,7 +730,7 @@ but here is a preliminary rundown.
         <td colspan="3" rowspan="4" width="100%" align="center">load two values from <code>x</code> and <code>y</code><br>perform inequality comparison<br>store the result in <code>z</code></td>
     </tr>
     <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr><tr><td>z</td><td><code>O</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x69</code></td><td align="left" width="1%"><code>i_ne8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer inequality comparison</td></tr><tr><td align="right" width="1%"><code>0x6a</code></td><td align="left" width="1%"><code>i_ne16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer inequality comparison</td></tr><tr><td align="right" width="1%"><code>0x6b</code></td><td align="left" width="1%"><code>i_ne32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer inequality comparison</td></tr><tr><td align="right" width="1%"><code>0x6c</code></td><td align="left" width="1%"><code>i_ne64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer inequality comparison</td></tr> <tr><td align="right" width="1%"><code>0x6d</code></td><td align="left" width="1%"><code>f_ne32</code></td><td align="center" colspan="3">32 bit floating point inequality comparison</td></tr><tr><td align="right" width="1%"><code>0x6e</code></td><td align="left" width="1%"><code>f_ne64</code></td><td align="center" colspan="3">64 bit floating point inequality comparison</td></tr>
+    <tr><td align="right" width="1%"><code>0x6a</code></td><td align="left" width="1%"><code>i_ne8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer inequality comparison</td></tr><tr><td align="right" width="1%"><code>0x6b</code></td><td align="left" width="1%"><code>i_ne16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer inequality comparison</td></tr><tr><td align="right" width="1%"><code>0x6c</code></td><td align="left" width="1%"><code>i_ne32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer inequality comparison</td></tr><tr><td align="right" width="1%"><code>0x6d</code></td><td align="left" width="1%"><code>i_ne64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer inequality comparison</td></tr> <tr><td align="right" width="1%"><code>0x6e</code></td><td align="left" width="1%"><code>f_ne32</code></td><td align="center" colspan="3">32 bit floating point inequality comparison</td></tr><tr><td align="right" width="1%"><code>0x6f</code></td><td align="left" width="1%"><code>f_ne64</code></td><td align="center" colspan="3">64 bit floating point inequality comparison</td></tr>
 </table>
 <table>
     <tr>
@@ -725,7 +741,7 @@ but here is a preliminary rundown.
         <td colspan="3" rowspan="4" width="100%" align="center">load two values from <code>x</code> and <code>y</code><br>perform less than comparison<br>store the result in <code>z</code></td>
     </tr>
     <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr><tr><td>z</td><td><code>O</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x6f</code></td><td align="left" width="1%"><code>u_lt8</code></td><td align="center" colspan="3">8 bit unsigned integer less than comparison</td></tr><tr><td align="right" width="1%"><code>0x70</code></td><td align="left" width="1%"><code>s_lt8</code></td><td align="center" colspan="3">8 bit signed integer less than comparison</td></tr><tr><td align="right" width="1%"><code>0x71</code></td><td align="left" width="1%"><code>u_lt16</code></td><td align="center" colspan="3">16 bit unsigned integer less than comparison</td></tr><tr><td align="right" width="1%"><code>0x72</code></td><td align="left" width="1%"><code>s_lt16</code></td><td align="center" colspan="3">16 bit signed integer less than comparison</td></tr><tr><td align="right" width="1%"><code>0x73</code></td><td align="left" width="1%"><code>u_lt32</code></td><td align="center" colspan="3">32 bit unsigned integer less than comparison</td></tr><tr><td align="right" width="1%"><code>0x74</code></td><td align="left" width="1%"><code>s_lt32</code></td><td align="center" colspan="3">32 bit signed integer less than comparison</td></tr><tr><td align="right" width="1%"><code>0x75</code></td><td align="left" width="1%"><code>u_lt64</code></td><td align="center" colspan="3">64 bit unsigned integer less than comparison</td></tr><tr><td align="right" width="1%"><code>0x76</code></td><td align="left" width="1%"><code>s_lt64</code></td><td align="center" colspan="3">64 bit signed integer less than comparison</td></tr> <tr><td align="right" width="1%"><code>0x77</code></td><td align="left" width="1%"><code>f_lt32</code></td><td align="center" colspan="3">32 bit floating point less than comparison</td></tr><tr><td align="right" width="1%"><code>0x78</code></td><td align="left" width="1%"><code>f_lt64</code></td><td align="center" colspan="3">64 bit floating point less than comparison</td></tr>
+    <tr><td align="right" width="1%"><code>0x70</code></td><td align="left" width="1%"><code>u_lt8</code></td><td align="center" colspan="3">8 bit unsigned integer less than comparison</td></tr><tr><td align="right" width="1%"><code>0x71</code></td><td align="left" width="1%"><code>s_lt8</code></td><td align="center" colspan="3">8 bit signed integer less than comparison</td></tr><tr><td align="right" width="1%"><code>0x72</code></td><td align="left" width="1%"><code>u_lt16</code></td><td align="center" colspan="3">16 bit unsigned integer less than comparison</td></tr><tr><td align="right" width="1%"><code>0x73</code></td><td align="left" width="1%"><code>s_lt16</code></td><td align="center" colspan="3">16 bit signed integer less than comparison</td></tr><tr><td align="right" width="1%"><code>0x74</code></td><td align="left" width="1%"><code>u_lt32</code></td><td align="center" colspan="3">32 bit unsigned integer less than comparison</td></tr><tr><td align="right" width="1%"><code>0x75</code></td><td align="left" width="1%"><code>s_lt32</code></td><td align="center" colspan="3">32 bit signed integer less than comparison</td></tr><tr><td align="right" width="1%"><code>0x76</code></td><td align="left" width="1%"><code>u_lt64</code></td><td align="center" colspan="3">64 bit unsigned integer less than comparison</td></tr><tr><td align="right" width="1%"><code>0x77</code></td><td align="left" width="1%"><code>s_lt64</code></td><td align="center" colspan="3">64 bit signed integer less than comparison</td></tr> <tr><td align="right" width="1%"><code>0x78</code></td><td align="left" width="1%"><code>f_lt32</code></td><td align="center" colspan="3">32 bit floating point less than comparison</td></tr><tr><td align="right" width="1%"><code>0x79</code></td><td align="left" width="1%"><code>f_lt64</code></td><td align="center" colspan="3">64 bit floating point less than comparison</td></tr>
 </table>
 <table>
     <tr>
@@ -736,7 +752,7 @@ but here is a preliminary rundown.
         <td colspan="3" rowspan="4" width="100%" align="center">load two values from <code>x</code> and <code>y</code><br>perform less than or equal comparison<br>store the result in <code>z</code></td>
     </tr>
     <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr><tr><td>z</td><td><code>O</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x79</code></td><td align="left" width="1%"><code>u_le8</code></td><td align="center" colspan="3">8 bit unsigned integer less than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x7a</code></td><td align="left" width="1%"><code>s_le8</code></td><td align="center" colspan="3">8 bit signed integer less than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x7b</code></td><td align="left" width="1%"><code>u_le16</code></td><td align="center" colspan="3">16 bit unsigned integer less than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x7c</code></td><td align="left" width="1%"><code>s_le16</code></td><td align="center" colspan="3">16 bit signed integer less than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x7d</code></td><td align="left" width="1%"><code>u_le32</code></td><td align="center" colspan="3">32 bit unsigned integer less than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x7e</code></td><td align="left" width="1%"><code>s_le32</code></td><td align="center" colspan="3">32 bit signed integer less than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x7f</code></td><td align="left" width="1%"><code>u_le64</code></td><td align="center" colspan="3">64 bit unsigned integer less than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x80</code></td><td align="left" width="1%"><code>s_le64</code></td><td align="center" colspan="3">64 bit signed integer less than or equal comparison</td></tr> <tr><td align="right" width="1%"><code>0x81</code></td><td align="left" width="1%"><code>f_le32</code></td><td align="center" colspan="3">32 bit floating point less than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x82</code></td><td align="left" width="1%"><code>f_le64</code></td><td align="center" colspan="3">64 bit floating point less than or equal comparison</td></tr>
+    <tr><td align="right" width="1%"><code>0x7a</code></td><td align="left" width="1%"><code>u_le8</code></td><td align="center" colspan="3">8 bit unsigned integer less than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x7b</code></td><td align="left" width="1%"><code>s_le8</code></td><td align="center" colspan="3">8 bit signed integer less than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x7c</code></td><td align="left" width="1%"><code>u_le16</code></td><td align="center" colspan="3">16 bit unsigned integer less than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x7d</code></td><td align="left" width="1%"><code>s_le16</code></td><td align="center" colspan="3">16 bit signed integer less than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x7e</code></td><td align="left" width="1%"><code>u_le32</code></td><td align="center" colspan="3">32 bit unsigned integer less than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x7f</code></td><td align="left" width="1%"><code>s_le32</code></td><td align="center" colspan="3">32 bit signed integer less than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x80</code></td><td align="left" width="1%"><code>u_le64</code></td><td align="center" colspan="3">64 bit unsigned integer less than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x81</code></td><td align="left" width="1%"><code>s_le64</code></td><td align="center" colspan="3">64 bit signed integer less than or equal comparison</td></tr> <tr><td align="right" width="1%"><code>0x82</code></td><td align="left" width="1%"><code>f_le32</code></td><td align="center" colspan="3">32 bit floating point less than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x83</code></td><td align="left" width="1%"><code>f_le64</code></td><td align="center" colspan="3">64 bit floating point less than or equal comparison</td></tr>
 </table>
 <table>
     <tr>
@@ -747,7 +763,7 @@ but here is a preliminary rundown.
         <td colspan="3" rowspan="4" width="100%" align="center">load two values from <code>x</code> and <code>y</code><br>perform greater than comparison<br>store the result in <code>z</code></td>
     </tr>
     <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr><tr><td>z</td><td><code>O</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x83</code></td><td align="left" width="1%"><code>u_gt8</code></td><td align="center" colspan="3">8 bit unsigned integer greater than comparison</td></tr><tr><td align="right" width="1%"><code>0x84</code></td><td align="left" width="1%"><code>s_gt8</code></td><td align="center" colspan="3">8 bit signed integer greater than comparison</td></tr><tr><td align="right" width="1%"><code>0x85</code></td><td align="left" width="1%"><code>u_gt16</code></td><td align="center" colspan="3">16 bit unsigned integer greater than comparison</td></tr><tr><td align="right" width="1%"><code>0x86</code></td><td align="left" width="1%"><code>s_gt16</code></td><td align="center" colspan="3">16 bit signed integer greater than comparison</td></tr><tr><td align="right" width="1%"><code>0x87</code></td><td align="left" width="1%"><code>u_gt32</code></td><td align="center" colspan="3">32 bit unsigned integer greater than comparison</td></tr><tr><td align="right" width="1%"><code>0x88</code></td><td align="left" width="1%"><code>s_gt32</code></td><td align="center" colspan="3">32 bit signed integer greater than comparison</td></tr><tr><td align="right" width="1%"><code>0x89</code></td><td align="left" width="1%"><code>u_gt64</code></td><td align="center" colspan="3">64 bit unsigned integer greater than comparison</td></tr><tr><td align="right" width="1%"><code>0x8a</code></td><td align="left" width="1%"><code>s_gt64</code></td><td align="center" colspan="3">64 bit signed integer greater than comparison</td></tr> <tr><td align="right" width="1%"><code>0x8b</code></td><td align="left" width="1%"><code>f_gt32</code></td><td align="center" colspan="3">32 bit floating point greater than comparison</td></tr><tr><td align="right" width="1%"><code>0x8c</code></td><td align="left" width="1%"><code>f_gt64</code></td><td align="center" colspan="3">64 bit floating point greater than comparison</td></tr>
+    <tr><td align="right" width="1%"><code>0x84</code></td><td align="left" width="1%"><code>u_gt8</code></td><td align="center" colspan="3">8 bit unsigned integer greater than comparison</td></tr><tr><td align="right" width="1%"><code>0x85</code></td><td align="left" width="1%"><code>s_gt8</code></td><td align="center" colspan="3">8 bit signed integer greater than comparison</td></tr><tr><td align="right" width="1%"><code>0x86</code></td><td align="left" width="1%"><code>u_gt16</code></td><td align="center" colspan="3">16 bit unsigned integer greater than comparison</td></tr><tr><td align="right" width="1%"><code>0x87</code></td><td align="left" width="1%"><code>s_gt16</code></td><td align="center" colspan="3">16 bit signed integer greater than comparison</td></tr><tr><td align="right" width="1%"><code>0x88</code></td><td align="left" width="1%"><code>u_gt32</code></td><td align="center" colspan="3">32 bit unsigned integer greater than comparison</td></tr><tr><td align="right" width="1%"><code>0x89</code></td><td align="left" width="1%"><code>s_gt32</code></td><td align="center" colspan="3">32 bit signed integer greater than comparison</td></tr><tr><td align="right" width="1%"><code>0x8a</code></td><td align="left" width="1%"><code>u_gt64</code></td><td align="center" colspan="3">64 bit unsigned integer greater than comparison</td></tr><tr><td align="right" width="1%"><code>0x8b</code></td><td align="left" width="1%"><code>s_gt64</code></td><td align="center" colspan="3">64 bit signed integer greater than comparison</td></tr> <tr><td align="right" width="1%"><code>0x8c</code></td><td align="left" width="1%"><code>f_gt32</code></td><td align="center" colspan="3">32 bit floating point greater than comparison</td></tr><tr><td align="right" width="1%"><code>0x8d</code></td><td align="left" width="1%"><code>f_gt64</code></td><td align="center" colspan="3">64 bit floating point greater than comparison</td></tr>
 </table>
 <table>
     <tr>
@@ -758,7 +774,7 @@ but here is a preliminary rundown.
         <td colspan="3" rowspan="4" width="100%" align="center">load two values from <code>x</code> and <code>y</code><br>perform greater than or equal comparison<br>store the result in <code>z</code></td>
     </tr>
     <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr><tr><td>z</td><td><code>O</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x8d</code></td><td align="left" width="1%"><code>u_ge8</code></td><td align="center" colspan="3">8 bit unsigned integer greater than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x8e</code></td><td align="left" width="1%"><code>s_ge8</code></td><td align="center" colspan="3">8 bit signed integer greater than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x8f</code></td><td align="left" width="1%"><code>u_ge16</code></td><td align="center" colspan="3">16 bit unsigned integer greater than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x90</code></td><td align="left" width="1%"><code>s_ge16</code></td><td align="center" colspan="3">16 bit signed integer greater than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x91</code></td><td align="left" width="1%"><code>u_ge32</code></td><td align="center" colspan="3">32 bit unsigned integer greater than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x92</code></td><td align="left" width="1%"><code>s_ge32</code></td><td align="center" colspan="3">32 bit signed integer greater than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x93</code></td><td align="left" width="1%"><code>u_ge64</code></td><td align="center" colspan="3">64 bit unsigned integer greater than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x94</code></td><td align="left" width="1%"><code>s_ge64</code></td><td align="center" colspan="3">64 bit signed integer greater than or equal comparison</td></tr> <tr><td align="right" width="1%"><code>0x95</code></td><td align="left" width="1%"><code>f_ge32</code></td><td align="center" colspan="3">32 bit floating point greater than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x96</code></td><td align="left" width="1%"><code>f_ge64</code></td><td align="center" colspan="3">64 bit floating point greater than or equal comparison</td></tr>
+    <tr><td align="right" width="1%"><code>0x8e</code></td><td align="left" width="1%"><code>u_ge8</code></td><td align="center" colspan="3">8 bit unsigned integer greater than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x8f</code></td><td align="left" width="1%"><code>s_ge8</code></td><td align="center" colspan="3">8 bit signed integer greater than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x90</code></td><td align="left" width="1%"><code>u_ge16</code></td><td align="center" colspan="3">16 bit unsigned integer greater than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x91</code></td><td align="left" width="1%"><code>s_ge16</code></td><td align="center" colspan="3">16 bit signed integer greater than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x92</code></td><td align="left" width="1%"><code>u_ge32</code></td><td align="center" colspan="3">32 bit unsigned integer greater than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x93</code></td><td align="left" width="1%"><code>s_ge32</code></td><td align="center" colspan="3">32 bit signed integer greater than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x94</code></td><td align="left" width="1%"><code>u_ge64</code></td><td align="center" colspan="3">64 bit unsigned integer greater than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x95</code></td><td align="left" width="1%"><code>s_ge64</code></td><td align="center" colspan="3">64 bit signed integer greater than or equal comparison</td></tr> <tr><td align="right" width="1%"><code>0x96</code></td><td align="left" width="1%"><code>f_ge32</code></td><td align="center" colspan="3">32 bit floating point greater than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0x97</code></td><td align="left" width="1%"><code>f_ge64</code></td><td align="center" colspan="3">64 bit floating point greater than or equal comparison</td></tr>
 </table>
 
 #### Boolean
@@ -772,7 +788,7 @@ but here is a preliminary rundown.
     </tr>
     <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr><tr><td>z</td><td><code>O</code></td></tr>
     <tr>
-        <td align="right" width="1%"><code>0x97</code></td>
+        <td align="right" width="1%"><code>0x98</code></td>
         <td align="left" width="1%"><code>b_and</code></td>
         <td align="center" colspan="3">logical and</td>
     </tr>
@@ -787,24 +803,9 @@ but here is a preliminary rundown.
     </tr>
     <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr><tr><td>z</td><td><code>O</code></td></tr>
     <tr>
-        <td align="right" width="1%"><code>0x98</code></td>
+        <td align="right" width="1%"><code>0x99</code></td>
         <td align="left" width="1%"><code>b_or</code></td>
         <td align="center" colspan="3">logical or</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">b_xor<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="4" width="100%" align="center">load two values from <code>x</code> and <code>y</code><br>perform logical xor<br>store the result in <code>z</code></td>
-    </tr>
-    <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr><tr><td>z</td><td><code>O</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x99</code></td>
-        <td align="left" width="1%"><code>b_xor</code></td>
-        <td align="center" colspan="3">logical exclusive or</td>
     </tr>
 </table>
 <table>

@@ -16,6 +16,7 @@
 const std = @import("std");
 
 const Bytecode = @import("Bytecode");
+const IO = @import("IO");
 
 const Core = @import("root.zig");
 const Context = Core.Context;
@@ -29,29 +30,16 @@ context: *Context,
 program: *Bytecode.Program,
 stack: StackSet,
 evidence: []Evidence,
-diagnostic: ?*Diagnostic,
 
-
-pub const Error = std.mem.Allocator.Error || DataStack.Error || error { Trap, ImmediateWrite, };
 
 pub const Trap = error {
     Unreachable,
     Underflow,
     Overflow,
     OutOfBounds,
-};
-
-pub const Diagnostic = struct {
-    message: []const u8,
-    location: ?Bytecode.Location,
-
-    pub const FailedToAllocateMessage: []const u8 = "failed to allocate memory for error message";
-
-    pub fn deinit(self: Diagnostic, allocator: std.mem.Allocator) void {
-        if (self.message.ptr != FailedToAllocateMessage.ptr) {
-            allocator.free(self.message);
-        }
-    }
+    MissingUpvalueContext,
+    ImmediateWrite,
+    BadEncoding,
 };
 
 
@@ -152,7 +140,6 @@ pub fn init(context: *Context, program: *Bytecode.Program) !*Fiber {
         .context = context,
         .stack = stack,
         .evidence = evidence,
-        .diagnostic = null,
     };
 
     return ptr;
@@ -173,21 +160,4 @@ pub fn getLocation(self: *const Fiber) Trap!Bytecode.Location {
         .block = block.index,
         .offset = block.ip_offset,
     };
-}
-
-pub fn abort(self: *const Fiber, trap: Trap, comptime fmt: []const u8, args: anytype) Trap!void {
-    @branchHint(.cold);
-
-    if (self.trap) |ptr| {
-        const message =
-            if (std.fmt.allocPrint(self.context.allocator, fmt, args)) |msg| msg
-            else Diagnostic.FailedToAllocateMessage;
-
-        ptr.* = Diagnostic {
-            .message = message,
-            .location = self.getLocation() catch null,
-        };
-    }
-
-    return trap;
 }

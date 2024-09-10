@@ -123,29 +123,34 @@ pub const InstructionPrototypes = .{
     },
 
     .@"Memory" = .{
-        .{ "addr_of_upvalue"
-         , \\copy the address of the upvalue `x` into `y`
-         , TwoOperand
-        },
-
         .{ "addr_of"
          , \\copy the address of `x` into `y`
          , TwoOperand
         },
 
         .{ "load"
-         , \\copy the value from the address stored in `x` into `y`
-         , TwoOperand
+         , \\copy `m` bytes from the address stored in `x` into `y`
+         , MemTwoOperand
         },
 
         .{ "store"
-         , \\copy the value from `x` to the address stored in `y`
-         , TwoOperand
+         , \\copy `m` bytes from `x` to the address stored in `y`
+         , MemTwoOperand
         },
 
         .{ "clear"
-         , \\clear the value stored in `x`
-         , OneOperand
+         , \\clear `m` bytes of `x`
+         , MemOneOperand
+        },
+
+        .{ "swap"
+         , \\swap `m` bytes stored in `x` and `y`
+         , MemTwoOperand
+        },
+
+        .{ "copy"
+         , \\copy `m` bytes from `x` into `y`
+         , MemTwoOperand
         },
     },
 
@@ -310,13 +315,6 @@ pub const InstructionPrototypes = .{
          , ThreeOperand
         },
 
-        .{ "b_xor"
-         , \\load two values from `x` and `y`
-           \\perform logical xor
-           \\store the result in `z`
-         , ThreeOperand
-        },
-
         .{ "b_not"
          , \\load a value from `x`
            \\perform logical not
@@ -385,6 +383,17 @@ pub const YieldOperand = struct {
 };
 
 pub const TwoOperand = struct {
+    x: Operand,
+    y: Operand,
+};
+
+pub const MemOneOperand = struct {
+    m: RegisterLocalOffset,
+    x: Operand,
+};
+
+pub const MemTwoOperand = struct {
+    m: RegisterLocalOffset,
     x: Operand,
     y: Operand,
 };

@@ -44,6 +44,7 @@ fn formatType(comptime T: type) []const u8 {
     switch (T) {
         u16 => return "I",
         Bytecode.Register => return "R",
+        Bytecode.MemorySize => return "M",
         Bytecode.Operand => return "O",
         else => switch (@typeInfo(T)) {
             .pointer => |info| if (info.size == .Slice) return "[" ++ formatType(info.child) ++ "]",
@@ -103,8 +104,6 @@ fn longName(comptime name: [:0]const u8) []const u8 {
 
         else if (strCmp(name, "br")) "unconditional branch"
         else if (strCmp(name, "br_if")) "conditional branch"
-        else if (strCmp(name, "br_imm")) "unconditional branch with immediate value"
-        else if (strCmp(name, "br_if_imm")) "conditional branch with immediate value"
         else if (strCmp(name, "reiter")) "unconditional branch to start of loop"
         else if (strCmp(name, "reiter_if")) "conditional branch to start of loop"
 
@@ -115,12 +114,11 @@ fn longName(comptime name: [:0]const u8) []const u8 {
         else if (strCmp(name, "f_ext")) "floating point extension"
         else if (strCmp(name, "f_trunc")) "floating point truncation"
 
-        else if (strCmp(name, "addr_of_upvalue")) "address extraction of operand in effect handler's enclosing scope"
         else if (strCmp(name, "addr_of")) "address extraction of operand"
         else if (strCmp(name, "load")) "read from address"
         else if (strCmp(name, "store")) "write to address"
-        else if (strCmp(name, "load_imm")) "write immediate to register"
-        else if (strCmp(name, "store_imm")) "write immediate to address"
+        else if (strCmp(name, "copy")) "copy value"
+        else if (strCmp(name, "swap")) "swap values"
         else if (strCmp(name, "clear")) "fill with zeroes"
 
         else @compileError("unknown operation `" ++ name ++ "`");

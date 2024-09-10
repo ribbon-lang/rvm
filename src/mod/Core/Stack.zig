@@ -61,6 +61,15 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             return self.mem[i];
         }
 
+        pub inline fn getPtr(self: *const Self, i: Ptr) Error!*T {
+            if (i > self.ptr) {
+                @branchHint(.cold);
+                return Error.OutOfBounds;
+            }
+
+            return @ptrCast(self.mem[i..self.ptr].ptr);
+        }
+
         pub inline fn getSlice(self: *const Self, i: Ptr, n: usize) Error![]T {
             if (i + n > self.ptr) {
                 @branchHint(.cold);

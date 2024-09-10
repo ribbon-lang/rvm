@@ -34,8 +34,9 @@ pub const HandlerIndex = u8;
 pub const TypeIndex = u16;
 pub const RegisterIndex = u8;
 pub const GlobalIndex = u16;
-pub const ConstantIndex = u15;
+pub const ConstantIndex = u13;
 pub const EvidenceIndex = u16;
+pub const MemorySize = u48;
 
 
 pub const MAX_REGISTERS = std.math.maxInt(RegisterIndex);
@@ -62,34 +63,66 @@ pub const Register = reg: {
 
 pub const Operand = packed struct {
     kind: Kind,
-    ref: OperandRef,
+    data: OperandData,
 
-    pub const Kind = enum(u1) {
+    pub const Kind = enum(u3) {
         immediate,
-        register,
+        local_var,
+        local_arg,
+        upvalue_var,
+        upvalue_arg,
     };
 
-    pub fn register(reg: Register, offset: RegisterLocalOffset) Operand {
-        return .{ .kind = .register, .ref = .{ .register = .{ .register = reg, .offset = offset } } };
-    }
-
     pub fn immediate(index: ConstantIndex, offset: RegisterLocalOffset) Operand {
-        return .{ .kind = .immediate, .ref = .{ .immediate = .{ .index = index, .offset = offset } } };
+        return .{ .kind = .immediate, .data = .{ .immediate = .{ .index = index, .offset = offset } } };
+    }
+
+    pub fn local_var(reg: Register, offset: RegisterLocalOffset) Operand {
+        return .{ .kind = .local_var, .data = .{ .register = .{ .register = reg, .offset = offset } } };
+    }
+
+    pub fn local_arg(reg: Register, offset: RegisterLocalOffset) Operand {
+        return .{ .kind = .local_arg, .data = .{ .register = .{ .register = reg, .offset = offset } } };
+    }
+
+    pub fn upvalue_var(reg: Register, offset: RegisterLocalOffset) Operand {
+        return .{ .kind = .upvalue_var, .data = .{ .register = .{ .register = reg, .offset = offset } } };
+    }
+
+    pub fn upvalue_arg(reg: Register, offset: RegisterLocalOffset) Operand {
+        return .{ .kind = .upvalue_arg, .data = .{ .register = .{ .register = reg, .offset = offset } } };
     }
 };
 
+comptime {
+    std.debug.assert(@sizeOf(Operand) == 4);
+    std.debug.assert(@bitSizeOf(Operand) == 32);
+    // @compileError(std.fmt.comptimePrint(
+    //     \\sizeOf(Operand) = {}, bitSizeOf(Operand) = {}
+    //     \\sizeOf(OperandData) = {}, bitSizeOf(OperandData) = {}
+    //     \\sizeOf(RegisterOperand) = {}, bitSizeOf(RegisterOperand) = {}
+    //     \\sizeOf(ImmediateOperand) = {}, bitSizeOf(ImmediateOperand) = {}
+    //     , .{
+    //         @sizeOf(Operand), @bitSizeOf(Operand),
+    //         @sizeOf(OperandData), @bitSizeOf(OperandData),
+    //         @sizeOf(RegisterOperand), @bitSizeOf(RegisterOperand),
+    //         @sizeOf(ImmediateOperand), @bitSizeOf(ImmediateOperand),
+    //     }
+    // ));
+}
 
-pub const OperandRef = packed union {
-    register: RegisterRef,
-    immediate: ImmediateRef,
+
+pub const OperandData = packed union {
+    register: RegisterOperand,
+    immediate: ImmediateOperand,
 };
 
-pub const RegisterRef = packed struct {
+pub const RegisterOperand = packed struct {
     register: Register,
     offset: RegisterLocalOffset,
 };
 
-pub const ImmediateRef = packed struct {
+pub const ImmediateOperand = packed struct {
     index: ConstantIndex,
     offset: RegisterLocalOffset,
 };
@@ -179,8 +212,8 @@ pub const LayoutTable = struct {
         return self.layouts[@as(RegisterIndex, @intFromEnum(register))];
     }
 
-    pub inline fn inbounds(self: *const LayoutTable, ref: RegisterRef, size: ValueSize) bool {
-        return self.getLayout(ref.register).inbounds(ref.offset, size);
+    pub inline fn inbounds(self: *const LayoutTable, operand: RegisterOperand, size: ValueSize) bool {
+        return self.getLayout(operand.register).inbounds(operand.offset, size);
     }
 };
 
@@ -320,7 +353,7 @@ test {
     try encoder.encode(allocator, trap);
 
     const call = Op { .call = .{
-        .f = .register(.r12, 45),
+        .f = .local_var(.r12, 45),
         .r = .r33,
         .as = &[_]Bytecode.Register {
             .r1, .r2, .r3, .r44
