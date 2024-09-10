@@ -2,6 +2,9 @@ const std = @import("std");
 
 const Support = @import("Support");
 
+const IO = @import("root.zig");
+const Endian = IO.Endian;
+
 const Encoder = @This();
 
 
@@ -50,24 +53,28 @@ pub fn len(self: *const Encoder) usize {
 pub fn encode(self: *Encoder, allocator: std.mem.Allocator, value: anytype) Error!void {
     const T = @TypeOf(value);
 
+    if (comptime T == void) return;
+
     if (comptime std.meta.hasFn(T, "encode")) {
         return T.encode(self, allocator, value);
     }
 
+    if (comptime Endian.IntType(T)) |_| {
+        const int = Endian.bitCastTo(value);
+        return self.encodeRaw(allocator, int);
+    } else {
+        return self.encodeStructure(allocator, value);
+    }
+}
+
+fn encodeStructure(self: *Encoder, allocator: std.mem.Allocator, value: anytype) Error!void {
+    const T = @TypeOf(value);
+
     switch (@typeInfo(T)) {
-        .void => return,
-
-        .bool, .int, .float, .vector, .@"enum"
-        => return self.encodeRaw(allocator, value),
-
         .@"struct" => |info| {
-            if (info.backing_integer) |I| {
-                return self.encode(allocator, @as(I, @bitCast(value)));
-            }
-
-            inline for (comptime std.meta.fieldNames(T)) |fieldName| {
-                const field = @field(value, fieldName);
-                try self.encode(allocator, field);
+            inline for (info.fields) |field| {
+                const fieldValue = @field(value, field.name);
+                try self.encode(allocator, fieldValue);
             }
         },
 
@@ -84,7 +91,7 @@ pub fn encode(self: *Encoder, allocator: std.mem.Allocator, value: anytype) Erro
 
             unreachable;
         } else {
-            @compileError("cannot encode union `" ++ @typeName(T) ++ "` without tag");
+            @compileError("cannot encode union `" ++ @typeName(T) ++ "` without tag or packed layout");
         },
 
         .array => |info| {

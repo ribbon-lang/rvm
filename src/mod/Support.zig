@@ -297,10 +297,23 @@ pub const Ordering = enum(u8) {
 
 pub fn compare(a: anytype, b: @TypeOf(a)) Ordering {
     const T = @TypeOf(a);
-    const info = @typeInfo(T);
 
-    switch (info) {
-        .Bool => {
+    if (comptime std.meta.hasFn(T, "compare")) {
+        return T.compare(a, b);
+    }
+
+    switch (@typeInfo(T)) {
+        .void, .undefined, .noreturn => return Ordering.Equal,
+        .error_set => {
+            if (a == b) {
+                return Ordering.Equal;
+            } else if (@intFromError(a) < @intFromError(b)) {
+                return Ordering.Less;
+            } else {
+                return Ordering.Greater;
+            }
+        },
+        .bool => {
             if (a == b) {
                 return Ordering.Equal;
             } else if (a) {
@@ -309,7 +322,7 @@ pub fn compare(a: anytype, b: @TypeOf(a)) Ordering {
                 return Ordering.Less;
             }
         },
-        .Int, .Float, .ComptimeInt, .ComptimeFloat => {
+        .int, .float, .comptime_int, .comptime_float, .vector => {
             if (a < b) {
                 return Ordering.Less;
             } else if (a > b) {
@@ -318,7 +331,47 @@ pub fn compare(a: anytype, b: @TypeOf(a)) Ordering {
                 return Ordering.Equal;
             }
         },
-        .Optional => {
+        .@"enum" => {
+            if (@intFromEnum(a) < @intFromEnum(b)) {
+                return Ordering.Less;
+            } else if (@intFromEnum(a) > @intFromEnum(b)) {
+                return Ordering.Greater;
+            } else {
+                return Ordering.Equal;
+            }
+        },
+        .@"struct" => |info| {
+            inline for (info.fields) |field| {
+                const result = compare(@field(a, field.name), @field(b, field.name));
+                if (result != Ordering.Equal) {
+                    return result;
+                }
+            }
+            return Ordering.Equal;
+        },
+        .@"union" => |info| {
+            if (info.tag_type) |TT| {
+                const tagA = @as(TT, a);
+                const tagB = @as(TT, b);
+                const result = compare(tagA, tagB);
+                if (result == Ordering.Equal) {
+                    inline for (info.fields) |field| {
+                        if (tagA == @field(TT, field.name)) {
+                            return compare(@field(a, field.name), @field(b, field.name));
+                        }
+                    }
+                }
+                return result;
+            } else if (info.layout == .@"packed") {
+                const I = std.meta.Int(.unsigned, @bitSizeOf(T));
+                const aInt: I = @bitCast(a);
+                const bInt: I = @bitCast(b);
+                return compare(aInt, bInt);
+            } else {
+                @compileError("Cannot do compare for union type `" ++ @typeName(T) ++ "` without tag or packed layout");
+            }
+        },
+        .optional => {
             if (a == null) {
                 if (b == null) {
                     return Ordering.Equal;
@@ -331,8 +384,8 @@ pub fn compare(a: anytype, b: @TypeOf(a)) Ordering {
                 return compare(a.?, b.?);
             }
         },
-        .Pointer => {
-            switch (info.Pointer.size) {
+        .pointer => |info| {
+            switch (info.size) {
                 .One, .C => {
                     if (@intFromPtr(a) == @intFromPtr(b)) {
                         return Ordering.Equal;
@@ -364,8 +417,8 @@ pub fn compare(a: anytype, b: @TypeOf(a)) Ordering {
                 },
             }
         },
-        .Array => {
-            for (0..info.Array.len) |i| {
+        .array => |info| {
+            for (0..info.len) |i| {
                 const result = compare(a[i], b[i]);
                 if (result != Ordering.Equal) {
                     return result;
@@ -373,22 +426,29 @@ pub fn compare(a: anytype, b: @TypeOf(a)) Ordering {
             }
             return Ordering.Equal;
         },
-        else => {
-            if (comptime std.meta.hasFn(T, "compare")) {
-                return T.compare(a, b);
-            } else {
-                @compileError("Cannot do compare for type `" ++ @typeName(T) ++ "`");
-            }
-        },
+        else => @compileError("Cannot do compare for type `" ++ @typeName(T) ++ "`"),
     }
 }
 
 pub fn compareAddress(a: anytype, b: @TypeOf(a)) Ordering {
     const T = @TypeOf(a);
-    const info = @typeInfo(T);
 
-    switch (info) {
-        .Bool => {
+    if (comptime std.meta.hasFn(T, "compareAddress")) {
+        return T.compareAddress(a, b);
+    }
+
+    switch (@typeInfo(T)) {
+        .void, .undefined, .noreturn => return Ordering.Equal,
+        .error_set => {
+            if (a == b) {
+                return Ordering.Equal;
+            } else if (@intFromError(a) < @intFromError(b)) {
+                return Ordering.Less;
+            } else {
+                return Ordering.Greater;
+            }
+        },
+        .bool => {
             if (a == b) {
                 return Ordering.Equal;
             } else if (a) {
@@ -397,7 +457,7 @@ pub fn compareAddress(a: anytype, b: @TypeOf(a)) Ordering {
                 return Ordering.Less;
             }
         },
-        .Int, .Float, .ComptimeInt, .ComptimeFloat => {
+        .int, .float, .comptime_int, .comptime_float, .vector => {
             if (a < b) {
                 return Ordering.Less;
             } else if (a > b) {
@@ -406,7 +466,47 @@ pub fn compareAddress(a: anytype, b: @TypeOf(a)) Ordering {
                 return Ordering.Equal;
             }
         },
-        .Optional => {
+        .@"enum" => {
+            if (@intFromEnum(a) < @intFromEnum(b)) {
+                return Ordering.Less;
+            } else if (@intFromEnum(a) > @intFromEnum(b)) {
+                return Ordering.Greater;
+            } else {
+                return Ordering.Equal;
+            }
+        },
+        .@"struct" => |info| {
+            inline for (info.fields) |field| {
+                const result = compareAddress(@field(a, field.name), @field(b, field.name));
+                if (result != Ordering.Equal) {
+                    return result;
+                }
+            }
+            return Ordering.Equal;
+        },
+        .@"union" => |info| {
+            if (info.tag_type) |TT| {
+                const tagA = @as(TT, a);
+                const tagB = @as(TT, b);
+                const result = compareAddress(tagA, tagB);
+                if (result == Ordering.Equal) {
+                    inline for (info.fields) |field| {
+                        if (comptime tagA == @field(TT, field.name)) {
+                            return compareAddress(@field(a, field.name), @field(b, field.name));
+                        }
+                    }
+                }
+                return result;
+            } else if (info.layout == .@"packed") {
+                const I = std.meta.Int(.unsigned, @bitSizeOf(T));
+                const aInt: I = @bitCast(a);
+                const bInt: I = @bitCast(b);
+                return compareAddress(aInt, bInt);
+            } else {
+                @compileError("Cannot do compareAddress for union type `" ++ @typeName(T) ++ "` without tag or packed layout");
+            }
+        },
+        .optional => {
             if (a == null) {
                 if (b == null) {
                     return Ordering.Equal;
@@ -419,14 +519,14 @@ pub fn compareAddress(a: anytype, b: @TypeOf(a)) Ordering {
                 return compare(a.?, b.?);
             }
         },
-        .Pointer => {
-            switch (info.Pointer.size) {
+        .pointer => |info| {
+            switch (info.size) {
                 .One, .C, .Many => return compare(@intFromPtr(a), @intFromPtr(b)),
                 .Slice => return compare(@intFromPtr(a.ptr), @intFromPtr(b.ptr)),
             }
         },
-        .Array => {
-            for (0..info.Array.len) |i| {
+        .array => |info| {
+            for (0..info.len) |i| {
                 const result = compareAddress(a[i], b[i]);
                 if (result != Ordering.Equal) {
                     return result;
@@ -434,13 +534,7 @@ pub fn compareAddress(a: anytype, b: @TypeOf(a)) Ordering {
             }
             return Ordering.Equal;
         },
-        else => {
-            if (comptime std.meta.hasFn(T, "compareAddress")) {
-                return T.compareAddress(a, b);
-            } else {
-                @compileError("Cannot do compareAddress for type `" ++ @typeName(T) ++ "`");
-            }
-        },
+        else => @compileError("Cannot do compareAddress for type `" ++ @typeName(T) ++ "`"),
     }
 }
 

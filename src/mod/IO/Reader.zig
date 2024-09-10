@@ -48,7 +48,7 @@ pub fn readRaw(self: Reader, comptime T: type) !T {
 ///
 /// `context` is passed to the `read` method of custom types
 pub fn read(self: Reader, comptime T: type, context: anytype) !T {
-    if (T == void) return {};
+    if (comptime T == void) return {};
 
     if (comptime std.meta.hasFn(T, "read")) {
         return T.read(self, context);
@@ -83,7 +83,7 @@ fn readStructure(self: Reader, comptime T: type, context: anytype) !T {
                 }
             }
         } else {
-            @compileError("cannot read union `" ++ @typeName(T) ++ "` without tag type");
+            @compileError("cannot read union `" ++ @typeName(T) ++ "` without tag or packed layout");
         },
 
         .array => |info| {

@@ -85,7 +85,7 @@ fn writeStructure(self: Writer, value: anytype) !void {
 
             unreachable;
         } else {
-            @compileError(std.fmt.comptimePrint("cannot read union `{s}` without tag type", .{
+            @compileError(std.fmt.comptimePrint("cannot read union `{s}` without tag or packed layout", .{
                 @typeName(T),
             }));
         },

@@ -34,7 +34,7 @@ pub const HandlerIndex = u8;
 pub const TypeIndex = u16;
 pub const RegisterIndex = u8;
 pub const GlobalIndex = u16;
-pub const ConstantIndex = u16;
+pub const ConstantIndex = u15;
 pub const EvidenceIndex = u16;
 
 
@@ -61,7 +61,36 @@ pub const Register = reg: {
 };
 
 pub const Operand = packed struct {
+    kind: Kind,
+    ref: OperandRef,
+
+    pub const Kind = enum(u1) {
+        immediate,
+        register,
+    };
+
+    pub fn register(reg: Register, offset: RegisterLocalOffset) Operand {
+        return .{ .kind = .register, .ref = .{ .register = .{ .register = reg, .offset = offset } } };
+    }
+
+    pub fn immediate(index: ConstantIndex, offset: RegisterLocalOffset) Operand {
+        return .{ .kind = .immediate, .ref = .{ .immediate = .{ .index = index, .offset = offset } } };
+    }
+};
+
+
+pub const OperandRef = packed union {
+    register: RegisterRef,
+    immediate: ImmediateRef,
+};
+
+pub const RegisterRef = packed struct {
     register: Register,
+    offset: RegisterLocalOffset,
+};
+
+pub const ImmediateRef = packed struct {
+    index: ConstantIndex,
     offset: RegisterLocalOffset,
 };
 
@@ -86,6 +115,10 @@ pub const Block = struct {
 pub const Layout = struct {
     size: ValueSize,
     alignment: ValueAlignment,
+
+    pub fn inbounds(self: Layout, offset: RegisterLocalOffset, size: ValueSize) bool {
+        return @as(usize, offset) + @as(usize, size) <= @as(usize, self.size);
+    }
 };
 
 pub const Type = union(enum) {
@@ -117,12 +150,10 @@ pub const Type = union(enum) {
     };
 
     pub const Product = struct {
-        names: [][]const u8,
         types: []TypeIndex,
     };
 
     pub const Sum = struct {
-        names: [][]const u8,
         types: []TypeIndex,
     };
 
@@ -138,7 +169,7 @@ pub const LayoutTable = struct {
     local_offsets: []RegisterBaseOffset,
     size: LayoutTableSize,
     alignment: ValueAlignment,
-    num_params: Register,
+    num_params: RegisterIndex,
 
     pub inline fn getType(self: *const LayoutTable, register: Register) TypeIndex {
         return self.types[@as(RegisterIndex, @intFromEnum(register))];
@@ -148,9 +179,8 @@ pub const LayoutTable = struct {
         return self.layouts[@as(RegisterIndex, @intFromEnum(register))];
     }
 
-    pub inline fn inbounds(self: *const LayoutTable, operand: Operand, size: ValueSize) bool {
-        const layout = self.getLayout(operand.register);
-        return operand.offset + size <= layout.size;
+    pub inline fn inbounds(self: *const LayoutTable, ref: RegisterRef, size: ValueSize) bool {
+        return self.getLayout(ref.register).inbounds(ref.offset, size);
     }
 };
 
@@ -186,7 +216,7 @@ pub const HandlerSet = struct {
 pub const Data = struct {
     type: TypeIndex,
     layout: Layout,
-    value: []u8,
+    memory: []u8,
 };
 
 pub const Program = struct {
@@ -273,6 +303,8 @@ pub fn readInstructionsImpl(reader: IO.Reader, encoderAllocator: std.mem.Allocat
 
 
 test {
+    const Support = @import("Support");
+
     const allocator = std.testing.allocator;
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
@@ -288,10 +320,7 @@ test {
     try encoder.encode(allocator, trap);
 
     const call = Op { .call = .{
-        .f = Bytecode.Operand {
-            .register = .r12,
-            .offset = 45,
-        },
+        .f = .register(.r12, 45),
         .r = .r33,
         .as = &[_]Bytecode.Register {
             .r1, .r2, .r3, .r44
@@ -299,9 +328,9 @@ test {
     }};
     try encoder.encode(allocator, call);
 
-    const br_imm = Op { .br_imm = .{
+    const br_imm = Op { .br_v = .{
         .b = 36,
-        .i = 22,
+        .y = .immediate(12, 34),
     }};
     try encoder.encode(allocator, br_imm);
 
@@ -347,12 +376,12 @@ test {
     var decodeOffset: InstructionPointerOffset = 0;
     const decoder = IO.Decoder { .memory = instructions, .base = 0, .offset = &decodeOffset };
 
-    try std.testing.expectEqualDeep(nop, try decoder.decode(Op));
-    try std.testing.expectEqualDeep(trap, try decoder.decode(Op));
-    try std.testing.expectEqualDeep(call, try decoder.decode(Op));
-    try std.testing.expectEqualDeep(br_imm, try decoder.decode(Op));
-    try std.testing.expectEqualDeep(prompt, try decoder.decode(Op));
-    try std.testing.expectEqualDeep(nop, try decoder.decode(Op));
-    try std.testing.expectEqualDeep(trap, try decoder.decode(Op));
+    try std.testing.expect(Support.equal(nop, try decoder.decode(Op)));
+    try std.testing.expect(Support.equal(trap, try decoder.decode(Op)));
+    try std.testing.expect(Support.equal(call, try decoder.decode(Op)));
+    try std.testing.expect(Support.equal(br_imm, try decoder.decode(Op)));
+    try std.testing.expect(Support.equal(prompt, try decoder.decode(Op)));
+    try std.testing.expect(Support.equal(nop, try decoder.decode(Op)));
+    try std.testing.expect(Support.equal(trap, try decoder.decode(Op)));
     try std.testing.expect(decoder.isEof());
 }

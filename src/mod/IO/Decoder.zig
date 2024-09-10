@@ -4,6 +4,9 @@ const Support = @import("Support");
 
 const Bytecode = @import("Bytecode");
 
+const IO = @import("root.zig");
+const Endian = IO.Endian;
+
 
 const Decoder = @This();
 
@@ -77,21 +80,23 @@ pub inline fn pad(self: *const Decoder, alignment: usize) Error!void {
 }
 
 pub fn decode(self: *const Decoder, comptime T: type) Error!T {
+    if (comptime T == void) return {};
+
     if (comptime std.meta.hasFn(T, "decode")) {
         return T.decode(self);
     }
 
+    if (comptime Endian.IntType(T)) |I| {
+        const int = try self.decodeRaw(I);
+        return Endian.bitCastFrom(T, int);
+    } else {
+        return self.decodeStructure(T);
+    }
+}
+
+fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
     switch (@typeInfo(T)) {
-        .void => return {},
-
-        .bool, .int, .float, .vector, .@"enum"
-        => return self.decodeRaw(T),
-
         .@"struct" => |info| {
-            if (info.backing_integer) |I| {
-                return @bitCast(try self.decode(I));
-            }
-
             var out: T = undefined;
 
             inline for (info.fields) |field| {
@@ -112,7 +117,7 @@ pub fn decode(self: *const Decoder, comptime T: type) Error!T {
 
             unreachable;
         } else {
-            @compileError("cannot decode union `" ++ @typeName(T) ++ "` without tag type");
+            @compileError("cannot decode union `" ++ @typeName(T) ++ "` without tag or packed layout");
         },
 
         .array => |info| if (comptime info.sentinel) |sPtr| {

@@ -32,7 +32,7 @@ evidence: []Evidence,
 diagnostic: ?*?Diagnostic,
 
 
-pub const Error = std.mem.Allocator.Error || DataStack.Error || error {};
+pub const Error = std.mem.Allocator.Error || DataStack.Error || error { Trap, ImmediateWrite, };
 
 pub const Trap = error {
     Unreachable,

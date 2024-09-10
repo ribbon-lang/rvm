@@ -41,6 +41,10 @@ pub fn IntType(comptime T: type) ?type {
             if (info.backing_integer) |i| i
             else null,
 
+        .@"union" => |info|
+            if (info.layout == .@"packed") std.meta.Int(@bitSizeOf(T))
+            else null,
+
         .@"enum" => |info| IntType(info.tag_type),
 
         else => null,

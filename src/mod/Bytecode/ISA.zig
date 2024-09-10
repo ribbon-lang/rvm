@@ -64,20 +64,6 @@ pub const InstructionPrototypes = .{
          , BlockOperand
         },
 
-        .{ "br_imm"
-         , \\exit the block designated by `b`
-           \\copy the immediate value designated by `i`
-           \\place the result in the block's yield register
-         , BlockImm
-        },
-
-        .{ "br_if_imm"
-         , \\exit the block designated by `b`, if the condition in `x` is non-zero
-           \\copy the immediate value designated by `i`
-           \\place the result in the block's yield register
-         , BlockImmOperand
-        },
-
         .{ "reiter"
          , \\restart the designated `block`
          , Block
@@ -155,16 +141,6 @@ pub const InstructionPrototypes = .{
         .{ "store"
          , \\copy the value from `x` to the address stored in `y`
          , TwoOperand
-        },
-
-        .{ "load_imm"
-         , \\copy the immediate value designated by `i` into `x`
-         , ImmOperand
-        },
-
-        .{ "store_imm"
-         , \\copy the immediate value designated by `i` to the address stored in `x`
-         , ImmOperand
         },
 
         .{ "clear"
@@ -425,22 +401,6 @@ pub const Block = struct {
 
 pub const BlockOperand = struct {
     b: BlockIndex,
-    x: Operand,
-};
-
-pub const BlockImm = struct {
-    b: BlockIndex,
-    i: ConstantIndex,
-};
-
-pub const BlockImmOperand = struct {
-    b: BlockIndex,
-    i: ConstantIndex,
-    x: Operand,
-};
-
-pub const ImmOperand = struct {
-    i: ConstantIndex,
     x: Operand,
 };
 

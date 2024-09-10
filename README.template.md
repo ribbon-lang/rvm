@@ -135,8 +135,8 @@ but here is a preliminary rundown.
 | Symbol | Type | Description | Bit Size |
 |-|-|-|-|
 | `R` | `Register` | a plain register with no offset | `8` |
-| `O` | `Operand` | a register paired with an offset into it | `24` |
-| `I` | `Index` (Varies) | a static index, varying kinds based on context (ie. `BlockIndex`, `HandlerSetIndex`, `ConstantIndex`) | `16` |
+| `O` | `Operand` | a register or a constant index paired with an offset into it | `32` |
+| `I` | `Index` (Varies) | a static index, varying kinds based on context (ie. `BlockIndex`, `HandlerSetIndex`, etc) | `16` |
 | `[x]` | A variable-length array of `x` | a set of parameters; for example, the set of argument registers to provide to a function call | `64 + bits(x) * length` |
 
 
