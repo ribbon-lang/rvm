@@ -94,24 +94,26 @@ pub fn decode(self: *const Decoder, comptime T: type) Error!T {
     }
 }
 
-fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
+inline fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
+    @setEvalBranchQuota(10_000); // lots of inlining here
+
     switch (@typeInfo(T)) {
         .@"struct" => |info| {
             var out: T = undefined;
 
             inline for (info.fields) |field| {
-                @field(out, field.name) = try self.decode(field.type);
+                @field(out, field.name) = try @call(.always_inline, decode, .{self, field.type});
             }
 
             return out;
         },
 
         .@"union" => |info| if (info.tag_type) |TT| {
-            const tag = try self.decode(TT);
+            const tag = try @call(.always_inline, decode, .{self, TT});
 
             inline for (info.fields) |field| {
                 if (tag == @field(TT, field.name)) {
-                    return @unionInit(T, field.name, try self.decode(field.type));
+                    return @unionInit(T, field.name, try @call(.always_inline, decode, .{self, field.type}));
                 }
             }
 
@@ -126,10 +128,10 @@ fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
             var out: [info.len:sentinel]info.child = undefined;
 
             for (0..info.len) |i| {
-                out[i] = try self.decode();
+                out[i] = try @call(.always_inline, decode, .{self, info.child});
             }
 
-            if (try self.decode(info.child) != sentinel) {
+            if (try @call(.always_inline, decode, .{self, info.child}) != sentinel) {
                 @branchHint(.cold);
                 return Error.BadEncoding;
             }
@@ -141,7 +143,7 @@ fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
             var out: [info.len]info.child = undefined;
 
             for (0..info.len) |i| {
-                out[i] = try self.decode();
+                out[i] = try @call(.always_inline, decode, .{self, info.child});
             }
 
             return out;
@@ -171,7 +173,7 @@ fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
                     const ptr: T = @alignCast(@ptrCast(&self.memory[self.ip()]));
 
                     while (true) {
-                        if (try self.decode(info.child) == sentinel) break;
+                        if (try @call(.always_inline, decode, .{self, info.child}) == sentinel) break;
                     }
 
                     return ptr;
@@ -180,7 +182,7 @@ fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
                 }
             },
             .Slice => {
-                const len = try self.decode(usize);
+                const len = try @call(.always_inline, decode, .{self, usize});
 
                 try self.pad(@alignOf(info.child));
 
@@ -199,7 +201,7 @@ fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
 
                 if (info.sentinel) |sPtr| {
                     const sentinel = @as(*const info.child, @ptrCast(sPtr)).*;
-                    if (try self.decode(info.child) != sentinel) {
+                    if (try @call(.always_inline, decode, .{self, info.child}) != sentinel) {
                         @branchHint(.cold);
                         return Error.BadEncoding;
                     }
@@ -212,8 +214,8 @@ fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
             },
         },
 
-        .optional => |info| if (try self.decode(bool)) {
-            return try self.decode(info.child);
+        .optional => |info| if (try @call(.always_inline, decode, .{self, bool})) {
+            return try @call(.always_inline, decode, .{self, info.child});
         } else {
             return null;
         },
@@ -222,5 +224,4 @@ fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
             @compileError("cannot decode type `" ++ @typeName(T) ++ "`");
         },
     }
-
 }

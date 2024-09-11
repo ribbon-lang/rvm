@@ -52,7 +52,7 @@ pub fn stepBytecode(fiber: *Fiber, localData: RegisterData, upvalueData: ?Regist
         .offset = &blockFrame.ip_offset,
     };
 
-    const instr: Bytecode.Op = try @call(.always_inline, IO.Decoder.decode, .{&decoder, Bytecode.Op});
+    const instr = try decoder.decode(Bytecode.Op);
 
     switch (instr) {
         .trap => return Fiber.Trap.Unreachable,

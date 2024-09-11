@@ -67,7 +67,7 @@ pub fn encode(self: *Encoder, allocator: std.mem.Allocator, value: anytype) Erro
     }
 }
 
-fn encodeStructure(self: *Encoder, allocator: std.mem.Allocator, value: anytype) Error!void {
+inline fn encodeStructure(self: *Encoder, allocator: std.mem.Allocator, value: anytype) Error!void {
     const T = @TypeOf(value);
 
     switch (@typeInfo(T)) {
