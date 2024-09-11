@@ -65,7 +65,7 @@ pub const InstructionPrototypes = .{
         },
 
         .{ "reiter"
-         , \\restart the designated `block`
+         , \\restart the block designated by `b`
          , Block
         },
 
@@ -130,11 +130,13 @@ pub const InstructionPrototypes = .{
 
         .{ "load"
          , \\copy `m` bytes from the address stored in `x` into `y`
+           \\the address must be located in the operand stack or global memory
          , MemTwoOperand
         },
 
         .{ "store"
          , \\copy `m` bytes from `x` to the address stored in `y`
+           \\the address must be located in the operand stack or global memory
          , MemTwoOperand
         },
 

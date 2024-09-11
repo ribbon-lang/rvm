@@ -43,7 +43,7 @@ pub fn stepBytecode(fiber: *Fiber, localData: RegisterData, upvalueData: ?Regist
 
     const blockFrame = try fiber.stack.block.topPtr();
     const block = &bytecode.blocks[blockFrame.index];
-    const constants = fiber.program.constants;
+    const globals = &fiber.program.globals;
     const stack = &fiber.stack.data;
 
     const decoder = IO.Decoder {
@@ -59,237 +59,238 @@ pub fn stepBytecode(fiber: *Fiber, localData: RegisterData, upvalueData: ?Regist
         .nop => {},
 
         .addr_of => |operands| {
-            const addr: [*]const u8 = try addrOf(.unknown, 0, constants, stack, localData, upvalueData, operands.x);
+            const addr: [*]const u8 = try addrOf(0, globals, stack, localData, upvalueData, operands.x);
 
-            try write(stack, localData, upvalueData, operands.y, addr);
+            try write(globals, stack, localData, upvalueData, operands.y, addr);
         },
 
         .load => |operands| {
-            const inAddr: [*]const u8 = try read([*]const u8, constants, stack, localData, upvalueData, operands.x);
+            const inAddr: [*]const u8 = try read([*]const u8, globals, stack, localData, upvalueData, operands.x);
+            const outAddr: [*]u8 = try addrOf(operands.m, globals, stack, localData, upvalueData, operands.y);
 
-            const outAddr: [*]u8 = try addrOf(.write, operands.m, constants, stack, localData, upvalueData, operands.y);
+            try boundsCheck(globals, stack, inAddr, operands.m);
 
-            // TODO: bounds check address
             @memcpy(outAddr[0..operands.m], inAddr);
         },
 
         .store => |operands| {
-            const inAddr: [*]const u8 = try addrOf(.read, operands.m, constants, stack, localData, upvalueData, operands.x);
-            const outAddr: [*]u8 = try read([*]u8, constants, stack, localData, upvalueData, operands.y);
+            const inAddr: [*]const u8 = try addrOf(operands.m, globals, stack, localData, upvalueData, operands.x);
+            const outAddr: [*]u8 = try read([*]u8, globals, stack, localData, upvalueData, operands.y);
 
-            // TODO: bounds check address
+            try boundsCheck(globals, stack, outAddr, operands.m);
+
             @memcpy(outAddr[0..operands.m], inAddr);
         },
 
         .clear => |operands| {
-            const addr: [*]u8 = try addrOf(.write, operands.m, constants, stack, localData, upvalueData, operands.x);
+            const addr: [*]u8 = try addrOf(operands.m, globals, stack, localData, upvalueData, operands.x);
 
-            // TODO: bounds check address
             @memset(addr[0..operands.m], 0);
         },
 
         .swap => |operands| {
-            const a: [*]u8 = try addrOf(.write, operands.m, constants, stack, localData, upvalueData, operands.x);
-            const b: [*]u8 = try addrOf(.write, operands.m, constants, stack, localData, upvalueData, operands.y);
+            const a: [*]u8 = try addrOf(operands.m, globals, stack, localData, upvalueData, operands.x);
+            const b: [*]u8 = try addrOf(operands.m, globals, stack, localData, upvalueData, operands.y);
 
-            // TODO: bounds check addresses
             for (0..operands.m) |i| {
                 @call(.always_inline, std.mem.swap, .{u8, &a[i], &b[i]});
             }
         },
 
         .copy => |operands| {
-            const inAddr: [*]const u8 = try addrOf(.read, operands.m, constants, stack, localData, upvalueData, operands.x);
-            const outAddr: [*]u8 = try addrOf(.write, operands.m, constants, stack, localData, upvalueData, operands.y);
+            const inAddr: [*]const u8 = try addrOf(operands.m, globals, stack, localData, upvalueData, operands.x);
+            const outAddr: [*]u8 = try addrOf(operands.m, globals, stack, localData, upvalueData, operands.y);
 
-            // TODO: bounds check addresses
             @call(.always_inline, std.mem.copyForwards, .{u8, outAddr[0..operands.m], inAddr[0..operands.m]});
         },
 
-        .b_not => |operands| try ops.unary(bool, "not", constants, stack, localData, upvalueData, operands),
-        .b_and => |operands| try ops.binary(bool, "and", constants, stack, localData, upvalueData, operands),
-        .b_or => |operands| try ops.binary(bool, "or", constants, stack, localData, upvalueData, operands),
+        .b_not => |operands| try ops.unary(bool, "not", globals, stack, localData, upvalueData, operands),
+        .b_and => |operands| try ops.binary(bool, "and", globals, stack, localData, upvalueData, operands),
+        .b_or => |operands| try ops.binary(bool, "or", globals, stack, localData, upvalueData, operands),
 
-        .f_add32 => |operands| try ops.binary(f32, "add", constants, stack, localData, upvalueData, operands),
-        .f_add64 => |operands| try ops.binary(f64, "add", constants, stack, localData, upvalueData, operands),
-        .f_sub32 => |operands| try ops.binary(f32, "sub", constants, stack, localData, upvalueData, operands),
-        .f_sub64 => |operands| try ops.binary(f64, "sub", constants, stack, localData, upvalueData, operands),
-        .f_mul32 => |operands| try ops.binary(f32, "mul", constants, stack, localData, upvalueData, operands),
-        .f_mul64 => |operands| try ops.binary(f64, "mul", constants, stack, localData, upvalueData, operands),
-        .f_div32 => |operands| try ops.binary(f32, "div", constants, stack, localData, upvalueData, operands),
-        .f_div64 => |operands| try ops.binary(f64, "div", constants, stack, localData, upvalueData, operands),
-        .f_rem32 => |operands| try ops.binary(f32, "rem", constants, stack, localData, upvalueData, operands),
-        .f_rem64 => |operands| try ops.binary(f64, "rem", constants, stack, localData, upvalueData, operands),
-        .f_neg32 => |operands| try ops.unary(f32, "neg", constants, stack, localData, upvalueData, operands),
-        .f_neg64 => |operands| try ops.unary(f64, "neg", constants, stack, localData, upvalueData, operands),
-        .f_eq32 => |operands| try ops.binary(f32, "eq", constants, stack, localData, upvalueData, operands),
-        .f_eq64 => |operands| try ops.binary(f64, "eq", constants, stack, localData, upvalueData, operands),
-        .f_ne32 => |operands| try ops.binary(f32, "ne", constants, stack, localData, upvalueData, operands),
-        .f_ne64 => |operands| try ops.binary(f64, "ne", constants, stack, localData, upvalueData, operands),
-        .f_lt32 => |operands| try ops.binary(f32, "lt", constants, stack, localData, upvalueData, operands),
-        .f_lt64 => |operands| try ops.binary(f64, "lt", constants, stack, localData, upvalueData, operands),
-        .f_gt32 => |operands| try ops.binary(f32, "gt", constants, stack, localData, upvalueData, operands),
-        .f_gt64 => |operands| try ops.binary(f64, "gt", constants, stack, localData, upvalueData, operands),
-        .f_le32 => |operands| try ops.binary(f32, "le", constants, stack, localData, upvalueData, operands),
-        .f_le64 => |operands| try ops.binary(f64, "le", constants, stack, localData, upvalueData, operands),
-        .f_ge32 => |operands| try ops.binary(f32, "ge", constants, stack, localData, upvalueData, operands),
-        .f_ge64 => |operands| try ops.binary(f64, "ge", constants, stack, localData, upvalueData, operands),
+        .f_add32 => |operands| try ops.binary(f32, "add", globals, stack, localData, upvalueData, operands),
+        .f_add64 => |operands| try ops.binary(f64, "add", globals, stack, localData, upvalueData, operands),
+        .f_sub32 => |operands| try ops.binary(f32, "sub", globals, stack, localData, upvalueData, operands),
+        .f_sub64 => |operands| try ops.binary(f64, "sub", globals, stack, localData, upvalueData, operands),
+        .f_mul32 => |operands| try ops.binary(f32, "mul", globals, stack, localData, upvalueData, operands),
+        .f_mul64 => |operands| try ops.binary(f64, "mul", globals, stack, localData, upvalueData, operands),
+        .f_div32 => |operands| try ops.binary(f32, "div", globals, stack, localData, upvalueData, operands),
+        .f_div64 => |operands| try ops.binary(f64, "div", globals, stack, localData, upvalueData, operands),
+        .f_rem32 => |operands| try ops.binary(f32, "rem", globals, stack, localData, upvalueData, operands),
+        .f_rem64 => |operands| try ops.binary(f64, "rem", globals, stack, localData, upvalueData, operands),
+        .f_neg32 => |operands| try ops.unary(f32, "neg", globals, stack, localData, upvalueData, operands),
+        .f_neg64 => |operands| try ops.unary(f64, "neg", globals, stack, localData, upvalueData, operands),
 
-        .i_add8 => |operands| try ops.binary(u8, "add", constants, stack, localData, upvalueData, operands),
-        .i_add16 => |operands| try ops.binary(u16, "add", constants, stack, localData, upvalueData, operands),
-        .i_add32 => |operands| try ops.binary(u32, "add", constants, stack, localData, upvalueData, operands),
-        .i_add64 => |operands| try ops.binary(u64, "add", constants, stack, localData, upvalueData, operands),
-        .i_sub8 => |operands| try ops.binary(u8, "sub", constants, stack, localData, upvalueData, operands),
-        .i_sub16 => |operands| try ops.binary(u16, "sub", constants, stack, localData, upvalueData, operands),
-        .i_sub32 => |operands| try ops.binary(u32, "sub", constants, stack, localData, upvalueData, operands),
-        .i_sub64 => |operands| try ops.binary(u64, "sub", constants, stack, localData, upvalueData, operands),
-        .i_mul8 => |operands| try ops.binary(u8, "mul", constants, stack, localData, upvalueData, operands),
-        .i_mul16 => |operands| try ops.binary(u16, "mul", constants, stack, localData, upvalueData, operands),
-        .i_mul32 => |operands| try ops.binary(u32, "mul", constants, stack, localData, upvalueData, operands),
-        .i_mul64 => |operands| try ops.binary(u64, "mul", constants, stack, localData, upvalueData, operands),
-        .s_div8 => |operands| try ops.binary(i8, "divFloor", constants, stack, localData, upvalueData, operands),
-        .s_div16 => |operands| try ops.binary(i16, "divFloor", constants, stack, localData, upvalueData, operands),
-        .s_div32 => |operands| try ops.binary(i32, "divFloor", constants, stack, localData, upvalueData, operands),
-        .s_div64 => |operands| try ops.binary(i64, "divFloor", constants, stack, localData, upvalueData, operands),
-        .u_div8 => |operands| try ops.binary(u8, "div", constants, stack, localData, upvalueData, operands),
-        .u_div16 => |operands| try ops.binary(u16, "div", constants, stack, localData, upvalueData, operands),
-        .u_div32 => |operands| try ops.binary(u32, "div", constants, stack, localData, upvalueData, operands),
-        .u_div64 => |operands| try ops.binary(u64, "div", constants, stack, localData, upvalueData, operands),
-        .s_rem8 => |operands| try ops.binary(i8, "rem", constants, stack, localData, upvalueData, operands),
-        .s_rem16 => |operands| try ops.binary(i16, "rem", constants, stack, localData, upvalueData, operands),
-        .s_rem32 => |operands| try ops.binary(i32, "rem", constants, stack, localData, upvalueData, operands),
-        .s_rem64 => |operands| try ops.binary(i64, "rem", constants, stack, localData, upvalueData, operands),
-        .u_rem8 => |operands| try ops.binary(u8, "rem", constants, stack, localData, upvalueData, operands),
-        .u_rem16 => |operands| try ops.binary(u16, "rem", constants, stack, localData, upvalueData, operands),
-        .u_rem32 => |operands| try ops.binary(u32, "rem", constants, stack, localData, upvalueData, operands),
-        .u_rem64 => |operands| try ops.binary(u64, "rem", constants, stack, localData, upvalueData, operands),
-        .i_bitnot8 => |operands| try ops.unary(u8, "bitnot", constants, stack, localData, upvalueData, operands),
-        .i_bitnot16 => |operands| try ops.unary(u16, "bitnot", constants, stack, localData, upvalueData, operands),
-        .i_bitnot32 => |operands| try ops.unary(u32, "bitnot", constants, stack, localData, upvalueData, operands),
-        .i_bitnot64 => |operands| try ops.unary(u64, "bitnot", constants, stack, localData, upvalueData, operands),
-        .i_bitand8 => |operands| try ops.binary(u8, "bitand", constants, stack, localData, upvalueData, operands),
-        .i_bitand16 => |operands| try ops.binary(u16, "bitand", constants, stack, localData, upvalueData, operands),
-        .i_bitand32 => |operands| try ops.binary(u32, "bitand", constants, stack, localData, upvalueData, operands),
-        .i_bitand64 => |operands| try ops.binary(u64, "bitand", constants, stack, localData, upvalueData, operands),
-        .i_bitor8 => |operands| try ops.binary(u8, "bitor", constants, stack, localData, upvalueData, operands),
-        .i_bitor16 => |operands| try ops.binary(u16, "bitor", constants, stack, localData, upvalueData, operands),
-        .i_bitor32 => |operands| try ops.binary(u32, "bitor", constants, stack, localData, upvalueData, operands),
-        .i_bitor64 => |operands| try ops.binary(u64, "bitor", constants, stack, localData, upvalueData, operands),
-        .i_bitxor8 => |operands| try ops.binary(u8, "bitxor", constants, stack, localData, upvalueData, operands),
-        .i_bitxor16 => |operands| try ops.binary(u16, "bitxor", constants, stack, localData, upvalueData, operands),
-        .i_bitxor32 => |operands| try ops.binary(u32, "bitxor", constants, stack, localData, upvalueData, operands),
-        .i_bitxor64 => |operands| try ops.binary(u64, "bitxor", constants, stack, localData, upvalueData, operands),
-        .i_shiftl8 => |operands| try ops.binary(u8, "shiftl", constants, stack, localData, upvalueData, operands),
-        .i_shiftl16 => |operands| try ops.binary(u16, "shiftl", constants, stack, localData, upvalueData, operands),
-        .i_shiftl32 => |operands| try ops.binary(u32, "shiftl", constants, stack, localData, upvalueData, operands),
-        .i_shiftl64 => |operands| try ops.binary(u64, "shiftl", constants, stack, localData, upvalueData, operands),
-        .u_shiftr8 => |operands| try ops.binary(u8, "shiftr", constants, stack, localData, upvalueData, operands),
-        .u_shiftr16 => |operands| try ops.binary(u16, "shiftr", constants, stack, localData, upvalueData, operands),
-        .u_shiftr32 => |operands| try ops.binary(u32, "shiftr", constants, stack, localData, upvalueData, operands),
-        .u_shiftr64 => |operands| try ops.binary(u64, "shiftr", constants, stack, localData, upvalueData, operands),
-        .s_shiftr8 => |operands| try ops.binary(i8, "shiftr", constants, stack, localData, upvalueData, operands),
-        .s_shiftr16 => |operands| try ops.binary(i16, "shiftr", constants, stack, localData, upvalueData, operands),
-        .s_shiftr32 => |operands| try ops.binary(i32, "shiftr", constants, stack, localData, upvalueData, operands),
-        .s_shiftr64 => |operands| try ops.binary(i64, "shiftr", constants, stack, localData, upvalueData, operands),
-        .s_neg8 => |operands| try ops.unary(i8, "neg", constants, stack, localData, upvalueData, operands),
-        .s_neg16 => |operands| try ops.unary(i16, "neg", constants, stack, localData, upvalueData, operands),
-        .s_neg32 => |operands| try ops.unary(i32, "neg", constants, stack, localData, upvalueData, operands),
-        .s_neg64 => |operands| try ops.unary(i64, "neg", constants, stack, localData, upvalueData, operands),
-        .i_eq8 => |operands| try ops.binary(u8, "eq", constants, stack, localData, upvalueData, operands),
-        .i_eq16 => |operands| try ops.binary(u16, "eq", constants, stack, localData, upvalueData, operands),
-        .i_eq32 => |operands| try ops.binary(u32, "eq", constants, stack, localData, upvalueData, operands),
-        .i_eq64 => |operands| try ops.binary(u64, "eq", constants, stack, localData, upvalueData, operands),
-        .i_ne8 => |operands| try ops.binary(u8, "ne", constants, stack, localData, upvalueData, operands),
-        .i_ne16 => |operands| try ops.binary(u16, "ne", constants, stack, localData, upvalueData, operands),
-        .i_ne32 => |operands| try ops.binary(u32, "ne", constants, stack, localData, upvalueData, operands),
-        .i_ne64 => |operands| try ops.binary(u64, "ne", constants, stack, localData, upvalueData, operands),
-        .u_lt8 => |operands| try ops.binary(u8, "lt", constants, stack, localData, upvalueData, operands),
-        .u_lt16 => |operands| try ops.binary(u16, "lt", constants, stack, localData, upvalueData, operands),
-        .u_lt32 => |operands| try ops.binary(u32, "lt", constants, stack, localData, upvalueData, operands),
-        .u_lt64 => |operands| try ops.binary(u64, "lt", constants, stack, localData, upvalueData, operands),
-        .s_lt8 => |operands| try ops.binary(i8, "lt", constants, stack, localData, upvalueData, operands),
-        .s_lt16 => |operands| try ops.binary(i16, "lt", constants, stack, localData, upvalueData, operands),
-        .s_lt32 => |operands| try ops.binary(i32, "lt", constants, stack, localData, upvalueData, operands),
-        .s_lt64 => |operands| try ops.binary(i64, "lt", constants, stack, localData, upvalueData, operands),
-        .u_gt8 => |operands| try ops.binary(u8, "gt", constants, stack, localData, upvalueData, operands),
-        .u_gt16 => |operands| try ops.binary(u16, "gt", constants, stack, localData, upvalueData, operands),
-        .u_gt32 => |operands| try ops.binary(u32, "gt", constants, stack, localData, upvalueData, operands),
-        .u_gt64 => |operands| try ops.binary(u64, "gt", constants, stack, localData, upvalueData, operands),
-        .s_gt8 => |operands| try ops.binary(i8, "gt", constants, stack, localData, upvalueData, operands),
-        .s_gt16 => |operands| try ops.binary(i16, "gt", constants, stack, localData, upvalueData, operands),
-        .s_gt32 => |operands| try ops.binary(i32, "gt", constants, stack, localData, upvalueData, operands),
-        .s_gt64 => |operands| try ops.binary(i64, "gt", constants, stack, localData, upvalueData, operands),
-        .u_le8 => |operands| try ops.binary(u8, "le", constants, stack, localData, upvalueData, operands),
-        .u_le16 => |operands| try ops.binary(u16, "le", constants, stack, localData, upvalueData, operands),
-        .u_le32 => |operands| try ops.binary(u32, "le", constants, stack, localData, upvalueData, operands),
-        .u_le64 => |operands| try ops.binary(u64, "le", constants, stack, localData, upvalueData, operands),
-        .s_le8 => |operands| try ops.binary(i8, "le", constants, stack, localData, upvalueData, operands),
-        .s_le16 => |operands| try ops.binary(i16, "le", constants, stack, localData, upvalueData, operands),
-        .s_le32 => |operands| try ops.binary(i32, "le", constants, stack, localData, upvalueData, operands),
-        .s_le64 => |operands| try ops.binary(i64, "le", constants, stack, localData, upvalueData, operands),
-        .u_ge8 => |operands| try ops.binary(u8, "ge", constants, stack, localData, upvalueData, operands),
-        .u_ge16 => |operands| try ops.binary(u16, "ge", constants, stack, localData, upvalueData, operands),
-        .u_ge32 => |operands| try ops.binary(u32, "ge", constants, stack, localData, upvalueData, operands),
-        .u_ge64 => |operands| try ops.binary(u64, "ge", constants, stack, localData, upvalueData, operands),
-        .s_ge8 => |operands| try ops.binary(i8, "ge", constants, stack, localData, upvalueData, operands),
-        .s_ge16 => |operands| try ops.binary(i16, "ge", constants, stack, localData, upvalueData, operands),
-        .s_ge32 => |operands| try ops.binary(i32, "ge", constants, stack, localData, upvalueData, operands),
-        .s_ge64 => |operands| try ops.binary(i64, "ge", constants, stack, localData, upvalueData, operands),
+        .f_eq32 => |operands| try ops.binary(f32, "eq", globals, stack, localData, upvalueData, operands),
+        .f_eq64 => |operands| try ops.binary(f64, "eq", globals, stack, localData, upvalueData, operands),
+        .f_ne32 => |operands| try ops.binary(f32, "ne", globals, stack, localData, upvalueData, operands),
+        .f_ne64 => |operands| try ops.binary(f64, "ne", globals, stack, localData, upvalueData, operands),
+        .f_lt32 => |operands| try ops.binary(f32, "lt", globals, stack, localData, upvalueData, operands),
+        .f_lt64 => |operands| try ops.binary(f64, "lt", globals, stack, localData, upvalueData, operands),
+        .f_gt32 => |operands| try ops.binary(f32, "gt", globals, stack, localData, upvalueData, operands),
+        .f_gt64 => |operands| try ops.binary(f64, "gt", globals, stack, localData, upvalueData, operands),
+        .f_le32 => |operands| try ops.binary(f32, "le", globals, stack, localData, upvalueData, operands),
+        .f_le64 => |operands| try ops.binary(f64, "le", globals, stack, localData, upvalueData, operands),
+        .f_ge32 => |operands| try ops.binary(f32, "ge", globals, stack, localData, upvalueData, operands),
+        .f_ge64 => |operands| try ops.binary(f64, "ge", globals, stack, localData, upvalueData, operands),
 
-        .u_ext8x16 => |operands| try ops.cast(u8, u16, constants, stack, localData, upvalueData, operands),
-        .u_ext8x32 => |operands| try ops.cast(u8, u32, constants, stack, localData, upvalueData, operands),
-        .u_ext8x64 => |operands| try ops.cast(u8, u64, constants, stack, localData, upvalueData, operands),
-        .u_ext16x32 => |operands| try ops.cast(u16, u32, constants, stack, localData, upvalueData, operands),
-        .u_ext16x64 => |operands| try ops.cast(u16, u64, constants, stack, localData, upvalueData, operands),
-        .u_ext32x64 => |operands| try ops.cast(u32, u64, constants, stack, localData, upvalueData, operands),
-        .s_ext8x16 => |operands| try ops.cast(i8, i16, constants, stack, localData, upvalueData, operands),
-        .s_ext8x32 => |operands| try ops.cast(i8, i32, constants, stack, localData, upvalueData, operands),
-        .s_ext8x64 => |operands| try ops.cast(i8, i64, constants, stack, localData, upvalueData, operands),
-        .s_ext16x32 => |operands| try ops.cast(i16, i32, constants, stack, localData, upvalueData, operands),
-        .s_ext16x64 => |operands| try ops.cast(i16, i64, constants, stack, localData, upvalueData, operands),
-        .s_ext32x64 => |operands| try ops.cast(i32, i64, constants, stack, localData, upvalueData, operands),
-        .f_ext32x64 => |operands| try ops.cast(f32, i64, constants, stack, localData, upvalueData, operands),
+        .i_add8 => |operands| try ops.binary(u8, "add", globals, stack, localData, upvalueData, operands),
+        .i_add16 => |operands| try ops.binary(u16, "add", globals, stack, localData, upvalueData, operands),
+        .i_add32 => |operands| try ops.binary(u32, "add", globals, stack, localData, upvalueData, operands),
+        .i_add64 => |operands| try ops.binary(u64, "add", globals, stack, localData, upvalueData, operands),
+        .i_sub8 => |operands| try ops.binary(u8, "sub", globals, stack, localData, upvalueData, operands),
+        .i_sub16 => |operands| try ops.binary(u16, "sub", globals, stack, localData, upvalueData, operands),
+        .i_sub32 => |operands| try ops.binary(u32, "sub", globals, stack, localData, upvalueData, operands),
+        .i_sub64 => |operands| try ops.binary(u64, "sub", globals, stack, localData, upvalueData, operands),
+        .i_mul8 => |operands| try ops.binary(u8, "mul", globals, stack, localData, upvalueData, operands),
+        .i_mul16 => |operands| try ops.binary(u16, "mul", globals, stack, localData, upvalueData, operands),
+        .i_mul32 => |operands| try ops.binary(u32, "mul", globals, stack, localData, upvalueData, operands),
+        .i_mul64 => |operands| try ops.binary(u64, "mul", globals, stack, localData, upvalueData, operands),
+        .s_div8 => |operands| try ops.binary(i8, "divFloor", globals, stack, localData, upvalueData, operands),
+        .s_div16 => |operands| try ops.binary(i16, "divFloor", globals, stack, localData, upvalueData, operands),
+        .s_div32 => |operands| try ops.binary(i32, "divFloor", globals, stack, localData, upvalueData, operands),
+        .s_div64 => |operands| try ops.binary(i64, "divFloor", globals, stack, localData, upvalueData, operands),
+        .u_div8 => |operands| try ops.binary(u8, "div", globals, stack, localData, upvalueData, operands),
+        .u_div16 => |operands| try ops.binary(u16, "div", globals, stack, localData, upvalueData, operands),
+        .u_div32 => |operands| try ops.binary(u32, "div", globals, stack, localData, upvalueData, operands),
+        .u_div64 => |operands| try ops.binary(u64, "div", globals, stack, localData, upvalueData, operands),
+        .s_rem8 => |operands| try ops.binary(i8, "rem", globals, stack, localData, upvalueData, operands),
+        .s_rem16 => |operands| try ops.binary(i16, "rem", globals, stack, localData, upvalueData, operands),
+        .s_rem32 => |operands| try ops.binary(i32, "rem", globals, stack, localData, upvalueData, operands),
+        .s_rem64 => |operands| try ops.binary(i64, "rem", globals, stack, localData, upvalueData, operands),
+        .u_rem8 => |operands| try ops.binary(u8, "rem", globals, stack, localData, upvalueData, operands),
+        .u_rem16 => |operands| try ops.binary(u16, "rem", globals, stack, localData, upvalueData, operands),
+        .u_rem32 => |operands| try ops.binary(u32, "rem", globals, stack, localData, upvalueData, operands),
+        .u_rem64 => |operands| try ops.binary(u64, "rem", globals, stack, localData, upvalueData, operands),
+        .s_neg8 => |operands| try ops.unary(i8, "neg", globals, stack, localData, upvalueData, operands),
+        .s_neg16 => |operands| try ops.unary(i16, "neg", globals, stack, localData, upvalueData, operands),
+        .s_neg32 => |operands| try ops.unary(i32, "neg", globals, stack, localData, upvalueData, operands),
+        .s_neg64 => |operands| try ops.unary(i64, "neg", globals, stack, localData, upvalueData, operands),
 
-        .i_trunc64x32 => |operands| try ops.cast(u64, u32, constants, stack, localData, upvalueData, operands),
-        .i_trunc64x16 => |operands| try ops.cast(u64, u16, constants, stack, localData, upvalueData, operands),
-        .i_trunc64x8 => |operands| try ops.cast(u64, u8, constants, stack, localData, upvalueData, operands),
-        .i_trunc32x16 => |operands| try ops.cast(u32, u16, constants, stack, localData, upvalueData, operands),
-        .i_trunc32x8 => |operands| try ops.cast(u32, u8, constants, stack, localData, upvalueData, operands),
-        .i_trunc16x8 => |operands| try ops.cast(u16, u8, constants, stack, localData, upvalueData, operands),
-        .f_trunc64x32 => |operands| try ops.cast(f64, f32, constants, stack, localData, upvalueData, operands),
+        .i_bitnot8 => |operands| try ops.unary(u8, "bitnot", globals, stack, localData, upvalueData, operands),
+        .i_bitnot16 => |operands| try ops.unary(u16, "bitnot", globals, stack, localData, upvalueData, operands),
+        .i_bitnot32 => |operands| try ops.unary(u32, "bitnot", globals, stack, localData, upvalueData, operands),
+        .i_bitnot64 => |operands| try ops.unary(u64, "bitnot", globals, stack, localData, upvalueData, operands),
+        .i_bitand8 => |operands| try ops.binary(u8, "bitand", globals, stack, localData, upvalueData, operands),
+        .i_bitand16 => |operands| try ops.binary(u16, "bitand", globals, stack, localData, upvalueData, operands),
+        .i_bitand32 => |operands| try ops.binary(u32, "bitand", globals, stack, localData, upvalueData, operands),
+        .i_bitand64 => |operands| try ops.binary(u64, "bitand", globals, stack, localData, upvalueData, operands),
+        .i_bitor8 => |operands| try ops.binary(u8, "bitor", globals, stack, localData, upvalueData, operands),
+        .i_bitor16 => |operands| try ops.binary(u16, "bitor", globals, stack, localData, upvalueData, operands),
+        .i_bitor32 => |operands| try ops.binary(u32, "bitor", globals, stack, localData, upvalueData, operands),
+        .i_bitor64 => |operands| try ops.binary(u64, "bitor", globals, stack, localData, upvalueData, operands),
+        .i_bitxor8 => |operands| try ops.binary(u8, "bitxor", globals, stack, localData, upvalueData, operands),
+        .i_bitxor16 => |operands| try ops.binary(u16, "bitxor", globals, stack, localData, upvalueData, operands),
+        .i_bitxor32 => |operands| try ops.binary(u32, "bitxor", globals, stack, localData, upvalueData, operands),
+        .i_bitxor64 => |operands| try ops.binary(u64, "bitxor", globals, stack, localData, upvalueData, operands),
+        .i_shiftl8 => |operands| try ops.binary(u8, "shiftl", globals, stack, localData, upvalueData, operands),
+        .i_shiftl16 => |operands| try ops.binary(u16, "shiftl", globals, stack, localData, upvalueData, operands),
+        .i_shiftl32 => |operands| try ops.binary(u32, "shiftl", globals, stack, localData, upvalueData, operands),
+        .i_shiftl64 => |operands| try ops.binary(u64, "shiftl", globals, stack, localData, upvalueData, operands),
+        .u_shiftr8 => |operands| try ops.binary(u8, "shiftr", globals, stack, localData, upvalueData, operands),
+        .u_shiftr16 => |operands| try ops.binary(u16, "shiftr", globals, stack, localData, upvalueData, operands),
+        .u_shiftr32 => |operands| try ops.binary(u32, "shiftr", globals, stack, localData, upvalueData, operands),
+        .u_shiftr64 => |operands| try ops.binary(u64, "shiftr", globals, stack, localData, upvalueData, operands),
+        .s_shiftr8 => |operands| try ops.binary(i8, "shiftr", globals, stack, localData, upvalueData, operands),
+        .s_shiftr16 => |operands| try ops.binary(i16, "shiftr", globals, stack, localData, upvalueData, operands),
+        .s_shiftr32 => |operands| try ops.binary(i32, "shiftr", globals, stack, localData, upvalueData, operands),
+        .s_shiftr64 => |operands| try ops.binary(i64, "shiftr", globals, stack, localData, upvalueData, operands),
 
-        .u8_to_f32 => |operands| try ops.cast(u8, f32, constants, stack, localData, upvalueData, operands),
-        .u8_to_f64 => |operands| try ops.cast(u8, f64, constants, stack, localData, upvalueData, operands),
-        .u16_to_f32 => |operands| try ops.cast(u16, f32, constants, stack, localData, upvalueData, operands),
-        .u16_to_f64 => |operands| try ops.cast(u16, f64, constants, stack, localData, upvalueData, operands),
-        .u32_to_f32 => |operands| try ops.cast(u32, f32, constants, stack, localData, upvalueData, operands),
-        .u32_to_f64 => |operands| try ops.cast(u32, f64, constants, stack, localData, upvalueData, operands),
-        .u64_to_f32 => |operands| try ops.cast(u64, f32, constants, stack, localData, upvalueData, operands),
-        .u64_to_f64 => |operands| try ops.cast(u64, f64, constants, stack, localData, upvalueData, operands),
-        .s8_to_f32 => |operands| try ops.cast(i8, f32, constants, stack, localData, upvalueData, operands),
-        .s8_to_f64 => |operands| try ops.cast(i8, f64, constants, stack, localData, upvalueData, operands),
-        .s16_to_f32 => |operands| try ops.cast(i16, f32, constants, stack, localData, upvalueData, operands),
-        .s16_to_f64 => |operands| try ops.cast(i16, f64, constants, stack, localData, upvalueData, operands),
-        .s32_to_f32 => |operands| try ops.cast(i32, f32, constants, stack, localData, upvalueData, operands),
-        .s32_to_f64 => |operands| try ops.cast(i32, f64, constants, stack, localData, upvalueData, operands),
-        .s64_to_f32 => |operands| try ops.cast(i64, f32, constants, stack, localData, upvalueData, operands),
-        .s64_to_f64 => |operands| try ops.cast(i64, f64, constants, stack, localData, upvalueData, operands),
-        .f32_to_u8 => |operands| try ops.cast(f32, u8, constants, stack, localData, upvalueData, operands),
-        .f32_to_u16 => |operands| try ops.cast(f32, u16, constants, stack, localData, upvalueData, operands),
-        .f32_to_u32 => |operands| try ops.cast(f32, u32, constants, stack, localData, upvalueData, operands),
-        .f32_to_u64 => |operands| try ops.cast(f32, u64, constants, stack, localData, upvalueData, operands),
-        .f64_to_u8 => |operands| try ops.cast(f64, u8, constants, stack, localData, upvalueData, operands),
-        .f64_to_u16 => |operands| try ops.cast(f64, u16, constants, stack, localData, upvalueData, operands),
-        .f64_to_u32 => |operands| try ops.cast(f64, u32, constants, stack, localData, upvalueData, operands),
-        .f64_to_u64 => |operands| try ops.cast(f64, u64, constants, stack, localData, upvalueData, operands),
-        .f32_to_s8 => |operands| try ops.cast(f32, i8, constants, stack, localData, upvalueData, operands),
-        .f32_to_s16 => |operands| try ops.cast(f32, i16, constants, stack, localData, upvalueData, operands),
-        .f32_to_s32 => |operands| try ops.cast(f32, i32, constants, stack, localData, upvalueData, operands),
-        .f32_to_s64 => |operands| try ops.cast(f32, i64, constants, stack, localData, upvalueData, operands),
-        .f64_to_s8 => |operands| try ops.cast(f64, i8, constants, stack, localData, upvalueData, operands),
-        .f64_to_s16 => |operands| try ops.cast(f64, i16, constants, stack, localData, upvalueData, operands),
-        .f64_to_s32 => |operands| try ops.cast(f64, i32, constants, stack, localData, upvalueData, operands),
-        .f64_to_s64 => |operands| try ops.cast(f64, i64, constants, stack, localData, upvalueData, operands),
+        .i_eq8 => |operands| try ops.binary(u8, "eq", globals, stack, localData, upvalueData, operands),
+        .i_eq16 => |operands| try ops.binary(u16, "eq", globals, stack, localData, upvalueData, operands),
+        .i_eq32 => |operands| try ops.binary(u32, "eq", globals, stack, localData, upvalueData, operands),
+        .i_eq64 => |operands| try ops.binary(u64, "eq", globals, stack, localData, upvalueData, operands),
+        .i_ne8 => |operands| try ops.binary(u8, "ne", globals, stack, localData, upvalueData, operands),
+        .i_ne16 => |operands| try ops.binary(u16, "ne", globals, stack, localData, upvalueData, operands),
+        .i_ne32 => |operands| try ops.binary(u32, "ne", globals, stack, localData, upvalueData, operands),
+        .i_ne64 => |operands| try ops.binary(u64, "ne", globals, stack, localData, upvalueData, operands),
+        .u_lt8 => |operands| try ops.binary(u8, "lt", globals, stack, localData, upvalueData, operands),
+        .u_lt16 => |operands| try ops.binary(u16, "lt", globals, stack, localData, upvalueData, operands),
+        .u_lt32 => |operands| try ops.binary(u32, "lt", globals, stack, localData, upvalueData, operands),
+        .u_lt64 => |operands| try ops.binary(u64, "lt", globals, stack, localData, upvalueData, operands),
+        .s_lt8 => |operands| try ops.binary(i8, "lt", globals, stack, localData, upvalueData, operands),
+        .s_lt16 => |operands| try ops.binary(i16, "lt", globals, stack, localData, upvalueData, operands),
+        .s_lt32 => |operands| try ops.binary(i32, "lt", globals, stack, localData, upvalueData, operands),
+        .s_lt64 => |operands| try ops.binary(i64, "lt", globals, stack, localData, upvalueData, operands),
+        .u_gt8 => |operands| try ops.binary(u8, "gt", globals, stack, localData, upvalueData, operands),
+        .u_gt16 => |operands| try ops.binary(u16, "gt", globals, stack, localData, upvalueData, operands),
+        .u_gt32 => |operands| try ops.binary(u32, "gt", globals, stack, localData, upvalueData, operands),
+        .u_gt64 => |operands| try ops.binary(u64, "gt", globals, stack, localData, upvalueData, operands),
+        .s_gt8 => |operands| try ops.binary(i8, "gt", globals, stack, localData, upvalueData, operands),
+        .s_gt16 => |operands| try ops.binary(i16, "gt", globals, stack, localData, upvalueData, operands),
+        .s_gt32 => |operands| try ops.binary(i32, "gt", globals, stack, localData, upvalueData, operands),
+        .s_gt64 => |operands| try ops.binary(i64, "gt", globals, stack, localData, upvalueData, operands),
+        .u_le8 => |operands| try ops.binary(u8, "le", globals, stack, localData, upvalueData, operands),
+        .u_le16 => |operands| try ops.binary(u16, "le", globals, stack, localData, upvalueData, operands),
+        .u_le32 => |operands| try ops.binary(u32, "le", globals, stack, localData, upvalueData, operands),
+        .u_le64 => |operands| try ops.binary(u64, "le", globals, stack, localData, upvalueData, operands),
+        .s_le8 => |operands| try ops.binary(i8, "le", globals, stack, localData, upvalueData, operands),
+        .s_le16 => |operands| try ops.binary(i16, "le", globals, stack, localData, upvalueData, operands),
+        .s_le32 => |operands| try ops.binary(i32, "le", globals, stack, localData, upvalueData, operands),
+        .s_le64 => |operands| try ops.binary(i64, "le", globals, stack, localData, upvalueData, operands),
+        .u_ge8 => |operands| try ops.binary(u8, "ge", globals, stack, localData, upvalueData, operands),
+        .u_ge16 => |operands| try ops.binary(u16, "ge", globals, stack, localData, upvalueData, operands),
+        .u_ge32 => |operands| try ops.binary(u32, "ge", globals, stack, localData, upvalueData, operands),
+        .u_ge64 => |operands| try ops.binary(u64, "ge", globals, stack, localData, upvalueData, operands),
+        .s_ge8 => |operands| try ops.binary(i8, "ge", globals, stack, localData, upvalueData, operands),
+        .s_ge16 => |operands| try ops.binary(i16, "ge", globals, stack, localData, upvalueData, operands),
+        .s_ge32 => |operands| try ops.binary(i32, "ge", globals, stack, localData, upvalueData, operands),
+        .s_ge64 => |operands| try ops.binary(i64, "ge", globals, stack, localData, upvalueData, operands),
+
+        .u_ext8x16 => |operands| try ops.cast(u8, u16, globals, stack, localData, upvalueData, operands),
+        .u_ext8x32 => |operands| try ops.cast(u8, u32, globals, stack, localData, upvalueData, operands),
+        .u_ext8x64 => |operands| try ops.cast(u8, u64, globals, stack, localData, upvalueData, operands),
+        .u_ext16x32 => |operands| try ops.cast(u16, u32, globals, stack, localData, upvalueData, operands),
+        .u_ext16x64 => |operands| try ops.cast(u16, u64, globals, stack, localData, upvalueData, operands),
+        .u_ext32x64 => |operands| try ops.cast(u32, u64, globals, stack, localData, upvalueData, operands),
+        .s_ext8x16 => |operands| try ops.cast(i8, i16, globals, stack, localData, upvalueData, operands),
+        .s_ext8x32 => |operands| try ops.cast(i8, i32, globals, stack, localData, upvalueData, operands),
+        .s_ext8x64 => |operands| try ops.cast(i8, i64, globals, stack, localData, upvalueData, operands),
+        .s_ext16x32 => |operands| try ops.cast(i16, i32, globals, stack, localData, upvalueData, operands),
+        .s_ext16x64 => |operands| try ops.cast(i16, i64, globals, stack, localData, upvalueData, operands),
+        .s_ext32x64 => |operands| try ops.cast(i32, i64, globals, stack, localData, upvalueData, operands),
+        .f_ext32x64 => |operands| try ops.cast(f32, i64, globals, stack, localData, upvalueData, operands),
+
+        .i_trunc64x32 => |operands| try ops.cast(u64, u32, globals, stack, localData, upvalueData, operands),
+        .i_trunc64x16 => |operands| try ops.cast(u64, u16, globals, stack, localData, upvalueData, operands),
+        .i_trunc64x8 => |operands| try ops.cast(u64, u8, globals, stack, localData, upvalueData, operands),
+        .i_trunc32x16 => |operands| try ops.cast(u32, u16, globals, stack, localData, upvalueData, operands),
+        .i_trunc32x8 => |operands| try ops.cast(u32, u8, globals, stack, localData, upvalueData, operands),
+        .i_trunc16x8 => |operands| try ops.cast(u16, u8, globals, stack, localData, upvalueData, operands),
+        .f_trunc64x32 => |operands| try ops.cast(f64, f32, globals, stack, localData, upvalueData, operands),
+
+        .u8_to_f32 => |operands| try ops.cast(u8, f32, globals, stack, localData, upvalueData, operands),
+        .u8_to_f64 => |operands| try ops.cast(u8, f64, globals, stack, localData, upvalueData, operands),
+        .u16_to_f32 => |operands| try ops.cast(u16, f32, globals, stack, localData, upvalueData, operands),
+        .u16_to_f64 => |operands| try ops.cast(u16, f64, globals, stack, localData, upvalueData, operands),
+        .u32_to_f32 => |operands| try ops.cast(u32, f32, globals, stack, localData, upvalueData, operands),
+        .u32_to_f64 => |operands| try ops.cast(u32, f64, globals, stack, localData, upvalueData, operands),
+        .u64_to_f32 => |operands| try ops.cast(u64, f32, globals, stack, localData, upvalueData, operands),
+        .u64_to_f64 => |operands| try ops.cast(u64, f64, globals, stack, localData, upvalueData, operands),
+        .s8_to_f32 => |operands| try ops.cast(i8, f32, globals, stack, localData, upvalueData, operands),
+        .s8_to_f64 => |operands| try ops.cast(i8, f64, globals, stack, localData, upvalueData, operands),
+        .s16_to_f32 => |operands| try ops.cast(i16, f32, globals, stack, localData, upvalueData, operands),
+        .s16_to_f64 => |operands| try ops.cast(i16, f64, globals, stack, localData, upvalueData, operands),
+        .s32_to_f32 => |operands| try ops.cast(i32, f32, globals, stack, localData, upvalueData, operands),
+        .s32_to_f64 => |operands| try ops.cast(i32, f64, globals, stack, localData, upvalueData, operands),
+        .s64_to_f32 => |operands| try ops.cast(i64, f32, globals, stack, localData, upvalueData, operands),
+        .s64_to_f64 => |operands| try ops.cast(i64, f64, globals, stack, localData, upvalueData, operands),
+        .f32_to_u8 => |operands| try ops.cast(f32, u8, globals, stack, localData, upvalueData, operands),
+        .f32_to_u16 => |operands| try ops.cast(f32, u16, globals, stack, localData, upvalueData, operands),
+        .f32_to_u32 => |operands| try ops.cast(f32, u32, globals, stack, localData, upvalueData, operands),
+        .f32_to_u64 => |operands| try ops.cast(f32, u64, globals, stack, localData, upvalueData, operands),
+        .f64_to_u8 => |operands| try ops.cast(f64, u8, globals, stack, localData, upvalueData, operands),
+        .f64_to_u16 => |operands| try ops.cast(f64, u16, globals, stack, localData, upvalueData, operands),
+        .f64_to_u32 => |operands| try ops.cast(f64, u32, globals, stack, localData, upvalueData, operands),
+        .f64_to_u64 => |operands| try ops.cast(f64, u64, globals, stack, localData, upvalueData, operands),
+        .f32_to_s8 => |operands| try ops.cast(f32, i8, globals, stack, localData, upvalueData, operands),
+        .f32_to_s16 => |operands| try ops.cast(f32, i16, globals, stack, localData, upvalueData, operands),
+        .f32_to_s32 => |operands| try ops.cast(f32, i32, globals, stack, localData, upvalueData, operands),
+        .f32_to_s64 => |operands| try ops.cast(f32, i64, globals, stack, localData, upvalueData, operands),
+        .f64_to_s8 => |operands| try ops.cast(f64, i8, globals, stack, localData, upvalueData, operands),
+        .f64_to_s16 => |operands| try ops.cast(f64, i16, globals, stack, localData, upvalueData, operands),
+        .f64_to_s32 => |operands| try ops.cast(f64, i32, globals, stack, localData, upvalueData, operands),
+        .f64_to_s64 => |operands| try ops.cast(f64, i64, globals, stack, localData, upvalueData, operands),
 
         else => Support.todo(noreturn, {})
     }
@@ -308,14 +309,12 @@ inline fn extractUp(upvalueData: ?RegisterData) Fiber.Trap!RegisterData {
     }
 }
 
-pub inline fn read(comptime T: type, constants: []Bytecode.Data, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand) !T {
+pub inline fn read(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand) !T {
     const size = @sizeOf(T);
 
     switch (operand.kind) {
-        .immediate => {
-            const data = operand.data.immediate;
-
-            const bytes = try getConstant(constants, data, size);
+        .global => {
+            const bytes = try getGlobal(globals, operand.data.global, size);
 
             var value: T = undefined;
             @memcpy(@as([*]u8, @ptrCast(&value)), bytes);
@@ -331,11 +330,12 @@ pub inline fn read(comptime T: type, constants: []Bytecode.Data, stack: *Fiber.D
     }
 }
 
-pub inline fn write(stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand, value: anytype) Fiber.Trap!void {
+pub inline fn write(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand, value: anytype) Fiber.Trap!void {
     switch (operand.kind) {
-        .immediate => {
-            @branchHint(.cold);
-            return Fiber.Trap.ImmediateWrite;
+        .global => {
+            const mem = try getGlobal(globals, operand.data.global, @sizeOf(@TypeOf(value)));
+
+            @memcpy(mem, @as([*]const u8, @ptrCast(&value)));
         },
 
         .upvalue_arg => try writeImpl(.argument, stack, try extractUp(upvalueData), operand.data.register, value),
@@ -346,20 +346,9 @@ pub inline fn write(stack: *Fiber.DataStack, localData: RegisterData, upvalueDat
     }
 }
 
-pub inline fn addrOf(comptime addrKind: enum {unknown, read, write}, size: Bytecode.RegisterLocalOffset, constants: []Bytecode.Data, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand) Fiber.Trap!switch(addrKind) { .read => [*]const u8, else => [*]u8 } {
+pub inline fn addrOf(size: Bytecode.RegisterLocalOffset, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand) Fiber.Trap![*]u8 {
     switch (operand.kind) {
-        .immediate => {
-            if (comptime addrKind == .write) {
-                @branchHint(.cold);
-                return Fiber.Trap.ImmediateWrite;
-            } else {
-                const data = operand.data.immediate;
-
-                const bytes = try getConstant(constants, data, size);
-
-                return @constCast(bytes.ptr);
-            }
-        },
+        .global => return (try getGlobal(globals, operand.data.global, size)).ptr,
 
         .upvalue_arg => return addrOfImpl(.argument, size, stack, try extractUp(upvalueData), operand.data.register),
         .upvalue_var => return addrOfImpl(.variable, size, stack, try extractUp(upvalueData), operand.data.register),
@@ -413,20 +402,20 @@ inline fn writeImpl(comptime kind: OperandKind, stack: *Fiber.DataStack, regData
     try stack.setSlice(base + operand.offset, bytes);
 }
 
-pub inline fn getConstant(constants: []Bytecode.Data, imm: Bytecode.ImmediateOperand, size: Bytecode.RegisterLocalOffset) Fiber.Trap![]const u8 {
-    if (imm.index >= constants.len) {
+pub inline fn getGlobal(globals: *Bytecode.GlobalSet, operand: Bytecode.GlobalOperand, size: Bytecode.RegisterLocalOffset) Fiber.Trap![]u8 {
+    if (operand.index >= globals.values.len) {
         @branchHint(.cold);
         return Fiber.Trap.OutOfBounds;
     }
 
-    const data = &constants[imm.index];
+    const data = &globals.values[operand.index];
 
-    if (!data.layout.inbounds(imm.offset, size)) {
+    if (!data.layout.inbounds(operand.offset, size)) {
         @branchHint(.cold);
         return Fiber.Trap.OutOfBounds;
     }
 
-    return data.memory[imm.offset..imm.offset + size];
+    return globals.memory[operand.offset..operand.offset + size];
 }
 
 pub const OperandKind = enum { variable, argument };
@@ -453,10 +442,23 @@ pub inline fn getOperandOffset(comptime kind: OperandKind, regData: RegisterData
     }
 }
 
+pub inline fn boundsCheck(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, address: [*]const u8, size: Bytecode.RegisterLocalOffset) Fiber.Trap!void {
+    const validGlobalA = @intFromBool(@intFromPtr(address) >= @intFromPtr(globals.memory.ptr));
+    const validGlobalB = @intFromBool(@intFromPtr(address) + size <= @intFromPtr(globals.memory.ptr) + globals.memory.len);
+
+    const validStackA = @intFromBool(@intFromPtr(address) >= @intFromPtr(stack.memory.ptr));
+    const validStackB = @intFromBool(@intFromPtr(address) + size <= stack.ptr);
+
+    if ((validGlobalA & validGlobalB) | (validStackA & validStackB) == 0) {
+        @branchHint(.cold);
+        return Fiber.Trap.OutOfBounds;
+    }
+}
+
 
 const ops = struct {
-    inline fn cast(comptime A: type, comptime B: type, constants: []Bytecode.Data, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operands: Bytecode.ISA.TwoOperand) Fiber.Trap!void {
-        const x = try read(A, constants, stack, localData, upvalueData, operands.x);
+    inline fn cast(comptime A: type, comptime B: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operands: Bytecode.ISA.TwoOperand) Fiber.Trap!void {
+        const x = try read(A, globals, stack, localData, upvalueData, operands.x);
 
         const aKind = @as(std.builtin.TypeId, @typeInfo(A));
         const bKind = @as(std.builtin.TypeId, @typeInfo(B));
@@ -466,24 +468,24 @@ const ops = struct {
                 else floatCast(B, x)
             ) else typeCast(B, x);
 
-        try write(stack, localData, upvalueData, operands.y, result);
+        try write(globals, stack, localData, upvalueData, operands.y, result);
     }
 
-    inline fn unary(comptime T: type, comptime op: []const u8, constants: []Bytecode.Data, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operands: Bytecode.ISA.TwoOperand) Fiber.Trap!void {
-        const x = try read(T, constants, stack, localData, upvalueData, operands.x);
+    inline fn unary(comptime T: type, comptime op: []const u8, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operands: Bytecode.ISA.TwoOperand) Fiber.Trap!void {
+        const x = try read(T, globals, stack, localData, upvalueData, operands.x);
 
         const result = @call(.always_inline, @field(ops, op), .{x});
 
-        try write(stack, localData, upvalueData, operands.y, result);
+        try write(globals, stack, localData, upvalueData, operands.y, result);
     }
 
-    inline fn binary(comptime T: type, comptime op: []const u8, constants: []Bytecode.Data, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operands: Bytecode.ISA.ThreeOperand) Fiber.Trap!void {
-        const x = try read(T, constants, stack, localData, upvalueData, operands.x);
-        const y = try read(T, constants, stack, localData, upvalueData, operands.y);
+    inline fn binary(comptime T: type, comptime op: []const u8, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operands: Bytecode.ISA.ThreeOperand) Fiber.Trap!void {
+        const x = try read(T, globals, stack, localData, upvalueData, operands.x);
+        const y = try read(T, globals, stack, localData, upvalueData, operands.y);
 
         const result = @call(.always_inline, @field(ops, op), .{x, y});
 
-        try write(stack, localData, upvalueData, operands.z, result);
+        try write(globals, stack, localData, upvalueData, operands.z, result);
     }
 
     inline fn intCast(comptime T: type, x: anytype) T {

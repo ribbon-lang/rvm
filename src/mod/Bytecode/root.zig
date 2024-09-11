@@ -33,8 +33,8 @@ pub const HandlerSetIndex = u16;
 pub const HandlerIndex = u8;
 pub const TypeIndex = u16;
 pub const RegisterIndex = u8;
-pub const GlobalIndex = u16;
-pub const ConstantIndex = u13;
+pub const GlobalIndex = u13;
+pub const GlobalOffset = u32;
 pub const EvidenceIndex = u16;
 pub const MemorySize = u48;
 
@@ -66,15 +66,15 @@ pub const Operand = packed struct {
     data: OperandData,
 
     pub const Kind = enum(u3) {
-        immediate,
+        global,
         local_var,
         local_arg,
         upvalue_var,
         upvalue_arg,
     };
 
-    pub fn immediate(index: ConstantIndex, offset: RegisterLocalOffset) Operand {
-        return .{ .kind = .immediate, .data = .{ .immediate = .{ .index = index, .offset = offset } } };
+    pub fn global(index: GlobalIndex, offset: RegisterLocalOffset) Operand {
+        return .{ .kind = .global, .data = .{ .global = .{ .index = index, .offset = offset } } };
     }
 
     pub fn local_var(reg: Register, offset: RegisterLocalOffset) Operand {
@@ -114,7 +114,7 @@ comptime {
 
 pub const OperandData = packed union {
     register: RegisterOperand,
-    immediate: ImmediateOperand,
+    global: GlobalOperand,
 };
 
 pub const RegisterOperand = packed struct {
@@ -122,8 +122,8 @@ pub const RegisterOperand = packed struct {
     offset: RegisterLocalOffset,
 };
 
-pub const ImmediateOperand = packed struct {
-    index: ConstantIndex,
+pub const GlobalOperand = packed struct {
+    index: GlobalIndex,
     offset: RegisterLocalOffset,
 };
 
@@ -246,16 +246,56 @@ pub const HandlerSet = struct {
     handlers: []FunctionIndex,
 };
 
-pub const Data = struct {
+pub const Global = struct {
     type: TypeIndex,
     layout: Layout,
+    offset: GlobalOffset,
+
+    pub fn read(reader: IO.Reader, context: anytype) !Global {
+        const typeIndex = try reader.read(TypeIndex, context);
+        const layout = try reader.read(Layout, context);
+
+        const offset: GlobalOffset = @truncate(context.globalMemory.len);
+
+        for (0..layout.size) |_| {
+            const byte = try reader.read(u8, context);
+            try context.globalMemory.append(byte, context.allocator);
+        }
+
+        if (context.globalMemory.items.len > std.math.maxInt(GlobalOffset)) {
+            return error.OutOfMemory;
+        }
+
+        return .{
+            .type = typeIndex,
+            .layout = layout,
+            .offset = offset,
+        };
+    }
+};
+
+pub const GlobalSet = struct {
     memory: []u8,
+    values: []Global,
+
+    pub fn read(reader: IO.Reader, context: anytype) !GlobalSet {
+        var globalMemory = std.ArrayListUnmanaged(u8){};
+        const globalCount: usize = try reader.read(GlobalIndex, context);
+        var globals = try context.allocator.alloc(Global, globalCount);
+        errdefer context.allocator.free(globals);
+
+        const globalContext = TypeUtils.structConcat(.{context, .{ .globalMemory = &globalMemory }});
+        for (0..globalCount) |i| {
+            const global = try reader.read(Global, globalContext);
+            globals[i] = global;
+        }
+    }
 };
 
 pub const Program = struct {
     types: []Type,
-    globals: []Data,
-    constants: []Data,
+    globals: GlobalSet,
+    global_memory: []u8,
     functions: []Function,
     handlerSets: []HandlerSet,
     main: ?FunctionIndex,
@@ -363,7 +403,7 @@ test {
 
     const br_imm = Op { .br_v = .{
         .b = 36,
-        .y = .immediate(12, 34),
+        .y = .global(12, 34),
     }};
     try encoder.encode(allocator, br_imm);
 

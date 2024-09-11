@@ -3,7 +3,7 @@ const std = @import("std");
 
 pub fn Stack(comptime T: type, comptime A: type) type {
     return struct {
-        mem: []T,
+        memory: []T,
         ptr: Ptr,
 
         const Self = @This();
@@ -14,15 +14,15 @@ pub fn Stack(comptime T: type, comptime A: type) type {
 
         pub fn init(allocator: std.mem.Allocator, size: usize) !Self {
             const mem = try allocator.alloc(T, size);
-            return Self{ .mem = mem, .ptr = 0 };
+            return Self{ .memory = mem, .ptr = 0 };
         }
 
-        pub fn initPreallocated(mem: []T) Self {
-            return Self{ .mem = mem, .ptr = 0 };
+        pub fn initPreallocated(memory: []T) Self {
+            return Self{ .memory = memory, .ptr = 0 };
         }
 
         pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
-            allocator.free(self.mem);
+            allocator.free(self.memory);
         }
 
         pub inline fn top(self: *const Self) Error!T {
@@ -31,7 +31,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
                 return Error.Underflow;
             }
 
-            return self.mem[self.ptr - 1];
+            return self.memory[self.ptr - 1];
         }
 
         pub inline fn topPtr(self: *const Self) Error!*T {
@@ -40,7 +40,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
                 return Error.Underflow;
             }
 
-            return &self.mem[self.ptr - 1];
+            return &self.memory[self.ptr - 1];
         }
 
         pub inline fn topSlice(self: *const Self, n: Ptr) Error![]T {
@@ -49,7 +49,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
                 return Error.Underflow;
             }
 
-            return self.mem[self.ptr - n..self.ptr];
+            return self.memory[self.ptr - n..self.ptr];
         }
 
         pub inline fn get(self: *const Self, i: Ptr) Error!T {
@@ -58,7 +58,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
                 return Error.OutOfBounds;
             }
 
-            return self.mem[i];
+            return self.memory[i];
         }
 
         pub inline fn getPtr(self: *const Self, i: Ptr) Error!*T {
@@ -67,7 +67,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
                 return Error.OutOfBounds;
             }
 
-            return @ptrCast(self.mem[i..self.ptr].ptr);
+            return @ptrCast(self.memory[i..self.ptr].ptr);
         }
 
         pub inline fn getSlice(self: *const Self, i: Ptr, n: usize) Error![]T {
@@ -76,7 +76,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
                 return Error.OutOfBounds;
             }
 
-            return self.mem[i..i + n];
+            return self.memory[i..i + n];
         }
 
         pub inline fn set(self: *Self, i: Ptr, value: T) Error!void {
@@ -85,7 +85,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
                 return Error.OutOfBounds;
             }
 
-            self.mem[i] = value;
+            self.memory[i] = value;
         }
 
         pub inline fn setSlice(self: *Self, i: Ptr, slice: []const T) Error!void {
@@ -95,28 +95,28 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             }
 
             for (slice, i..) |value, j| {
-                self.mem[j] = value;
+                self.memory[j] = value;
             }
         }
 
         pub inline fn push(self: *Self, value: T) Error!void {
-            if (self.ptr >= self.mem.len) {
+            if (self.ptr >= self.memory.len) {
                 @branchHint(.cold);
                 return Error.Overflow;
             }
 
-            self.mem[self.ptr] = value;
+            self.memory[self.ptr] = value;
             self.ptr += 1;
         }
 
         pub inline fn pushSlice(self: *Self, slice: []const T) Error!void {
-            if (self.ptr + slice.len > self.mem.len) {
+            if (self.ptr + slice.len > self.memory.len) {
                 @branchHint(.cold);
                 return Error.Overflow;
             }
 
             for (slice) |value| {
-                self.mem[self.ptr] = value;
+                self.memory[self.ptr] = value;
                 self.ptr += 1;
             }
         }
@@ -128,7 +128,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             }
 
             self.ptr -= 1;
-            return self.mem[self.ptr];
+            return self.memory[self.ptr];
         }
 
         pub inline fn popPtr(self: *Self) Error!*T {
@@ -138,7 +138,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             }
 
             self.ptr -= 1;
-            return &self.mem[self.ptr];
+            return &self.memory[self.ptr];
         }
 
         pub inline fn popSlice(self: *Self, n: Ptr) Error![]T {
@@ -148,7 +148,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             }
 
             self.ptr -= n;
-            return self.mem[self.ptr..self.ptr + n];
+            return self.memory[self.ptr..self.ptr + n];
         }
     };
 }
