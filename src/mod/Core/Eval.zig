@@ -94,7 +94,7 @@ pub fn stepBytecode(fiber: *Fiber, localData: RegisterData, upvalueData: ?Regist
 
             // TODO: bounds check addresses
             for (0..operands.m) |i| {
-                std.mem.swap(u8, &a[i], &b[i]);
+                @call(.always_inline, std.mem.swap, .{u8, &a[i], &b[i]});
             }
         },
 
@@ -103,7 +103,7 @@ pub fn stepBytecode(fiber: *Fiber, localData: RegisterData, upvalueData: ?Regist
             const outAddr: [*]u8 = try addrOf(.write, operands.m, constants, stack, localData, upvalueData, operands.y);
 
             // TODO: bounds check addresses
-            std.mem.copyForwards(u8, outAddr[0..operands.m], inAddr[0..operands.m]);
+            @call(.always_inline, std.mem.copyForwards, .{u8, outAddr[0..operands.m], inAddr[0..operands.m]});
         },
 
         .b_not => |operands| try ops.unary(bool, "not", constants, stack, localData, upvalueData, operands),
@@ -116,8 +116,8 @@ pub fn stepBytecode(fiber: *Fiber, localData: RegisterData, upvalueData: ?Regist
         .f_sub64 => |operands| try ops.binary(f64, "sub", constants, stack, localData, upvalueData, operands),
         .f_mul32 => |operands| try ops.binary(f32, "mul", constants, stack, localData, upvalueData, operands),
         .f_mul64 => |operands| try ops.binary(f64, "mul", constants, stack, localData, upvalueData, operands),
-        .f_div32 => |operands| try ops.binary(f32, "divFloor", constants, stack, localData, upvalueData, operands),
-        .f_div64 => |operands| try ops.binary(f64, "divFloor", constants, stack, localData, upvalueData, operands),
+        .f_div32 => |operands| try ops.binary(f32, "div", constants, stack, localData, upvalueData, operands),
+        .f_div64 => |operands| try ops.binary(f64, "div", constants, stack, localData, upvalueData, operands),
         .f_rem32 => |operands| try ops.binary(f32, "rem", constants, stack, localData, upvalueData, operands),
         .f_rem64 => |operands| try ops.binary(f64, "rem", constants, stack, localData, upvalueData, operands),
         .f_neg32 => |operands| try ops.unary(f32, "neg", constants, stack, localData, upvalueData, operands),
