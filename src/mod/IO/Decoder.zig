@@ -109,7 +109,7 @@ pub inline fn decodeInline(self: *const Decoder, comptime T: type) Error!T {
     }
 
     if (comptime Endian.IntType(T)) |I| {
-        const int = try self.decodeRaw(I);
+        const int = try self.decodeRawInline(I);
         return Endian.bitCastFrom(T, int);
     } else {
         return self.decodeStructure(T);
