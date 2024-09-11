@@ -38,7 +38,27 @@ pub inline fn relIp(self: *const Decoder, offset: usize) usize {
     return self.ip() + offset;
 }
 
-pub inline fn decodeByte(self: *const Decoder) Error!u8 {
+pub fn decodeByte(self: *const Decoder) Error!u8 {
+    return self.decodeByteInline();
+}
+
+pub fn decodeAll(self: *const Decoder, count: usize) Error![]const u8 {
+    return self.decodeAllInline(count);
+}
+
+pub fn decodeRaw(self: *const Decoder, comptime T: type) Error!T {
+    return self.decodeRawInline(T);
+}
+
+pub fn pad(self: *const Decoder, alignment: usize) Error!void {
+    return self.padInline(alignment);
+}
+
+pub fn decode(self: *const Decoder, comptime T: type) Error!T {
+    return self.decodeInline(T);
+}
+
+pub inline fn decodeByteInline(self: *const Decoder) Error!u8 {
     if (self.isEof()) {
         @branchHint(.cold);
         return Error.OutOfBounds;
@@ -49,7 +69,7 @@ pub inline fn decodeByte(self: *const Decoder) Error!u8 {
     return value;
 }
 
-pub inline fn decodeAll(self: *const Decoder, count: usize) Error![]const u8 {
+pub inline fn decodeAllInline(self: *const Decoder, count: usize) Error![]const u8 {
     if (!self.inbounds(count)) {
         @branchHint(.cold);
         return Error.OutOfBounds;
@@ -60,14 +80,14 @@ pub inline fn decodeAll(self: *const Decoder, count: usize) Error![]const u8 {
     return self.memory[start..self.ip()];
 }
 
-pub inline fn decodeRaw(self: *const Decoder, comptime T: type) Error!T {
-    const bytes = try self.decodeAll(@sizeOf(T));
+pub inline fn decodeRawInline(self: *const Decoder, comptime T: type) Error!T {
+    const bytes = try self.decodeAllInline(@sizeOf(T));
     var out: T = undefined;
     @memcpy(@as([*]u8, @ptrCast(&out)), bytes);
     return out;
 }
 
-pub inline fn pad(self: *const Decoder, alignment: usize) Error!void {
+pub inline fn padInline(self: *const Decoder, alignment: usize) Error!void {
     const addr = @intFromPtr(self.memory.ptr) + self.ip();
     const padding = Support.alignmentDelta(addr, alignment);
 
@@ -79,7 +99,9 @@ pub inline fn pad(self: *const Decoder, alignment: usize) Error!void {
     self.offset.* += @truncate(padding);
 }
 
-pub fn decode(self: *const Decoder, comptime T: type) Error!T {
+pub inline fn decodeInline(self: *const Decoder, comptime T: type) Error!T {
+    @setEvalBranchQuota(10_000); // lots of inlining here
+
     if (comptime T == void) return {};
 
     if (comptime std.meta.hasFn(T, "decode")) {
@@ -95,25 +117,24 @@ pub fn decode(self: *const Decoder, comptime T: type) Error!T {
 }
 
 inline fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
-    @setEvalBranchQuota(10_000); // lots of inlining here
-
     switch (@typeInfo(T)) {
         .@"struct" => |info| {
             var out: T = undefined;
 
             inline for (info.fields) |field| {
-                @field(out, field.name) = try @call(.always_inline, decode, .{self, field.type});
+                @field(out, field.name) = try self.decodeInline(field.type);
             }
 
             return out;
         },
 
         .@"union" => |info| if (info.tag_type) |TT| {
-            const tag = try @call(.always_inline, decode, .{self, TT});
+            const tag = try self.decodeInline(TT);
 
             inline for (info.fields) |field| {
                 if (tag == @field(TT, field.name)) {
-                    return @unionInit(T, field.name, try @call(.always_inline, decode, .{self, field.type}));
+                    const fieldValue = try self.decodeInline(field.type);
+                    return @unionInit(T, field.name, fieldValue);
                 }
             }
 
@@ -128,10 +149,11 @@ inline fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
             var out: [info.len:sentinel]info.child = undefined;
 
             for (0..info.len) |i| {
-                out[i] = try @call(.always_inline, decode, .{self, info.child});
+                out[i] = try self.decodeInline(info.child);
             }
 
-            if (try @call(.always_inline, decode, .{self, info.child}) != sentinel) {
+            const lastValue = try self.decodeInline(info.child);
+            if (lastValue != sentinel) {
                 @branchHint(.cold);
                 return Error.BadEncoding;
             }
@@ -143,7 +165,7 @@ inline fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
             var out: [info.len]info.child = undefined;
 
             for (0..info.len) |i| {
-                out[i] = try @call(.always_inline, decode, .{self, info.child});
+                out[i] = try self.decodeInline(info.child);
             }
 
             return out;
@@ -151,7 +173,7 @@ inline fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
 
         .pointer => |info| switch(info.size) {
             .One => {
-                try self.pad(@alignOf(info.child));
+                try self.padInline(@alignOf(info.child));
 
                 if (!self.inbounds(@sizeOf(info.child))) {
                     @branchHint(.cold);
@@ -168,12 +190,13 @@ inline fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
                 if (comptime info.sentinel) |sPtr| {
                     const sentinel = @as(*const info.child, @ptrCast(sPtr)).*;
 
-                    try self.pad(@alignOf(info.child));
+                    try self.padInline(@alignOf(info.child));
 
                     const ptr: T = @alignCast(@ptrCast(&self.memory[self.ip()]));
 
                     while (true) {
-                        if (try @call(.always_inline, decode, .{self, info.child}) == sentinel) break;
+                        const elemValue = try self.decodeInline(info.child);
+                        if (elemValue == sentinel) break;
                     }
 
                     return ptr;
@@ -182,9 +205,9 @@ inline fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
                 }
             },
             .Slice => {
-                const len = try @call(.always_inline, decode, .{self, usize});
+                const len = try self.decodeInline(usize);
 
-                try self.pad(@alignOf(info.child));
+                try self.padInline(@alignOf(info.child));
 
                 const ptr: [*]const info.child = @alignCast(@ptrCast(&self.memory[self.ip()]));
 
@@ -201,7 +224,8 @@ inline fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
 
                 if (info.sentinel) |sPtr| {
                     const sentinel = @as(*const info.child, @ptrCast(sPtr)).*;
-                    if (try @call(.always_inline, decode, .{self, info.child}) != sentinel) {
+                    const elemValue = try self.decodeInline(info.child);
+                    if (elemValue != sentinel) {
                         @branchHint(.cold);
                         return Error.BadEncoding;
                     }
@@ -214,10 +238,13 @@ inline fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
             },
         },
 
-        .optional => |info| if (try @call(.always_inline, decode, .{self, bool})) {
-            return try @call(.always_inline, decode, .{self, info.child});
-        } else {
-            return null;
+        .optional => |info| {
+            const discrimValue = try self.decodeInline(bool);
+            if (discrimValue) {
+                return try self.decodeInline(info.child);
+            } else {
+                return null;
+            }
         },
 
         else => {
