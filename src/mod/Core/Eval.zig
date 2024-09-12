@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const Config = @import("Config");
 const Support = @import("Support");
 
 const Bytecode = @import("Bytecode");
@@ -33,13 +34,13 @@ pub fn step(fiber: *Fiber) Fiber.Trap!void {
     } else null;
 
     switch (function.value) {
-        .bytecode => try @call(.always_inline, stepBytecode, .{fiber, function, callFrame, localData, upvalueData}),
-        .native => |nat| try @call(.always_inline, stepNative, .{fiber, localData, upvalueData, nat}),
+        .bytecode => try @call(Config.INLINING_CALL_MOD, stepBytecode, .{fiber, function, callFrame, localData, upvalueData}),
+        .native => |nat| try @call(Config.INLINING_CALL_MOD, stepNative, .{fiber, localData, upvalueData, nat}),
     }
 }
 
 pub fn stepBytecode(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame, localData: RegisterData, upvalueData: ?RegisterData) Fiber.Trap!void {
-    @setEvalBranchQuota(25000); // tons of inlining going on here
+    @setEvalBranchQuota(Config.INLINING_BRANCH_QUOTA); // tons of inlining going on here
 
     const blockFrame = try fiber.stack.block.topPtr();
     const block = &function.value.bytecode.blocks[blockFrame.index];
@@ -104,7 +105,7 @@ pub fn stepBytecode(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fib
             const yBytes: [*]u8 = try addr(globals, stack, localData, upvalueData, operands.y, operands.m);
 
             for (0..operands.m) |i| {
-                @call(.always_inline, std.mem.swap, .{u8, &xBytes[i], &yBytes[i]});
+                @call(Config.INLINING_CALL_MOD, std.mem.swap, .{u8, &xBytes[i], &yBytes[i]});
             }
         },
 
@@ -112,7 +113,7 @@ pub fn stepBytecode(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fib
             const xBytes: [*]const u8 = try addr(globals, stack, localData, upvalueData, operands.x, operands.m);
             const yBytes: [*]u8 = try addr(globals, stack, localData, upvalueData, operands.y, operands.m);
 
-            @call(.always_inline, std.mem.copyForwards, .{u8, yBytes[0..operands.m], xBytes[0..operands.m]});
+            @call(Config.INLINING_CALL_MOD, std.mem.copyForwards, .{u8, yBytes[0..operands.m], xBytes[0..operands.m]});
         },
 
         .b_not => |operands| try ops.unary(bool, "not", globals, stack, localData, upvalueData, operands),
@@ -311,7 +312,7 @@ pub fn stepNative(fiber: *Fiber, localData: RegisterData, upvalueData: ?Register
     Support.todo(noreturn, .{fiber, localData, upvalueData, native});
 }
 
-inline fn extractUp(upvalueData: ?RegisterData) Fiber.Trap!RegisterData {
+fn extractUp(upvalueData: ?RegisterData) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!RegisterData {
     if (upvalueData) |ud| {
         return ud;
     } else {
@@ -320,7 +321,7 @@ inline fn extractUp(upvalueData: ?RegisterData) Fiber.Trap!RegisterData {
     }
 }
 
-pub inline fn call(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, func: Bytecode.Operand, args: []const Bytecode.Operand, out: ?Bytecode.Operand) Fiber.Trap!void {
+pub fn call(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, func: Bytecode.Operand, args: []const Bytecode.Operand, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const funcIndex = try read(Bytecode.FunctionIndex, &fiber.program.globals, &fiber.stack.data, localData, upvalueData, func);
 
     if (funcIndex >= fiber.program.functions.len) {
@@ -331,7 +332,7 @@ pub inline fn call(fiber: *Fiber, localData: RegisterData, upvalueData: ?Registe
     return callImpl(fiber, localData, upvalueData, Bytecode.EVIDENCE_SENTINEL, funcIndex, args, out);
 }
 
-pub inline fn prompt(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, evIndex: Bytecode.EvidenceIndex, args: []const Bytecode.Operand, out: ?Bytecode.Operand) Fiber.Trap!void {
+pub fn prompt(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, evIndex: Bytecode.EvidenceIndex, args: []const Bytecode.Operand, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     if (evIndex >= fiber.evidence.len) {
         @branchHint(.cold);
         return Fiber.Trap.OutOfBounds;
@@ -342,7 +343,7 @@ pub inline fn prompt(fiber: *Fiber, localData: RegisterData, upvalueData: ?Regis
     return callImpl(fiber, localData, upvalueData, evIndex, evidence.handler, args, out);
 }
 
-inline fn callImpl(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, evIndex: Bytecode.EvidenceIndex, funcIndex: Bytecode.FunctionIndex, args: []const Bytecode.Operand, out: ?Bytecode.Operand) Fiber.Trap!void {
+fn callImpl(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, evIndex: Bytecode.EvidenceIndex, funcIndex: Bytecode.FunctionIndex, args: []const Bytecode.Operand, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const newFunction = &fiber.program.functions[funcIndex];
 
     if (args.len != newFunction.layout_table.num_arguments) {
@@ -385,7 +386,7 @@ inline fn callImpl(fiber: *Fiber, localData: RegisterData, upvalueData: ?Registe
     try fiber.stack.block.push(.entryPoint(out));
 }
 
-pub inline fn term(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame, localData: RegisterData, upvalueData: ?RegisterData, out: ?Bytecode.Operand) Fiber.Trap!void {
+pub fn term(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame, localData: RegisterData, upvalueData: ?RegisterData, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     if (callFrame.evidence == Bytecode.EVIDENCE_SENTINEL) {
         @branchHint(.cold);
         return Fiber.Trap.MissingEvidence;
@@ -414,7 +415,7 @@ pub inline fn term(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fibe
     fiber.stack.block.ptr = evidence.block - 1;
 }
 
-pub inline fn ret(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame, localData: RegisterData, upvalueData: ?RegisterData, out: ?Bytecode.Operand) Fiber.Trap!void {
+pub fn ret(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame, localData: RegisterData, upvalueData: ?RegisterData, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const rootBlockFrame = try fiber.stack.block.getPtr(callFrame.block);
 
     const rootBlock = &function.value.bytecode.blocks[rootBlockFrame.index];
@@ -436,7 +437,7 @@ pub inline fn ret(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber
     fiber.stack.block.ptr = callFrame.block - 1;
 }
 
-pub inline fn read(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand) !T {
+pub fn read(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!T {
     const size = @sizeOf(T);
 
     switch (operand.kind) {
@@ -454,7 +455,7 @@ pub inline fn read(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber
     }
 }
 
-pub inline fn write(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand, value: anytype) Fiber.Trap!void {
+pub fn write(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand, value: anytype) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     switch (operand.kind) {
         .global => {
             const mem = try getGlobal(globals, operand.data.global, @sizeOf(@TypeOf(value)));
@@ -467,7 +468,7 @@ pub inline fn write(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, local
     }
 }
 
-pub inline fn addr(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand, size: Bytecode.RegisterLocalOffset) Fiber.Trap![*]u8 {
+pub fn addr(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap![*]u8 {
     switch (operand.kind) {
         .global => return (try getGlobal(globals, operand.data.global, size)).ptr,
         .upvalue => return addrImpl(stack, try extractUp(upvalueData), operand.data.register, size),
@@ -475,7 +476,7 @@ pub inline fn addr(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localD
     }
 }
 
-inline fn addrImpl(stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.RegisterOperand, size: Bytecode.RegisterLocalOffset) Fiber.Trap![*]u8 {
+fn addrImpl(stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.RegisterOperand, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap![*]u8 {
     const base = try getOperandOffset(regData, operand.register);
 
     if (!regData.layout.inbounds(operand, @truncate(size))) {
@@ -486,7 +487,7 @@ inline fn addrImpl(stack: *Fiber.DataStack, regData: RegisterData, operand: Byte
     return @ptrCast(try stack.getPtr(base + operand.offset));
 }
 
-inline fn slice(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand, size: Bytecode.RegisterLocalOffset) Fiber.Trap![]u8 {
+fn slice(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap![]u8 {
     switch (operand.kind) {
         .global => return getGlobal(globals, operand.data.global, size),
         .upvalue => return sliceImpl(stack, try extractUp(upvalueData), operand.data.register, size),
@@ -494,7 +495,7 @@ inline fn slice(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData
     }
 }
 
-inline fn sliceImpl(stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.RegisterOperand, size: Bytecode.RegisterLocalOffset) Fiber.Trap![]u8 {
+fn sliceImpl(stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.RegisterOperand, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap![]u8 {
     const base = try getOperandOffset(regData, operand.register);
 
     if (!regData.layout.inbounds(operand, size)) {
@@ -505,7 +506,7 @@ inline fn sliceImpl(stack: *Fiber.DataStack, regData: RegisterData, operand: Byt
     return try stack.getSlice(base + operand.offset, size);
 }
 
-inline fn readImpl(comptime T: type, stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.RegisterOperand) Fiber.Trap!T {
+fn readImpl(comptime T: type, stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.RegisterOperand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!T {
     const size = @sizeOf(T);
 
     const base = try getOperandOffset(regData, operand.register);
@@ -524,7 +525,7 @@ inline fn readImpl(comptime T: type, stack: *Fiber.DataStack, regData: RegisterD
     return value;
 }
 
-inline fn writeImpl(stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.RegisterOperand, value: anytype) Fiber.Trap!void {
+fn writeImpl(stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.RegisterOperand, value: anytype) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const size = @sizeOf(@TypeOf(value));
 
     const base = try getOperandOffset(regData, operand.register);
@@ -539,7 +540,7 @@ inline fn writeImpl(stack: *Fiber.DataStack, regData: RegisterData, operand: Byt
     try stack.setSlice(base + operand.offset, bytes);
 }
 
-pub inline fn getGlobal(globals: *Bytecode.GlobalSet, operand: Bytecode.GlobalOperand, size: Bytecode.RegisterLocalOffset) Fiber.Trap![]u8 {
+pub fn getGlobal(globals: *Bytecode.GlobalSet, operand: Bytecode.GlobalOperand, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap![]u8 {
     if (operand.index >= globals.values.len) {
         @branchHint(.cold);
         return Fiber.Trap.OutOfBounds;
@@ -555,7 +556,7 @@ pub inline fn getGlobal(globals: *Bytecode.GlobalSet, operand: Bytecode.GlobalOp
     return globals.memory[operand.offset..operand.offset + size];
 }
 
-pub inline fn getOperandOffset(regData: RegisterData, register: Bytecode.Register) Fiber.Trap!Fiber.DataStack.Ptr {
+pub fn getOperandOffset(regData: RegisterData, register: Bytecode.Register) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!Fiber.DataStack.Ptr {
     const regNumber: Bytecode.RegisterIndex = @intFromEnum(register);
 
     if (regNumber < regData.layout.num_registers) {
@@ -567,7 +568,7 @@ pub inline fn getOperandOffset(regData: RegisterData, register: Bytecode.Registe
     }
 }
 
-pub inline fn boundsCheck(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, address: [*]const u8, size: Bytecode.RegisterLocalOffset) Fiber.Trap!void {
+pub fn boundsCheck(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, address: [*]const u8, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const validGlobalA = @intFromBool(@intFromPtr(address) >= @intFromPtr(globals.memory.ptr));
     const validGlobalB = @intFromBool(@intFromPtr(address) + size <= @intFromPtr(globals.memory.ptr) + globals.memory.len);
 
@@ -582,38 +583,38 @@ pub inline fn boundsCheck(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack,
 
 
 const ops = struct {
-    inline fn cast(comptime A: type, comptime B: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operands: Bytecode.ISA.TwoOperand) Fiber.Trap!void {
+    fn cast(comptime A: type, comptime B: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operands: Bytecode.ISA.TwoOperand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
         const x = try read(A, globals, stack, localData, upvalueData, operands.x);
 
         const aKind = @as(std.builtin.TypeId, @typeInfo(A));
         const bKind = @as(std.builtin.TypeId, @typeInfo(B));
         const result =
             if (comptime aKind == bKind) (
-                if (comptime aKind == .int) intCast(B, x)
-                else floatCast(B, x)
-            ) else typeCast(B, x);
+                if (comptime aKind == .int) @call(Config.INLINING_CALL_MOD, intCast, .{B, x})
+                else @call(Config.INLINING_CALL_MOD, floatCast, .{B, x})
+            ) else @call(Config.INLINING_CALL_MOD, typeCast, .{B, x});
 
         try write(globals, stack, localData, upvalueData, operands.y, result);
     }
 
-    inline fn unary(comptime T: type, comptime op: []const u8, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operands: Bytecode.ISA.TwoOperand) Fiber.Trap!void {
+    fn unary(comptime T: type, comptime op: []const u8, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operands: Bytecode.ISA.TwoOperand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
         const x = try read(T, globals, stack, localData, upvalueData, operands.x);
 
-        const result = @call(.always_inline, @field(ops, op), .{x});
+        const result = @call(Config.INLINING_CALL_MOD, @field(ops, op), .{x});
 
         try write(globals, stack, localData, upvalueData, operands.y, result);
     }
 
-    inline fn binary(comptime T: type, comptime op: []const u8, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operands: Bytecode.ISA.ThreeOperand) Fiber.Trap!void {
+    fn binary(comptime T: type, comptime op: []const u8, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operands: Bytecode.ISA.ThreeOperand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
         const x = try read(T, globals, stack, localData, upvalueData, operands.x);
         const y = try read(T, globals, stack, localData, upvalueData, operands.y);
 
-        const result = @call(.always_inline, @field(ops, op), .{x, y});
+        const result = @call(Config.INLINING_CALL_MOD, @field(ops, op), .{x, y});
 
         try write(globals, stack, localData, upvalueData, operands.z, result);
     }
 
-    inline fn intCast(comptime T: type, x: anytype) T {
+    fn intCast(comptime T: type, x: anytype) T {
         const U = @TypeOf(x);
 
         if (comptime @typeInfo(U).int.bits > @typeInfo(T).int.bits) {
@@ -623,11 +624,11 @@ const ops = struct {
         }
     }
 
-    inline fn floatCast(comptime T: type, x: anytype) T {
+    fn floatCast(comptime T: type, x: anytype) T {
         return @floatCast(x);
     }
 
-    inline fn typeCast(comptime T: type, x: anytype) T {
+    fn typeCast(comptime T: type, x: anytype) T {
         const U = @TypeOf(x);
 
         const tagT = @as(std.builtin.TypeId, @typeInfo(T));

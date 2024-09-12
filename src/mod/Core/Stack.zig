@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const Config = @import("Config");
+
 
 pub fn Stack(comptime T: type, comptime A: type) type {
     return struct {
@@ -25,7 +27,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             allocator.free(self.memory);
         }
 
-        pub inline fn top(self: *const Self) Error!T {
+        pub fn top(self: *const Self) callconv(Config.INLINING_CALL_CONV) Error!T {
             if (self.ptr == 0) {
                 @branchHint(.cold);
                 return Error.Underflow;
@@ -34,7 +36,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             return self.memory[self.ptr - 1];
         }
 
-        pub inline fn topPtr(self: *const Self) Error!*T {
+        pub fn topPtr(self: *const Self) callconv(Config.INLINING_CALL_CONV) Error!*T {
             if (self.ptr == 0) {
                 @branchHint(.cold);
                 return Error.Underflow;
@@ -43,7 +45,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             return &self.memory[self.ptr - 1];
         }
 
-        pub inline fn topSlice(self: *const Self, n: Ptr) Error![]T {
+        pub fn topSlice(self: *const Self, n: Ptr) callconv(Config.INLINING_CALL_CONV) Error![]T {
             if (self.ptr < n) {
                 @branchHint(.cold);
                 return Error.Underflow;
@@ -52,7 +54,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             return self.memory[self.ptr - n..self.ptr];
         }
 
-        pub inline fn get(self: *const Self, i: Ptr) Error!T {
+        pub fn get(self: *const Self, i: Ptr) callconv(Config.INLINING_CALL_CONV) Error!T {
             if (i >= self.ptr) {
                 @branchHint(.cold);
                 return Error.OutOfBounds;
@@ -61,7 +63,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             return self.memory[i];
         }
 
-        pub inline fn getPtr(self: *const Self, i: Ptr) Error!*T {
+        pub fn getPtr(self: *const Self, i: Ptr) callconv(Config.INLINING_CALL_CONV) Error!*T {
             if (i > self.ptr) {
                 @branchHint(.cold);
                 return Error.OutOfBounds;
@@ -70,7 +72,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             return @ptrCast(self.memory[i..self.ptr].ptr);
         }
 
-        pub inline fn getSlice(self: *const Self, i: Ptr, n: usize) Error![]T {
+        pub fn getSlice(self: *const Self, i: Ptr, n: usize) callconv(Config.INLINING_CALL_CONV) Error![]T {
             if (i + n > self.ptr) {
                 @branchHint(.cold);
                 return Error.OutOfBounds;
@@ -79,7 +81,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             return self.memory[i..i + n];
         }
 
-        pub inline fn set(self: *Self, i: Ptr, value: T) Error!void {
+        pub fn set(self: *Self, i: Ptr, value: T) callconv(Config.INLINING_CALL_CONV) Error!void {
             if (i >= self.ptr) {
                 @branchHint(.cold);
                 return Error.OutOfBounds;
@@ -88,7 +90,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             self.memory[i] = value;
         }
 
-        pub inline fn setSlice(self: *Self, i: Ptr, slice: []const T) Error!void {
+        pub fn setSlice(self: *Self, i: Ptr, slice: []const T) callconv(Config.INLINING_CALL_CONV) Error!void {
             if (i + slice.len > self.ptr) {
                 @branchHint(.cold);
                 return Error.OutOfBounds;
@@ -97,7 +99,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             @memcpy(self.memory[i..i + slice.len], slice);
         }
 
-        pub inline fn push(self: *Self, value: T) Error!void {
+        pub fn push(self: *Self, value: T) callconv(Config.INLINING_CALL_CONV) Error!void {
             if (self.ptr >= self.memory.len) {
                 @branchHint(.cold);
                 return Error.Overflow;
@@ -107,7 +109,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             self.ptr += 1;
         }
 
-        pub inline fn pushSlice(self: *Self, slice: []const T) Error!void {
+        pub fn pushSlice(self: *Self, slice: []const T) callconv(Config.INLINING_CALL_CONV) Error!void {
             if (self.ptr + slice.len > self.memory.len) {
                 @branchHint(.cold);
                 return Error.Overflow;
@@ -119,18 +121,18 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             }
         }
 
-        pub inline fn pushUninitSlice(self: *Self, size: Ptr) ![]T {
+        pub fn pushUninitSlice(self: *Self, size: Ptr) callconv(Config.INLINING_CALL_CONV) Error![]T {
             if (self.ptr + size > self.memory.len) {
                 @branchHint(.cold);
                 return Error.Overflow;
             }
 
-            const slice = &self.memory[self.ptr..self.ptr + size];
+            const slice = self.memory[self.ptr..self.ptr + size];
             self.ptr += size;
             return slice;
         }
 
-        pub inline fn pop(self: *Self) Error!T {
+        pub fn pop(self: *Self) callconv(Config.INLINING_CALL_CONV) Error!T {
             if (self.ptr == 0) {
                 @branchHint(.cold);
                 return Error.Underflow;
@@ -140,7 +142,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             return self.memory[self.ptr];
         }
 
-        pub inline fn popPtr(self: *Self) Error!*T {
+        pub fn popPtr(self: *Self) callconv(Config.INLINING_CALL_CONV) Error!*T {
             if (self.ptr == 0) {
                 @branchHint(.cold);
                 return Error.Underflow;
@@ -150,7 +152,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
             return &self.memory[self.ptr];
         }
 
-        pub inline fn popSlice(self: *Self, n: Ptr) Error![]T {
+        pub fn popSlice(self: *Self, n: Ptr) callconv(Config.INLINING_CALL_CONV) Error![]T {
             if (self.ptr < n) {
                 @branchHint(.cold);
                 return Error.Underflow;

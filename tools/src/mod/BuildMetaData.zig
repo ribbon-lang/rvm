@@ -52,6 +52,7 @@ pub const options = .{
     .logScopes = .{ []const u8, "Logging scopes to display", "ribboni" },
     .useEmoji = .{ bool, "Use emoji in the output", true },
     .useAnsiStyles = .{ bool, "Use ANSI styles in the output", true },
+    .maximumInlining = .{ bool, "Try to inline as much as possible in the interpreter", false },
 };
 
 pub const buildOptions = .{

@@ -88,6 +88,7 @@ In addition to typical zig build options, the build script supports the followin
 |`-DlogScopes=<string>`| Logging scopes to display |`ribboni`|
 |`-DuseEmoji=<bool>`| Use emoji in the output |`true`|
 |`-DuseAnsiStyles=<bool>`| Use ANSI styles in the output |`true`|
+|`-DmaximumInlining=<bool>`| Try to inline as much as possible in the interpreter |`false`|
 |`-DforceNewSnapshot=<bool>`| (Tests) Force a new snapshot to be created instead of referring to an existing one |`false`|
 |`-DstripDebugInfo=<?bool>`| Override for optimization-specific settings for stripping debug info from the binary |`{ 110, 117, 108, 108 }`|
 

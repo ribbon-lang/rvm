@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const Config = @import("Config");
 const Support = @import("Support");
 
 const Bytecode = @import("Bytecode");
@@ -22,43 +23,43 @@ pub const Error = error {
 };
 
 
-pub inline fn isEof(self: *const Decoder) bool {
+pub fn isEof(self: *const Decoder) callconv(Config.INLINING_CALL_CONV) bool {
     return self.ip() >= self.memory.len;
 }
 
-pub inline fn inbounds(self: *const Decoder, offset: usize) bool {
+pub fn inbounds(self: *const Decoder, offset: usize) callconv(Config.INLINING_CALL_CONV) bool {
     return self.relIp(offset) <= self.memory.len;
 }
 
-pub inline fn ip(self: *const Decoder) Bytecode.InstructionPointer {
+pub fn ip(self: *const Decoder) callconv(Config.INLINING_CALL_CONV) Bytecode.InstructionPointer {
     return self.base + self.offset.*;
 }
 
-pub inline fn relIp(self: *const Decoder, offset: usize) usize {
+pub fn relIp(self: *const Decoder, offset: usize) callconv(Config.INLINING_CALL_CONV) usize {
     return self.ip() + offset;
 }
 
 pub fn decodeByte(self: *const Decoder) Error!u8 {
-    return self.decodeByteInline();
+    return @call(.always_inline, decodeByteInline, .{self});
 }
 
 pub fn decodeAll(self: *const Decoder, count: usize) Error![]const u8 {
-    return self.decodeAllInline(count);
+    return @call(.always_inline, decodeAllInline, .{self, count});
 }
 
 pub fn decodeRaw(self: *const Decoder, comptime T: type) Error!T {
-    return self.decodeRawInline(T);
+    return @call(.always_inline, decodeRawInline, .{self, T});
 }
 
 pub fn pad(self: *const Decoder, alignment: usize) Error!void {
-    return self.padInline(alignment);
+    return @call(.always_inline, padInline, .{self, alignment});
 }
 
 pub fn decode(self: *const Decoder, comptime T: type) Error!T {
-    return self.decodeInline(T);
+    return @call(.always_inline, decodeInline, .{self, T});
 }
 
-pub inline fn decodeByteInline(self: *const Decoder) Error!u8 {
+pub fn decodeByteInline(self: *const Decoder) callconv(Config.INLINING_CALL_CONV) Error!u8 {
     if (self.isEof()) {
         @branchHint(.cold);
         return Error.OutOfBounds;
@@ -69,7 +70,7 @@ pub inline fn decodeByteInline(self: *const Decoder) Error!u8 {
     return value;
 }
 
-pub inline fn decodeAllInline(self: *const Decoder, count: usize) Error![]const u8 {
+pub fn decodeAllInline(self: *const Decoder, count: usize) callconv(Config.INLINING_CALL_CONV) Error![]const u8 {
     if (!self.inbounds(count)) {
         @branchHint(.cold);
         return Error.OutOfBounds;
@@ -80,14 +81,14 @@ pub inline fn decodeAllInline(self: *const Decoder, count: usize) Error![]const 
     return self.memory[start..self.ip()];
 }
 
-pub inline fn decodeRawInline(self: *const Decoder, comptime T: type) Error!T {
+pub fn decodeRawInline(self: *const Decoder, comptime T: type) callconv(Config.INLINING_CALL_CONV) Error!T {
     const bytes = try self.decodeAllInline(@sizeOf(T));
     var out: T = undefined;
     @memcpy(@as([*]u8, @ptrCast(&out)), bytes);
     return out;
 }
 
-pub inline fn padInline(self: *const Decoder, alignment: usize) Error!void {
+pub fn padInline(self: *const Decoder, alignment: usize) callconv(Config.INLINING_CALL_CONV) Error!void {
     const addr = @intFromPtr(self.memory.ptr) + self.ip();
     const padding = Support.alignmentDelta(addr, alignment);
 
@@ -99,8 +100,8 @@ pub inline fn padInline(self: *const Decoder, alignment: usize) Error!void {
     self.offset.* += @truncate(padding);
 }
 
-pub inline fn decodeInline(self: *const Decoder, comptime T: type) Error!T {
-    @setEvalBranchQuota(10_000); // lots of inlining here
+pub fn decodeInline(self: *const Decoder, comptime T: type) callconv(Config.INLINING_CALL_CONV) Error!T {
+    @setEvalBranchQuota(Config.INLINING_BRANCH_QUOTA); // lots of inlining here
 
     if (comptime T == void) return {};
 
@@ -116,7 +117,7 @@ pub inline fn decodeInline(self: *const Decoder, comptime T: type) Error!T {
     }
 }
 
-inline fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
+fn decodeStructure(self: *const Decoder, comptime T: type) callconv(Config.INLINING_CALL_CONV) Error!T {
     switch (@typeInfo(T)) {
         .@"struct" => |info| {
             var out: T = undefined;
