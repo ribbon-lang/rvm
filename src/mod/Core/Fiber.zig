@@ -37,10 +37,11 @@ pub const Trap = error {
     Underflow,
     Overflow,
     OutOfBounds,
-    MissingUpvalueContext,
+    MissingEvidence,
     OutValueMismatch,
     BadEncoding,
     ArgCountMismatch,
+    MissingOutputValue,
 };
 
 
@@ -77,7 +78,7 @@ pub const StackSet = struct {
 pub const DATA_STACK_SIZE: usize
     = (1024 * 1024 * 8)
     // take a little bit off to account for the other stacks,
-    // making a nice even number of mb for the total fiber size  (24mb, currently)
+    // making a nice even number of mb for the total fiber size  (16mb, currently)
     - OVERFLOW_META_SIZE
      ;
 pub const CALL_STACK_SIZE: usize = 4096;
@@ -93,7 +94,7 @@ const OVERFLOW_META_SIZE: usize
 comptime {
     std.testing.expect(DATA_STACK_SIZE >= 7 * 1024 * 1024) catch unreachable;
     std.testing.expectEqual(
-        24 * 1024 * 1024,
+        16 * 1024 * 1024,
         DATA_STACK_SIZE + TOTAL_META_SIZE
     ) catch unreachable;
 }
@@ -104,6 +105,7 @@ pub const BlockStack = Stack(BlockFrame, u16);
 
 pub const Evidence = packed struct {
     handler: Bytecode.FunctionIndex,
+    data: DataStack.Ptr,
     call: CallStack.Ptr,
     block: BlockStack.Ptr,
 };
@@ -111,34 +113,27 @@ pub const Evidence = packed struct {
 pub const BlockFrame = packed struct {
     index: Bytecode.BlockIndex,
     ip_offset: Bytecode.InstructionPointerOffset,
-    output_kind: OutputKind,
     out: Bytecode.Operand,
 
-    pub const OutputKind = enum(u8) {
-        none,
-        call_none,
-        call_value,
-        value,
-    };
-
     pub inline fn noOutput(index: Bytecode.BlockIndex, ip_offset: Bytecode.InstructionPointerOffset) BlockFrame {
-        return .{ .index = index, .ip_offset = ip_offset, .output_kind = .none, .out = undefined };
+        return .{ .index = index, .ip_offset = ip_offset, .out = undefined };
     }
 
     pub inline fn entryPoint(operand: ?Bytecode.Operand) BlockFrame {
         return
-            if (operand) |op| .{ .index = 0, .ip_offset = 0, .output_kind = .call_value, .out = op }
-            else .{ .index = 0, .ip_offset = 0, .output_kind = .call_none, .out = undefined };
+            if (operand) |op| .{ .index = 0, .ip_offset = 0, .out = op }
+            else .{ .index = 0, .ip_offset = 0, .out = undefined };
     }
 
     pub inline fn value(index: Bytecode.BlockIndex, ip_offset: Bytecode.InstructionPointerOffset, operand: Bytecode.Operand) BlockFrame {
-        return .{ .index = index, .ip_offset = ip_offset, .output_kind = .value, .out = operand };
+        return .{ .index = index, .ip_offset = ip_offset, .out = operand };
     }
 };
 
 pub const CallFrame = struct {
     function: Bytecode.FunctionIndex,
     evidence: Bytecode.EvidenceIndex,
+    block: BlockStack.Ptr,
     stack: StackRef,
 
     pub const StackRef = packed struct {

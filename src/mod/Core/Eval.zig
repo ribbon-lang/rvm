@@ -33,21 +33,21 @@ pub fn step(fiber: *Fiber) Fiber.Trap!void {
     } else null;
 
     switch (function.value) {
-        .bytecode => |bc| try @call(.always_inline, stepBytecode, .{fiber, localData, upvalueData, bc}),
+        .bytecode => try @call(.always_inline, stepBytecode, .{fiber, function, callFrame, localData, upvalueData}),
         .native => |nat| try @call(.always_inline, stepNative, .{fiber, localData, upvalueData, nat}),
     }
 }
 
-pub fn stepBytecode(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, bytecode: Bytecode) Fiber.Trap!void {
+pub fn stepBytecode(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame, localData: RegisterData, upvalueData: ?RegisterData) Fiber.Trap!void {
     @setEvalBranchQuota(25000); // tons of inlining going on here
 
     const blockFrame = try fiber.stack.block.topPtr();
-    const block = &bytecode.blocks[blockFrame.index];
+    const block = &function.value.bytecode.blocks[blockFrame.index];
     const globals = &fiber.program.globals;
     const stack = &fiber.stack.data;
 
     const decoder = IO.Decoder {
-        .memory = bytecode.instructions,
+        .memory = function.value.bytecode.instructions,
         .base = block.base,
         .offset = &blockFrame.ip_offset,
     };
@@ -62,6 +62,11 @@ pub fn stepBytecode(fiber: *Fiber, localData: RegisterData, upvalueData: ?Regist
         .call_v => |operands| try call(fiber, localData, upvalueData, operands.f, operands.as, operands.y),
         .prompt => |operands| try prompt(fiber, localData, upvalueData, operands.e, operands.as, null),
         .prompt_v => |operands| try prompt(fiber, localData, upvalueData, operands.e, operands.as, operands.y),
+
+        .ret => try ret(fiber, function, callFrame, localData, upvalueData, null),
+        .ret_v => |operands| try ret(fiber, function, callFrame, localData, upvalueData, operands.y),
+        .term => try term(fiber, function, callFrame, localData, upvalueData, null),
+        .term_v => |operands| try term(fiber, function, callFrame, localData, upvalueData, operands.y),
 
         .addr => |operands| {
             const bytes: [*]const u8 = try addr(globals, stack, localData, upvalueData, operands.x, 0);
@@ -311,19 +316,8 @@ inline fn extractUp(upvalueData: ?RegisterData) Fiber.Trap!RegisterData {
         return ud;
     } else {
         @branchHint(.cold);
-        return Fiber.Trap.MissingUpvalueContext;
+        return Fiber.Trap.MissingEvidence;
     }
-}
-
-pub inline fn prompt(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, evIndex: Bytecode.EvidenceIndex, args: []const Bytecode.Operand, out: ?Bytecode.Operand) Fiber.Trap!void {
-    if (evIndex >= fiber.evidence.len) {
-        @branchHint(.cold);
-        return Fiber.Trap.OutOfBounds;
-    }
-
-    const evidence = &fiber.evidence[evIndex];
-
-    return callImpl(fiber, localData, upvalueData, evIndex, evidence.handler, args, out);
 }
 
 pub inline fn call(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, func: Bytecode.Operand, args: []const Bytecode.Operand, out: ?Bytecode.Operand) Fiber.Trap!void {
@@ -335,6 +329,17 @@ pub inline fn call(fiber: *Fiber, localData: RegisterData, upvalueData: ?Registe
     }
 
     return callImpl(fiber, localData, upvalueData, Bytecode.EVIDENCE_SENTINEL, funcIndex, args, out);
+}
+
+pub inline fn prompt(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, evIndex: Bytecode.EvidenceIndex, args: []const Bytecode.Operand, out: ?Bytecode.Operand) Fiber.Trap!void {
+    if (evIndex >= fiber.evidence.len) {
+        @branchHint(.cold);
+        return Fiber.Trap.OutOfBounds;
+    }
+
+    const evidence = &fiber.evidence[evIndex];
+
+    return callImpl(fiber, localData, upvalueData, evIndex, evidence.handler, args, out);
 }
 
 inline fn callImpl(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, evIndex: Bytecode.EvidenceIndex, funcIndex: Bytecode.FunctionIndex, args: []const Bytecode.Operand, out: ?Bytecode.Operand) Fiber.Trap!void {
@@ -370,6 +375,7 @@ inline fn callImpl(fiber: *Fiber, localData: RegisterData, upvalueData: ?Registe
     try fiber.stack.call.push(Fiber.CallFrame {
         .function = funcIndex,
         .evidence = evIndex,
+        .block = fiber.stack.block.ptr,
         .stack = .{
             .base = base,
             .origin = origin,
@@ -377,6 +383,57 @@ inline fn callImpl(fiber: *Fiber, localData: RegisterData, upvalueData: ?Registe
     });
 
     try fiber.stack.block.push(.entryPoint(out));
+}
+
+pub inline fn term(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame, localData: RegisterData, upvalueData: ?RegisterData, out: ?Bytecode.Operand) Fiber.Trap!void {
+    if (callFrame.evidence == Bytecode.EVIDENCE_SENTINEL) {
+        @branchHint(.cold);
+        return Fiber.Trap.MissingEvidence;
+    }
+
+    const evidence = &fiber.evidence[callFrame.evidence];
+
+    const rootFunction = &fiber.program.functions[evidence.handler];
+    const rootBlockFrame = try fiber.stack.block.getPtr(evidence.block);
+    const rootBlock = &rootFunction.value.bytecode.blocks[rootBlockFrame.index];
+
+    if (out) |outOp| {
+        if (rootBlock.kind.hasOutput()) {
+            const size = function.layout_table.term_layout.?.size;
+            const src: [*]const u8 = try addr(&fiber.program.globals, &fiber.stack.data, localData, upvalueData, outOp, size);
+            const dest: [*]u8 = try addr(&fiber.program.globals, &fiber.stack.data, localData, upvalueData, rootBlockFrame.out, size);
+            @memcpy(dest[0..size], src);
+        } else {
+            @branchHint(.cold);
+            return Fiber.Trap.MissingOutputValue;
+        }
+    }
+
+    fiber.stack.data.ptr = evidence.data;
+    fiber.stack.call.ptr = evidence.call;
+    fiber.stack.block.ptr = evidence.block - 1;
+}
+
+pub inline fn ret(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame, localData: RegisterData, upvalueData: ?RegisterData, out: ?Bytecode.Operand) Fiber.Trap!void {
+    const rootBlockFrame = try fiber.stack.block.getPtr(callFrame.block);
+
+    const rootBlock = &function.value.bytecode.blocks[rootBlockFrame.index];
+
+    if (out) |outOp| {
+        if (rootBlock.kind.hasOutput()) {
+            const size = function.layout_table.return_layout.?.size;
+            const src: [*]const u8 = try addr(&fiber.program.globals, &fiber.stack.data, localData, upvalueData, outOp, size);
+            const dest: [*]u8 = try addr(&fiber.program.globals, &fiber.stack.data, localData, upvalueData, rootBlockFrame.out, size);
+            @memcpy(dest[0..size], src);
+        } else {
+            @branchHint(.cold);
+            return Fiber.Trap.MissingOutputValue;
+        }
+    }
+
+    fiber.stack.data.ptr = callFrame.stack.base;
+    fiber.stack.call.ptr -= 1;
+    fiber.stack.block.ptr = callFrame.block - 1;
 }
 
 pub inline fn read(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand) !T {

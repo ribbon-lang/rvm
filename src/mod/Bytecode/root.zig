@@ -125,14 +125,24 @@ pub const Block = struct {
     handlers: HandlerSetIndex,
 
     pub const Kind = enum(u8) {
-          basic = 0x00,   basic_v = 0x10,
-        if_else = 0x01, if_else_v = 0x11,
-           case = 0x02,    case_v = 0x12,
-           with = 0x03,    with_v = 0x13,
+          basic = 0x00, basic_v = 0x10,
+          if_nz = 0x01, if_nz_v = 0x11,
+           if_z = 0x02,  if_z_v = 0x12,
+           case = 0x03,  case_v = 0x13,
+           with = 0x04,  with_v = 0x14,
+          entry = 0x05, entry_v = 0x15,
 
-           when = 0x04,
-         unless = 0x05,
-           loop = 0x06,
+           when = 0x06,
+         unless = 0x07,
+
+        pub inline fn hasOutput(self: Kind) bool {
+            return switch (self) {
+                inline
+                    .basic_v, .if_nz_v, .if_z_v, .case_v, .with_v, .entry_v
+                => true,
+                inline else => false,
+            };
+        }
     };
 };
 
@@ -188,9 +198,11 @@ pub const Type = union(enum) {
 };
 
 pub const LayoutTable = struct {
+    term_type: TypeIndex,
     return_type: TypeIndex,
     register_types: [*]TypeIndex,
 
+    term_layout: ?Layout,
     return_layout: ?Layout,
     register_layouts: [*]Layout,
 
