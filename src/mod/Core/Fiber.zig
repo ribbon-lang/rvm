@@ -42,6 +42,7 @@ pub const Trap = error {
     BadEncoding,
     ArgCountMismatch,
     MissingOutputValue,
+    BadAlignment,
 };
 
 

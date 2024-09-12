@@ -12,10 +12,12 @@ const Fiber = Core.Fiber;
 
 const Eval = @This();
 
+
 pub const RegisterData = struct {
     call: *Fiber.CallFrame,
     layout: *Bytecode.LayoutTable,
 };
+
 
 pub fn step(fiber: *Fiber) Fiber.Trap!void {
     const callFrame = try fiber.stack.call.topPtr();
@@ -321,7 +323,7 @@ fn extractUp(upvalueData: ?RegisterData) callconv(Config.INLINING_CALL_CONV) Fib
     }
 }
 
-pub fn call(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, func: Bytecode.Operand, args: []const Bytecode.Operand, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn call(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, func: Bytecode.Operand, args: []const Bytecode.Operand, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const funcIndex = try read(Bytecode.FunctionIndex, &fiber.program.globals, &fiber.stack.data, localData, upvalueData, func);
 
     if (funcIndex >= fiber.program.functions.len) {
@@ -332,7 +334,7 @@ pub fn call(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, 
     return callImpl(fiber, localData, upvalueData, Bytecode.EVIDENCE_SENTINEL, funcIndex, args, out);
 }
 
-pub fn prompt(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, evIndex: Bytecode.EvidenceIndex, args: []const Bytecode.Operand, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn prompt(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, evIndex: Bytecode.EvidenceIndex, args: []const Bytecode.Operand, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     if (evIndex >= fiber.evidence.len) {
         @branchHint(.cold);
         return Fiber.Trap.OutOfBounds;
@@ -352,7 +354,6 @@ fn callImpl(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, 
     }
 
     // ensure ret val will fit
-    // FIXME: alignment
     if (out) |outOperand| {
         if (newFunction.layout_table.return_layout) |returnLayout| {
             _ = try slice(&fiber.program.globals, &fiber.stack.data, localData, upvalueData, outOperand, returnLayout.size);
@@ -362,15 +363,16 @@ fn callImpl(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, 
         }
     }
 
-    const base = fiber.stack.data.ptr;
-    // FIXME: alignment
-    const origin = base;
+    const origin = fiber.stack.data.ptr;
+    const padding = Support.alignmentDelta(origin, newFunction.layout_table.alignment);
+    const base = origin + padding;
+
+    try fiber.stack.data.pushUninit(newFunction.layout_table.size + padding);
 
     for (0..args.len) |i| {
         const desiredSize = newFunction.layout_table.register_layouts[i].size;
         const arg = try slice(&fiber.program.globals, &fiber.stack.data, localData, upvalueData, args[i], desiredSize);
-        // FIXME: alignment
-        try fiber.stack.data.pushSlice(arg);
+        @memcpy(fiber.stack.data.memory[newFunction.layout_table.register_offsets[i]..].ptr, arg);
     }
 
     try fiber.stack.call.push(Fiber.CallFrame {
@@ -386,7 +388,7 @@ fn callImpl(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, 
     try fiber.stack.block.push(.entryPoint(out));
 }
 
-pub fn term(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame, localData: RegisterData, upvalueData: ?RegisterData, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn term(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame, localData: RegisterData, upvalueData: ?RegisterData, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     if (callFrame.evidence == Bytecode.EVIDENCE_SENTINEL) {
         @branchHint(.cold);
         return Fiber.Trap.MissingEvidence;
@@ -415,7 +417,7 @@ pub fn term(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallF
     fiber.stack.block.ptr = evidence.block - 1;
 }
 
-pub fn ret(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame, localData: RegisterData, upvalueData: ?RegisterData, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn ret(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame, localData: RegisterData, upvalueData: ?RegisterData, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const rootBlockFrame = try fiber.stack.block.getPtr(callFrame.block);
 
     const rootBlock = &function.value.bytecode.blocks[rootBlockFrame.index];
@@ -437,46 +439,31 @@ pub fn ret(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFr
     fiber.stack.block.ptr = callFrame.block - 1;
 }
 
-pub fn read(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!T {
-    const size = @sizeOf(T);
-
+inline fn read(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand) Fiber.Trap!T {
     switch (operand.kind) {
-        .global => {
-            const bytes = try getGlobal(globals, operand.data.global, size);
-
-            var value: T = undefined;
-            @memcpy(@as([*]u8, @ptrCast(&value)), bytes);
-
-            return value;
-        },
-
-        .upvalue => return readImpl(T, stack, try extractUp(upvalueData), operand.data.register),
-        .local => return readImpl(T, stack, localData, operand.data.register),
+        .global => return readGlobal(T, globals, operand.data.global),
+        .upvalue => return readReg(T, stack, try extractUp(upvalueData), operand.data.register),
+        .local => return readReg(T, stack, localData, operand.data.register),
     }
 }
 
-pub fn write(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand, value: anytype) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+inline fn write(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand, value: anytype) Fiber.Trap!void {
     switch (operand.kind) {
-        .global => {
-            const mem = try getGlobal(globals, operand.data.global, @sizeOf(@TypeOf(value)));
-
-            @memcpy(mem, @as([*]const u8, @ptrCast(&value)));
-        },
-
-        .upvalue => try writeImpl(stack, try extractUp(upvalueData), operand.data.register, value),
-        .local => try writeImpl(stack, localData, operand.data.register, value),
+        .global => return writeGlobal(globals, operand.data.global, value),
+        .upvalue => return writeReg(stack, try extractUp(upvalueData), operand.data.register, value),
+        .local => return writeReg(stack, localData, operand.data.register, value),
     }
 }
 
-pub fn addr(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap![*]u8 {
+inline fn addr(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand, size: Bytecode.RegisterLocalOffset) Fiber.Trap![*]u8 {
     switch (operand.kind) {
-        .global => return (try getGlobal(globals, operand.data.global, size)).ptr,
-        .upvalue => return addrImpl(stack, try extractUp(upvalueData), operand.data.register, size),
-        .local => return addrImpl(stack, localData, operand.data.register, size),
+        .global => return addrGlobal(globals, operand.data.global, size),
+        .upvalue => return addrReg(stack, try extractUp(upvalueData), operand.data.register, size),
+        .local => return addrReg(stack, localData, operand.data.register, size),
     }
 }
 
-fn addrImpl(stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.RegisterOperand, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap![*]u8 {
+fn addrReg(stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.RegisterOperand, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap![*]u8 {
     const base = try getOperandOffset(regData, operand.register);
 
     if (!regData.layout.inbounds(operand, @truncate(size))) {
@@ -487,26 +474,22 @@ fn addrImpl(stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.Re
     return @ptrCast(try stack.getPtr(base + operand.offset));
 }
 
-fn slice(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap![]u8 {
-    switch (operand.kind) {
-        .global => return getGlobal(globals, operand.data.global, size),
-        .upvalue => return sliceImpl(stack, try extractUp(upvalueData), operand.data.register, size),
-        .local => return sliceImpl(stack, localData, operand.data.register, size),
-    }
+inline fn slice(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand, size: Bytecode.RegisterLocalOffset) Fiber.Trap![]u8 {
+    return (try addr(globals, stack, localData, upvalueData, operand, size))[0..size];
 }
 
-fn sliceImpl(stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.RegisterOperand, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap![]u8 {
-    const base = try getOperandOffset(regData, operand.register);
+fn readGlobal(comptime T: type, globals: *Bytecode.GlobalSet, operand: Bytecode.GlobalOperand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!T {
+    const bytes = try addrGlobal(globals, operand, @sizeOf(T));
 
-    if (!regData.layout.inbounds(operand, size)) {
+    if (Support.alignmentDelta(@intFromPtr(bytes), @alignOf(T)) != 0) {
         @branchHint(.cold);
-        return Fiber.Trap.OutOfBounds;
+        return Fiber.Trap.BadAlignment;
     }
 
-    return try stack.getSlice(base + operand.offset, size);
+    return @as(*T, @ptrCast(@alignCast(bytes))).*;
 }
 
-fn readImpl(comptime T: type, stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.RegisterOperand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!T {
+fn readReg(comptime T: type, stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.RegisterOperand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!T {
     const size = @sizeOf(T);
 
     const base = try getOperandOffset(regData, operand.register);
@@ -516,17 +499,31 @@ fn readImpl(comptime T: type, stack: *Fiber.DataStack, regData: RegisterData, op
         return Fiber.Trap.OutOfBounds;
     }
 
-    // FIXME: need to do alignment on stack values so that this memcpy can be replaced with aligned read
-    var value: T = undefined;
-    const bytes = try stack.getSlice(base + operand.offset, size);
+    const bytes = try stack.checkSlice(base + operand.offset, size);
 
-    @memcpy(@as([*]u8, @ptrCast(&value)), bytes);
+    if (Support.alignmentDelta(@intFromPtr(bytes), @alignOf(T)) != 0) {
+        @branchHint(.cold);
+        return Fiber.Trap.BadAlignment;
+    }
 
-    return value;
+    return @as(*T, @ptrCast(@alignCast(bytes))).*;
 }
 
-fn writeImpl(stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.RegisterOperand, value: anytype) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    const size = @sizeOf(@TypeOf(value));
+fn writeGlobal(globals: *Bytecode.GlobalSet, operand: Bytecode.GlobalOperand, value: anytype) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const T = @TypeOf(value);
+    const mem = try addrGlobal(globals, operand, @sizeOf(T));
+
+    if (Support.alignmentDelta(@intFromPtr(mem), @alignOf(T)) != 0) {
+        @branchHint(.cold);
+        return Fiber.Trap.BadAlignment;
+    }
+
+    @as(*T, @ptrCast(@alignCast(mem))).* = value;
+}
+
+fn writeReg(stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.RegisterOperand, value: anytype) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const T = @TypeOf(value);
+    const size = @sizeOf(T);
 
     const base = try getOperandOffset(regData, operand.register);
 
@@ -535,12 +532,17 @@ fn writeImpl(stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.R
         return Fiber.Trap.OutOfBounds;
     }
 
-    // FIXME: need to do alignment on stack values so that this memcpy can be replaced with aligned write
-    const bytes = @as([*]const u8, @ptrCast(&value))[0..size];
-    try stack.setSlice(base + operand.offset, bytes);
+    const bytes = try stack.checkSlice(base, size);
+
+    if (Support.alignmentDelta(@intFromPtr(bytes), @alignOf(T)) != 0) {
+        @branchHint(.cold);
+        return Fiber.Trap.BadAlignment;
+    }
+
+    @as(*T, @ptrCast(@alignCast(bytes))).* = value;
 }
 
-pub fn getGlobal(globals: *Bytecode.GlobalSet, operand: Bytecode.GlobalOperand, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap![]u8 {
+fn addrGlobal(globals: *Bytecode.GlobalSet, operand: Bytecode.GlobalOperand, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap![*]u8 {
     if (operand.index >= globals.values.len) {
         @branchHint(.cold);
         return Fiber.Trap.OutOfBounds;
@@ -553,22 +555,21 @@ pub fn getGlobal(globals: *Bytecode.GlobalSet, operand: Bytecode.GlobalOperand, 
         return Fiber.Trap.OutOfBounds;
     }
 
-    return globals.memory[operand.offset..operand.offset + size];
+    return @ptrCast(&globals.memory[operand.offset]);
 }
 
-pub fn getOperandOffset(regData: RegisterData, register: Bytecode.Register) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!Fiber.DataStack.Ptr {
+fn getOperandOffset(regData: RegisterData, register: Bytecode.Register) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!Fiber.DataStack.Ptr {
     const regNumber: Bytecode.RegisterIndex = @intFromEnum(register);
 
     if (regNumber < regData.layout.num_registers) {
         return regData.call.stack.base + regData.layout.register_offsets[regNumber];
     } else {
         @branchHint(.cold);
-
         return Fiber.Trap.OutOfBounds;
     }
 }
 
-pub fn boundsCheck(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, address: [*]const u8, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn boundsCheck(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, address: [*]const u8, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const validGlobalA = @intFromBool(@intFromPtr(address) >= @intFromPtr(globals.memory.ptr));
     const validGlobalB = @intFromBool(@intFromPtr(address) + size <= @intFromPtr(globals.memory.ptr) + globals.memory.len);
 
