@@ -25,7 +25,7 @@ const BODY = "body";
 
 pub fn main() !void {
     @setEvalBranchQuota(10_000);
-    
+
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
@@ -68,7 +68,7 @@ pub fn main() !void {
 fn toc(out: anytype) !void {
     inline for (comptime std.meta.fieldNames(@TypeOf(prototypes))) |categoryName| {
         if (comptime !(std.mem.endsWith(u8, categoryName, "_bits") or std.mem.endsWith(u8, categoryName, "_v"))) {
-            try out.print("- [{s}](#{s})\n", .{categoryName, comptime kebabCase(categoryName)});
+            try out.print("* [{s}](#{s})\n", .{categoryName, comptime kebabCase(categoryName)});
         }
     }
 }

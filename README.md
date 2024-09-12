@@ -36,14 +36,15 @@ discouraged.
 + [ISA](#isa)
     - [High Level Properties](#high-level-properties)
     - [Parameter Legend](#parameter-legend)
-    - [Basic](#basic)
-    - [Control Flow](#control-flow)
-    - [Memory](#memory)
-    - [Arithmetic](#arithmetic)
-    - [Boolean](#boolean)
-    - [Size Cast Int](#size-cast-int)
-    - [Size Cast Float](#size-cast-float)
-    - [Int <-> Float Cast](#int---float-cast)
+    - [Op Codes](#op-codes)
+        * [Basic](#basic)
+        * [Control Flow](#control-flow)
+        * [Memory](#memory)
+        * [Arithmetic](#arithmetic)
+        * [Boolean](#boolean)
+        * [Size Cast Int](#size-cast-int)
+        * [Size Cast Float](#size-cast-float)
+        * [Int <-> Float Cast](#int---float-cast)
 
 
 ## Discussion
@@ -193,6 +194,10 @@ but here is a preliminary rundown.
 
 
 ### Op codes
+
+> [!note]
+> Github markdown formatting is a bit weird;
+> If you see scroll bars on the tables below, try reloading the page
 
 
 #### Basic

@@ -34,7 +34,8 @@ discouraged.
 + [ISA](#isa)
     - [High Level Properties](#high-level-properties)
     - [Parameter Legend](#parameter-legend)
-    <!--#Readme:ISA toc-->
+    - [Op Codes](#op-codes)
+        <!--#Readme:ISA toc-->
 
 ## Discussion
 
@@ -143,5 +144,9 @@ but here is a preliminary rundown.
 
 
 ### Op codes
+
+> [!note]
+> Github markdown formatting is a bit weird;
+> If you see scroll bars on the tables below, try reloading the page
 
 <!--#Readme:ISA body-->
