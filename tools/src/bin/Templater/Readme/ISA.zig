@@ -116,7 +116,7 @@ fn longName(comptime name: [:0]const u8) []const u8 {
         else if (strCmp(name, "f_ext")) "floating point extension"
         else if (strCmp(name, "f_trunc")) "floating point truncation"
 
-        else if (strCmp(name, "addr_of")) "address extraction of operand"
+        else if (strCmp(name, "addr")) "address extraction of operand"
         else if (strCmp(name, "load")) "read from address"
         else if (strCmp(name, "store")) "write to address"
         else if (strCmp(name, "copy")) "copy value"

@@ -593,7 +593,7 @@ but here is a preliminary rundown.
 #### Memory
 <table>
     <tr>
-        <th colspan="3" align="left" width="100%">addr_of<img width="960px" height="1" align="right"></th>
+        <th colspan="3" align="left" width="100%">addr<img width="960px" height="1" align="right"></th>
         <td colspan="2">Params</td>
     </tr>
     <tr>
@@ -602,7 +602,7 @@ but here is a preliminary rundown.
     <tr><td>x</td><td><code>O</code></td></tr><tr><td>y</td><td><code>O</code></td></tr>
     <tr>
         <td align="right" width="1%"><code>0x20</code></td>
-        <td align="left" width="1%"><code>addr_of</code></td>
+        <td align="left" width="1%"><code>addr</code></td>
         <td align="center" colspan="3">address extraction of operand</td>
     </tr>
 </table>

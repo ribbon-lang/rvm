@@ -154,7 +154,7 @@ pub const InstructionPrototypes = .{
     },
 
     .@"Memory" = .{
-        .{ "addr_of"
+        .{ "addr"
          , \\copy the address of `x` into `y`
          , TwoOperand
         },

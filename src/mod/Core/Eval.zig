@@ -63,16 +63,16 @@ pub fn stepBytecode(fiber: *Fiber, localData: RegisterData, upvalueData: ?Regist
         .prompt => |operands| try prompt(fiber, localData, upvalueData, operands.e, operands.as, null),
         .prompt_v => |operands| try prompt(fiber, localData, upvalueData, operands.e, operands.as, operands.y),
 
-        .addr_of => |operands| {
-            const addr: [*]const u8 = try addrOf(globals, stack, localData, upvalueData, operands.x, 0);
+        .addr => |operands| {
+            const bytes: [*]const u8 = try addr(globals, stack, localData, upvalueData, operands.x, 0);
 
-            try write(globals, stack, localData, upvalueData, operands.y, addr);
+            try write(globals, stack, localData, upvalueData, operands.y, bytes);
         },
 
         // TODO: replace these with specific bit-sized operations? ie load8, load16, etc
         .load => |operands| {
             const inAddr: [*]const u8 = try read([*]const u8, globals, stack, localData, upvalueData, operands.x);
-            const outAddr: [*]u8 = try addrOf(globals, stack, localData, upvalueData, operands.y, operands.m);
+            const outAddr: [*]u8 = try addr(globals, stack, localData, upvalueData, operands.y, operands.m);
 
             try boundsCheck(globals, stack, inAddr, operands.m);
 
@@ -80,7 +80,7 @@ pub fn stepBytecode(fiber: *Fiber, localData: RegisterData, upvalueData: ?Regist
         },
 
         .store => |operands| {
-            const inAddr: [*]const u8 = try addrOf(globals, stack, localData, upvalueData, operands.x, operands.m);
+            const inAddr: [*]const u8 = try addr(globals, stack, localData, upvalueData, operands.x, operands.m);
             const outAddr: [*]u8 = try read([*]u8, globals, stack, localData, upvalueData, operands.y);
 
             try boundsCheck(globals, stack, outAddr, operands.m);
@@ -89,25 +89,25 @@ pub fn stepBytecode(fiber: *Fiber, localData: RegisterData, upvalueData: ?Regist
         },
 
         .clear => |operands| {
-            const addr: [*]u8 = try addrOf(globals, stack, localData, upvalueData, operands.x, operands.m);
+            const bytes: [*]u8 = try addr(globals, stack, localData, upvalueData, operands.x, operands.m);
 
-            @memset(addr[0..operands.m], 0);
+            @memset(bytes[0..operands.m], 0);
         },
 
         .swap => |operands| {
-            const a: [*]u8 = try addrOf(globals, stack, localData, upvalueData, operands.x, operands.m);
-            const b: [*]u8 = try addrOf(globals, stack, localData, upvalueData, operands.y, operands.m);
+            const xBytes: [*]u8 = try addr(globals, stack, localData, upvalueData, operands.x, operands.m);
+            const yBytes: [*]u8 = try addr(globals, stack, localData, upvalueData, operands.y, operands.m);
 
             for (0..operands.m) |i| {
-                @call(.always_inline, std.mem.swap, .{u8, &a[i], &b[i]});
+                @call(.always_inline, std.mem.swap, .{u8, &xBytes[i], &yBytes[i]});
             }
         },
 
         .copy => |operands| {
-            const inAddr: [*]const u8 = try addrOf(globals, stack, localData, upvalueData, operands.x, operands.m);
-            const outAddr: [*]u8 = try addrOf(globals, stack, localData, upvalueData, operands.y, operands.m);
+            const xBytes: [*]const u8 = try addr(globals, stack, localData, upvalueData, operands.x, operands.m);
+            const yBytes: [*]u8 = try addr(globals, stack, localData, upvalueData, operands.y, operands.m);
 
-            @call(.always_inline, std.mem.copyForwards, .{u8, outAddr[0..operands.m], inAddr[0..operands.m]});
+            @call(.always_inline, std.mem.copyForwards, .{u8, yBytes[0..operands.m], xBytes[0..operands.m]});
         },
 
         .b_not => |operands| try ops.unary(bool, "not", globals, stack, localData, upvalueData, operands),
@@ -410,15 +410,15 @@ pub inline fn write(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, local
     }
 }
 
-pub inline fn addrOf(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand, size: Bytecode.RegisterLocalOffset) Fiber.Trap![*]u8 {
+pub inline fn addr(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand, size: Bytecode.RegisterLocalOffset) Fiber.Trap![*]u8 {
     switch (operand.kind) {
         .global => return (try getGlobal(globals, operand.data.global, size)).ptr,
-        .upvalue => return addrOfImpl(stack, try extractUp(upvalueData), operand.data.register, size),
-        .local => return addrOfImpl(stack, localData, operand.data.register, size),
+        .upvalue => return addrImpl(stack, try extractUp(upvalueData), operand.data.register, size),
+        .local => return addrImpl(stack, localData, operand.data.register, size),
     }
 }
 
-inline fn addrOfImpl(stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.RegisterOperand, size: Bytecode.RegisterLocalOffset) Fiber.Trap![*]u8 {
+inline fn addrImpl(stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.RegisterOperand, size: Bytecode.RegisterLocalOffset) Fiber.Trap![*]u8 {
     const base = try getOperandOffset(regData, operand.register);
 
     if (!regData.layout.inbounds(operand, @truncate(size))) {
