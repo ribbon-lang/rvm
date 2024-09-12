@@ -60,6 +60,8 @@ pub fn stepBytecode(fiber: *Fiber, localData: RegisterData, upvalueData: ?Regist
 
         .call => |operands| try call(fiber, localData, upvalueData, operands.f, operands.as, null),
         .call_v => |operands| try call(fiber, localData, upvalueData, operands.f, operands.as, operands.y),
+        .prompt => |operands| try prompt(fiber, localData, upvalueData, operands.e, operands.as, null),
+        .prompt_v => |operands| try prompt(fiber, localData, upvalueData, operands.e, operands.as, operands.y),
 
         .addr_of => |operands| {
             const addr: [*]const u8 = try addrOf(globals, stack, localData, upvalueData, operands.x, 0);
@@ -313,15 +315,30 @@ inline fn extractUp(upvalueData: ?RegisterData) Fiber.Trap!RegisterData {
     }
 }
 
-pub inline fn call(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, func: Bytecode.Operand, args: []const Bytecode.Operand, out: ?Bytecode.Operand) Fiber.Trap!void {
-    const funIndex = try read(Bytecode.FunctionIndex, &fiber.program.globals, &fiber.stack.data, localData, upvalueData, func);
-
-    if (funIndex >= fiber.program.functions.len) {
+pub inline fn prompt(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, evIndex: Bytecode.EvidenceIndex, args: []const Bytecode.Operand, out: ?Bytecode.Operand) Fiber.Trap!void {
+    if (evIndex >= fiber.evidence.len) {
         @branchHint(.cold);
         return Fiber.Trap.OutOfBounds;
     }
 
-    const newFunction = &fiber.program.functions[funIndex];
+    const evidence = &fiber.evidence[evIndex];
+
+    return callImpl(fiber, localData, upvalueData, evIndex, evidence.handler, args, out);
+}
+
+pub inline fn call(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, func: Bytecode.Operand, args: []const Bytecode.Operand, out: ?Bytecode.Operand) Fiber.Trap!void {
+    const funcIndex = try read(Bytecode.FunctionIndex, &fiber.program.globals, &fiber.stack.data, localData, upvalueData, func);
+
+    if (funcIndex >= fiber.program.functions.len) {
+        @branchHint(.cold);
+        return Fiber.Trap.OutOfBounds;
+    }
+
+    return callImpl(fiber, localData, upvalueData, Bytecode.EVIDENCE_SENTINEL, funcIndex, args, out);
+}
+
+inline fn callImpl(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, evIndex: Bytecode.EvidenceIndex, funcIndex: Bytecode.FunctionIndex, args: []const Bytecode.Operand, out: ?Bytecode.Operand) Fiber.Trap!void {
+    const newFunction = &fiber.program.functions[funcIndex];
 
     if (args.len != newFunction.layout_table.num_arguments) {
         @branchHint(.cold);
@@ -351,8 +368,8 @@ pub inline fn call(fiber: *Fiber, localData: RegisterData, upvalueData: ?Registe
     }
 
     try fiber.stack.call.push(Fiber.CallFrame {
-        .function = funIndex,
-        .evidence = Bytecode.EVIDENCE_SENTINEL,
+        .function = funcIndex,
+        .evidence = evIndex,
         .stack = .{
             .base = base,
             .origin = origin,

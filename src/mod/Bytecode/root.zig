@@ -30,7 +30,6 @@ pub const ValueSize = u16;
 pub const ValueAlignment = u16;
 pub const FunctionIndex = u16;
 pub const HandlerSetIndex = u16;
-pub const HandlerIndex = u8;
 pub const TypeIndex = u16;
 pub const RegisterIndex = u8;
 pub const GlobalIndex = u14;

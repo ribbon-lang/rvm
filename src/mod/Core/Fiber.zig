@@ -103,7 +103,7 @@ pub const CallStack = Stack(CallFrame, u16);
 pub const BlockStack = Stack(BlockFrame, u16);
 
 pub const Evidence = packed struct {
-    handler: Bytecode.HandlerIndex,
+    handler: Bytecode.FunctionIndex,
     call: CallStack.Ptr,
     block: BlockStack.Ptr,
 };
