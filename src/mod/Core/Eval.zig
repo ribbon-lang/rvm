@@ -18,26 +18,29 @@ pub const RegisterData = struct {
     layout: *Bytecode.LayoutTable,
 };
 
+pub const RegisterDataSet = struct {
+    local: RegisterData,
+    upvalue: ?RegisterData,
+};
+
 
 pub fn step(fiber: *Fiber) Fiber.Trap!void {
     const callFrame = try fiber.stack.call.topPtr();
     const function = &fiber.program.functions[callFrame.function];
 
-    const localData, const upvalueData = try registerData(fiber, callFrame, function);
+    const registerData = try getRegisterData(fiber, callFrame, function);
 
     switch (function.value) {
-        .bytecode => try @call(Config.INLINING_CALL_MOD, stepBytecode, .{fiber, function, callFrame, localData, upvalueData}),
-        .native => |nat| try @call(Config.INLINING_CALL_MOD, stepNative, .{fiber, localData, upvalueData, nat}),
+        .bytecode => try @call(Config.INLINING_CALL_MOD, stepBytecode, .{fiber, callFrame, function, registerData}),
+        .native => |nat| try @call(Config.INLINING_CALL_MOD, stepNative, .{fiber, registerData, nat}),
     }
 }
 
-pub fn stepBytecode(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame, localData: RegisterData, upvalueData: ?RegisterData) Fiber.Trap!void {
+pub fn stepBytecode(fiber: *Fiber, callFrame: *Fiber.CallFrame, function: *Bytecode.Function, registerData: RegisterDataSet) Fiber.Trap!void {
     @setEvalBranchQuota(Config.INLINING_BRANCH_QUOTA);
 
     const blockFrame = try fiber.stack.block.topPtr();
     const block = &function.value.bytecode.blocks[blockFrame.index];
-    const globals = &fiber.program.globals;
-    const stack = &fiber.stack.data;
 
     const decoder = IO.Decoder {
         .memory = function.value.bytecode.instructions,
@@ -51,490 +54,565 @@ pub fn stepBytecode(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fib
         .trap => return Fiber.Trap.Unreachable,
         .nop => {},
 
-        .call => |operands| try call(fiber, localData, upvalueData, operands.f, operands.as, null),
-        .call_v => |operands| try call(fiber, localData, upvalueData, operands.f, operands.as, operands.y),
-        .dyn_call => |operands| try dynCall(fiber, localData, upvalueData, operands.f, operands.as, null),
-        .dyn_call_v => |operands| try dynCall(fiber, localData, upvalueData, operands.f, operands.as, operands.y),
-        .prompt => |operands| try prompt(fiber, localData, upvalueData, operands.e, operands.as, null),
-        .prompt_v => |operands| try prompt(fiber, localData, upvalueData, operands.e, operands.as, operands.y),
+        .tail_call => |operands| try call(fiber, callFrame, function, registerData, operands.f, operands.as, .tail),
+        .tail_call_v => |operands| try call(fiber, callFrame, function, registerData, operands.f, operands.as, .tail_v),
+        .dyn_tail_call => |operands| try dynCall(fiber, callFrame, function, registerData, operands.f, operands.as, .tail),
+        .dyn_tail_call_v => |operands| try dynCall(fiber, callFrame, function, registerData, operands.f, operands.as, .tail_v),
+        .tail_prompt => |operands| try prompt(fiber, callFrame, function, registerData, operands.e, operands.as, .tail),
+        .tail_prompt_v => |operands| try prompt(fiber, callFrame, function, registerData, operands.e, operands.as, .tail_v),
 
-        .ret => try ret(fiber, function, callFrame, localData, upvalueData, null),
-        .ret_v => |operands| try ret(fiber, function, callFrame, localData, upvalueData, operands.y),
-        .term => try term(fiber, function, callFrame, localData, upvalueData, null),
-        .term_v => |operands| try term(fiber, function, callFrame, localData, upvalueData, operands.y),
+        .call => |operands| try call(fiber, callFrame, function, registerData, operands.f, operands.as, .no_tail),
+        .call_v => |operands| try call(fiber, callFrame, function, registerData, operands.f, operands.as, .{ .no_tail_v = operands.y }),
+        .dyn_call => |operands| try dynCall(fiber, callFrame, function, registerData, operands.f, operands.as, .no_tail),
+        .dyn_call_v => |operands| try dynCall(fiber, callFrame, function, registerData, operands.f, operands.as, .{ .no_tail_v = operands.y }),
+        .prompt => |operands| try prompt(fiber, callFrame, function, registerData, operands.e, operands.as, .no_tail),
+        .prompt_v => |operands| try prompt(fiber, callFrame, function, registerData, operands.e, operands.as, .{ .no_tail_v = operands.y }),
 
-        .when_z => |operands| {
-            const cond = try read(u8, globals, stack, localData, upvalueData, operands.x);
-            const newBlockIndex = operands.b;
+        .ret => try ret(fiber, callFrame, function, registerData, null),
+        .ret_v => |operands| try ret(fiber, callFrame, function, registerData, operands.y),
+        .term => try term(fiber, callFrame, function, registerData, null),
+        .term_v => |operands| try term(fiber, callFrame, function, registerData, operands.y),
 
-            if (newBlockIndex >= function.value.bytecode.blocks.len) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutOfBounds;
-            }
+        .when_z => |operands| try when(fiber, function, registerData, operands.b, operands.x, .zero),
+        .when_nz => |operands| try when(fiber, function, registerData, operands.b, operands.x, .non_zero),
 
-            const newBlock = &function.value.bytecode.blocks[newBlockIndex];
+        .re => |operands| try re(fiber, function, registerData, operands.b, null, null),
+        .re_z => |operands| try re(fiber, function, registerData, operands.b, operands.x, .zero),
+        .re_nz => |operands| try re(fiber, function, registerData, operands.b, operands.x, .non_zero),
 
-            if (newBlock.kind.hasOutput()) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutValueMismatch;
-            }
+        .br => |operands | try br(fiber, function, registerData, operands.b, null, null),
+        .br_z => |operands | try br(fiber, function, registerData, operands.b, operands.x, .zero),
+        .br_nz => |operands | try br(fiber, function, registerData, operands.b, operands.x, .non_zero),
 
-            if (cond == 0) {
-                try fiber.stack.block.push(.noOutput(newBlockIndex));
-            }
+        .br_v => |operands| try br_v(fiber, function, registerData, operands.b, null, operands.y, null),
+        .br_z_v => |operands| try br_v(fiber, function, registerData, operands.b, operands.x, operands.y, .zero),
+        .br_nz_v => |operands| try br_v(fiber, function, registerData, operands.b, operands.x, operands.y, .non_zero),
+
+        .block => |operands| try blockImpl(fiber, function, operands.b, null),
+        .block_v => |operands| try blockImpl(fiber, function, operands.b, operands.y),
+
+        .with => |operands| try with(fiber, function, operands.b, operands.h, null),
+        .with_v => |operands| try with(fiber, function, operands.b, operands.h, operands.y),
+
+        .if_z => |operands| try ifImpl(fiber, function, registerData, operands.t, operands.e, operands.x, null, .zero),
+        .if_nz => |operands| try ifImpl(fiber, function, registerData, operands.t, operands.e, operands.x, null, .non_zero),
+        .if_z_v => |operands| try ifImpl(fiber, function, registerData, operands.t, operands.e, operands.x, operands.y, .zero),
+        .if_nz_v => |operands| try ifImpl(fiber, function, registerData, operands.t, operands.e, operands.x, operands.y, .non_zero),
+
+        .case => |operands| try case(fiber, function, registerData, operands.bs, operands.x, null),
+        .case_v => |operands| try case(fiber, function, registerData, operands.bs, operands.x, operands.y),
+
+        .addr => |operands| try addrImpl(fiber, registerData, operands.x, operands.y),
+
+        .load8 => |operands| try load(u8, fiber, registerData, operands.x, operands.y),
+        .load16 => |operands| try load(u16, fiber, registerData, operands.x, operands.y),
+        .load32 => |operands| try load(u32, fiber, registerData, operands.x, operands.y),
+        .load64 => |operands| try load(u64, fiber, registerData, operands.x, operands.y),
+
+        .store8 => |operands| try store(u8, fiber, registerData, operands.x, operands.y),
+        .store16 => |operands| try store(u16, fiber, registerData, operands.x, operands.y),
+        .store32 => |operands| try store(u32, fiber, registerData, operands.x, operands.y),
+        .store64 => |operands| try store(u64, fiber, registerData, operands.x, operands.y),
+
+        .clear8 => |operands| try clear(u8, fiber, registerData, operands.x),
+        .clear16 => |operands| try clear(u16, fiber, registerData, operands.x),
+        .clear32 => |operands| try clear(u32, fiber, registerData, operands.x),
+        .clear64 => |operands| try clear(u64, fiber, registerData, operands.x),
+
+        .swap8 => |operands| try swap(u8, fiber, registerData, operands.x, operands.y),
+        .swap16 => |operands| try swap(u16, fiber, registerData, operands.x, operands.y),
+        .swap32 => |operands| try swap(u32, fiber, registerData, operands.x, operands.y),
+        .swap64 => |operands| try swap(u64, fiber, registerData, operands.x, operands.y),
+
+        .copy8 => |operands| try copy(u8, fiber, registerData, operands.x, operands.y),
+        .copy16 => |operands| try copy(u16, fiber, registerData, operands.x, operands.y),
+        .copy32 => |operands| try copy(u32, fiber, registerData, operands.x, operands.y),
+        .copy64 => |operands| try copy(u64, fiber, registerData, operands.x, operands.y),
+
+        .b_not => |operands| try ops.unary(bool, "not", fiber, registerData, operands),
+        .b_and => |operands| try ops.binary(bool, "and", fiber, registerData, operands),
+        .b_or => |operands| try ops.binary(bool, "or", fiber, registerData, operands),
+
+        .f_add32 => |operands| try ops.binary(f32, "add", fiber, registerData, operands),
+        .f_add64 => |operands| try ops.binary(f64, "add", fiber, registerData, operands),
+        .f_sub32 => |operands| try ops.binary(f32, "sub", fiber, registerData, operands),
+        .f_sub64 => |operands| try ops.binary(f64, "sub", fiber, registerData, operands),
+        .f_mul32 => |operands| try ops.binary(f32, "mul", fiber, registerData, operands),
+        .f_mul64 => |operands| try ops.binary(f64, "mul", fiber, registerData, operands),
+        .f_div32 => |operands| try ops.binary(f32, "div", fiber, registerData, operands),
+        .f_div64 => |operands| try ops.binary(f64, "div", fiber, registerData, operands),
+        .f_rem32 => |operands| try ops.binary(f32, "rem", fiber, registerData, operands),
+        .f_rem64 => |operands| try ops.binary(f64, "rem", fiber, registerData, operands),
+        .f_neg32 => |operands| try ops.unary(f32, "neg", fiber, registerData, operands),
+        .f_neg64 => |operands| try ops.unary(f64, "neg", fiber, registerData, operands),
+
+        .f_eq32 => |operands| try ops.binary(f32, "eq", fiber, registerData, operands),
+        .f_eq64 => |operands| try ops.binary(f64, "eq", fiber, registerData, operands),
+        .f_ne32 => |operands| try ops.binary(f32, "ne", fiber, registerData, operands),
+        .f_ne64 => |operands| try ops.binary(f64, "ne", fiber, registerData, operands),
+        .f_lt32 => |operands| try ops.binary(f32, "lt", fiber, registerData, operands),
+        .f_lt64 => |operands| try ops.binary(f64, "lt", fiber, registerData, operands),
+        .f_gt32 => |operands| try ops.binary(f32, "gt", fiber, registerData, operands),
+        .f_gt64 => |operands| try ops.binary(f64, "gt", fiber, registerData, operands),
+        .f_le32 => |operands| try ops.binary(f32, "le", fiber, registerData, operands),
+        .f_le64 => |operands| try ops.binary(f64, "le", fiber, registerData, operands),
+        .f_ge32 => |operands| try ops.binary(f32, "ge", fiber, registerData, operands),
+        .f_ge64 => |operands| try ops.binary(f64, "ge", fiber, registerData, operands),
+
+        .i_add8 => |operands| try ops.binary(u8, "add", fiber, registerData, operands),
+        .i_add16 => |operands| try ops.binary(u16, "add", fiber, registerData, operands),
+        .i_add32 => |operands| try ops.binary(u32, "add", fiber, registerData, operands),
+        .i_add64 => |operands| try ops.binary(u64, "add", fiber, registerData, operands),
+        .i_sub8 => |operands| try ops.binary(u8, "sub", fiber, registerData, operands),
+        .i_sub16 => |operands| try ops.binary(u16, "sub", fiber, registerData, operands),
+        .i_sub32 => |operands| try ops.binary(u32, "sub", fiber, registerData, operands),
+        .i_sub64 => |operands| try ops.binary(u64, "sub", fiber, registerData, operands),
+        .i_mul8 => |operands| try ops.binary(u8, "mul", fiber, registerData, operands),
+        .i_mul16 => |operands| try ops.binary(u16, "mul", fiber, registerData, operands),
+        .i_mul32 => |operands| try ops.binary(u32, "mul", fiber, registerData, operands),
+        .i_mul64 => |operands| try ops.binary(u64, "mul", fiber, registerData, operands),
+        .s_div8 => |operands| try ops.binary(i8, "divFloor", fiber, registerData, operands),
+        .s_div16 => |operands| try ops.binary(i16, "divFloor", fiber, registerData, operands),
+        .s_div32 => |operands| try ops.binary(i32, "divFloor", fiber, registerData, operands),
+        .s_div64 => |operands| try ops.binary(i64, "divFloor", fiber, registerData, operands),
+        .u_div8 => |operands| try ops.binary(u8, "div", fiber, registerData, operands),
+        .u_div16 => |operands| try ops.binary(u16, "div", fiber, registerData, operands),
+        .u_div32 => |operands| try ops.binary(u32, "div", fiber, registerData, operands),
+        .u_div64 => |operands| try ops.binary(u64, "div", fiber, registerData, operands),
+        .s_rem8 => |operands| try ops.binary(i8, "rem", fiber, registerData, operands),
+        .s_rem16 => |operands| try ops.binary(i16, "rem", fiber, registerData, operands),
+        .s_rem32 => |operands| try ops.binary(i32, "rem", fiber, registerData, operands),
+        .s_rem64 => |operands| try ops.binary(i64, "rem", fiber, registerData, operands),
+        .u_rem8 => |operands| try ops.binary(u8, "rem", fiber, registerData, operands),
+        .u_rem16 => |operands| try ops.binary(u16, "rem", fiber, registerData, operands),
+        .u_rem32 => |operands| try ops.binary(u32, "rem", fiber, registerData, operands),
+        .u_rem64 => |operands| try ops.binary(u64, "rem", fiber, registerData, operands),
+        .s_neg8 => |operands| try ops.unary(i8, "neg", fiber, registerData, operands),
+        .s_neg16 => |operands| try ops.unary(i16, "neg", fiber, registerData, operands),
+        .s_neg32 => |operands| try ops.unary(i32, "neg", fiber, registerData, operands),
+        .s_neg64 => |operands| try ops.unary(i64, "neg", fiber, registerData, operands),
+
+        .i_bitnot8 => |operands| try ops.unary(u8, "bitnot", fiber, registerData, operands),
+        .i_bitnot16 => |operands| try ops.unary(u16, "bitnot", fiber, registerData, operands),
+        .i_bitnot32 => |operands| try ops.unary(u32, "bitnot", fiber, registerData, operands),
+        .i_bitnot64 => |operands| try ops.unary(u64, "bitnot", fiber, registerData, operands),
+        .i_bitand8 => |operands| try ops.binary(u8, "bitand", fiber, registerData, operands),
+        .i_bitand16 => |operands| try ops.binary(u16, "bitand", fiber, registerData, operands),
+        .i_bitand32 => |operands| try ops.binary(u32, "bitand", fiber, registerData, operands),
+        .i_bitand64 => |operands| try ops.binary(u64, "bitand", fiber, registerData, operands),
+        .i_bitor8 => |operands| try ops.binary(u8, "bitor", fiber, registerData, operands),
+        .i_bitor16 => |operands| try ops.binary(u16, "bitor", fiber, registerData, operands),
+        .i_bitor32 => |operands| try ops.binary(u32, "bitor", fiber, registerData, operands),
+        .i_bitor64 => |operands| try ops.binary(u64, "bitor", fiber, registerData, operands),
+        .i_bitxor8 => |operands| try ops.binary(u8, "bitxor", fiber, registerData, operands),
+        .i_bitxor16 => |operands| try ops.binary(u16, "bitxor", fiber, registerData, operands),
+        .i_bitxor32 => |operands| try ops.binary(u32, "bitxor", fiber, registerData, operands),
+        .i_bitxor64 => |operands| try ops.binary(u64, "bitxor", fiber, registerData, operands),
+        .i_shiftl8 => |operands| try ops.binary(u8, "shiftl", fiber, registerData, operands),
+        .i_shiftl16 => |operands| try ops.binary(u16, "shiftl", fiber, registerData, operands),
+        .i_shiftl32 => |operands| try ops.binary(u32, "shiftl", fiber, registerData, operands),
+        .i_shiftl64 => |operands| try ops.binary(u64, "shiftl", fiber, registerData, operands),
+        .u_shiftr8 => |operands| try ops.binary(u8, "shiftr", fiber, registerData, operands),
+        .u_shiftr16 => |operands| try ops.binary(u16, "shiftr", fiber, registerData, operands),
+        .u_shiftr32 => |operands| try ops.binary(u32, "shiftr", fiber, registerData, operands),
+        .u_shiftr64 => |operands| try ops.binary(u64, "shiftr", fiber, registerData, operands),
+        .s_shiftr8 => |operands| try ops.binary(i8, "shiftr", fiber, registerData, operands),
+        .s_shiftr16 => |operands| try ops.binary(i16, "shiftr", fiber, registerData, operands),
+        .s_shiftr32 => |operands| try ops.binary(i32, "shiftr", fiber, registerData, operands),
+        .s_shiftr64 => |operands| try ops.binary(i64, "shiftr", fiber, registerData, operands),
+
+        .i_eq8 => |operands| try ops.binary(u8, "eq", fiber, registerData, operands),
+        .i_eq16 => |operands| try ops.binary(u16, "eq", fiber, registerData, operands),
+        .i_eq32 => |operands| try ops.binary(u32, "eq", fiber, registerData, operands),
+        .i_eq64 => |operands| try ops.binary(u64, "eq", fiber, registerData, operands),
+        .i_ne8 => |operands| try ops.binary(u8, "ne", fiber, registerData, operands),
+        .i_ne16 => |operands| try ops.binary(u16, "ne", fiber, registerData, operands),
+        .i_ne32 => |operands| try ops.binary(u32, "ne", fiber, registerData, operands),
+        .i_ne64 => |operands| try ops.binary(u64, "ne", fiber, registerData, operands),
+        .u_lt8 => |operands| try ops.binary(u8, "lt", fiber, registerData, operands),
+        .u_lt16 => |operands| try ops.binary(u16, "lt", fiber, registerData, operands),
+        .u_lt32 => |operands| try ops.binary(u32, "lt", fiber, registerData, operands),
+        .u_lt64 => |operands| try ops.binary(u64, "lt", fiber, registerData, operands),
+        .s_lt8 => |operands| try ops.binary(i8, "lt", fiber, registerData, operands),
+        .s_lt16 => |operands| try ops.binary(i16, "lt", fiber, registerData, operands),
+        .s_lt32 => |operands| try ops.binary(i32, "lt", fiber, registerData, operands),
+        .s_lt64 => |operands| try ops.binary(i64, "lt", fiber, registerData, operands),
+        .u_gt8 => |operands| try ops.binary(u8, "gt", fiber, registerData, operands),
+        .u_gt16 => |operands| try ops.binary(u16, "gt", fiber, registerData, operands),
+        .u_gt32 => |operands| try ops.binary(u32, "gt", fiber, registerData, operands),
+        .u_gt64 => |operands| try ops.binary(u64, "gt", fiber, registerData, operands),
+        .s_gt8 => |operands| try ops.binary(i8, "gt", fiber, registerData, operands),
+        .s_gt16 => |operands| try ops.binary(i16, "gt", fiber, registerData, operands),
+        .s_gt32 => |operands| try ops.binary(i32, "gt", fiber, registerData, operands),
+        .s_gt64 => |operands| try ops.binary(i64, "gt", fiber, registerData, operands),
+        .u_le8 => |operands| try ops.binary(u8, "le", fiber, registerData, operands),
+        .u_le16 => |operands| try ops.binary(u16, "le", fiber, registerData, operands),
+        .u_le32 => |operands| try ops.binary(u32, "le", fiber, registerData, operands),
+        .u_le64 => |operands| try ops.binary(u64, "le", fiber, registerData, operands),
+        .s_le8 => |operands| try ops.binary(i8, "le", fiber, registerData, operands),
+        .s_le16 => |operands| try ops.binary(i16, "le", fiber, registerData, operands),
+        .s_le32 => |operands| try ops.binary(i32, "le", fiber, registerData, operands),
+        .s_le64 => |operands| try ops.binary(i64, "le", fiber, registerData, operands),
+        .u_ge8 => |operands| try ops.binary(u8, "ge", fiber, registerData, operands),
+        .u_ge16 => |operands| try ops.binary(u16, "ge", fiber, registerData, operands),
+        .u_ge32 => |operands| try ops.binary(u32, "ge", fiber, registerData, operands),
+        .u_ge64 => |operands| try ops.binary(u64, "ge", fiber, registerData, operands),
+        .s_ge8 => |operands| try ops.binary(i8, "ge", fiber, registerData, operands),
+        .s_ge16 => |operands| try ops.binary(i16, "ge", fiber, registerData, operands),
+        .s_ge32 => |operands| try ops.binary(i32, "ge", fiber, registerData, operands),
+        .s_ge64 => |operands| try ops.binary(i64, "ge", fiber, registerData, operands),
+
+        .u_ext8x16 => |operands| try ops.cast(u8, u16, fiber, registerData, operands),
+        .u_ext8x32 => |operands| try ops.cast(u8, u32, fiber, registerData, operands),
+        .u_ext8x64 => |operands| try ops.cast(u8, u64, fiber, registerData, operands),
+        .u_ext16x32 => |operands| try ops.cast(u16, u32, fiber, registerData, operands),
+        .u_ext16x64 => |operands| try ops.cast(u16, u64, fiber, registerData, operands),
+        .u_ext32x64 => |operands| try ops.cast(u32, u64, fiber, registerData, operands),
+        .s_ext8x16 => |operands| try ops.cast(i8, i16, fiber, registerData, operands),
+        .s_ext8x32 => |operands| try ops.cast(i8, i32, fiber, registerData, operands),
+        .s_ext8x64 => |operands| try ops.cast(i8, i64, fiber, registerData, operands),
+        .s_ext16x32 => |operands| try ops.cast(i16, i32, fiber, registerData, operands),
+        .s_ext16x64 => |operands| try ops.cast(i16, i64, fiber, registerData, operands),
+        .s_ext32x64 => |operands| try ops.cast(i32, i64, fiber, registerData, operands),
+        .f_ext32x64 => |operands| try ops.cast(f32, i64, fiber, registerData, operands),
+
+        .i_trunc64x32 => |operands| try ops.cast(u64, u32, fiber, registerData, operands),
+        .i_trunc64x16 => |operands| try ops.cast(u64, u16, fiber, registerData, operands),
+        .i_trunc64x8 => |operands| try ops.cast(u64, u8, fiber, registerData, operands),
+        .i_trunc32x16 => |operands| try ops.cast(u32, u16, fiber, registerData, operands),
+        .i_trunc32x8 => |operands| try ops.cast(u32, u8, fiber, registerData, operands),
+        .i_trunc16x8 => |operands| try ops.cast(u16, u8, fiber, registerData, operands),
+        .f_trunc64x32 => |operands| try ops.cast(f64, f32, fiber, registerData, operands),
+
+        .u8_to_f32 => |operands| try ops.cast(u8, f32, fiber, registerData, operands),
+        .u8_to_f64 => |operands| try ops.cast(u8, f64, fiber, registerData, operands),
+        .u16_to_f32 => |operands| try ops.cast(u16, f32, fiber, registerData, operands),
+        .u16_to_f64 => |operands| try ops.cast(u16, f64, fiber, registerData, operands),
+        .u32_to_f32 => |operands| try ops.cast(u32, f32, fiber, registerData, operands),
+        .u32_to_f64 => |operands| try ops.cast(u32, f64, fiber, registerData, operands),
+        .u64_to_f32 => |operands| try ops.cast(u64, f32, fiber, registerData, operands),
+        .u64_to_f64 => |operands| try ops.cast(u64, f64, fiber, registerData, operands),
+        .s8_to_f32 => |operands| try ops.cast(i8, f32, fiber, registerData, operands),
+        .s8_to_f64 => |operands| try ops.cast(i8, f64, fiber, registerData, operands),
+        .s16_to_f32 => |operands| try ops.cast(i16, f32, fiber, registerData, operands),
+        .s16_to_f64 => |operands| try ops.cast(i16, f64, fiber, registerData, operands),
+        .s32_to_f32 => |operands| try ops.cast(i32, f32, fiber, registerData, operands),
+        .s32_to_f64 => |operands| try ops.cast(i32, f64, fiber, registerData, operands),
+        .s64_to_f32 => |operands| try ops.cast(i64, f32, fiber, registerData, operands),
+        .s64_to_f64 => |operands| try ops.cast(i64, f64, fiber, registerData, operands),
+        .f32_to_u8 => |operands| try ops.cast(f32, u8, fiber, registerData, operands),
+        .f32_to_u16 => |operands| try ops.cast(f32, u16, fiber, registerData, operands),
+        .f32_to_u32 => |operands| try ops.cast(f32, u32, fiber, registerData, operands),
+        .f32_to_u64 => |operands| try ops.cast(f32, u64, fiber, registerData, operands),
+        .f64_to_u8 => |operands| try ops.cast(f64, u8, fiber, registerData, operands),
+        .f64_to_u16 => |operands| try ops.cast(f64, u16, fiber, registerData, operands),
+        .f64_to_u32 => |operands| try ops.cast(f64, u32, fiber, registerData, operands),
+        .f64_to_u64 => |operands| try ops.cast(f64, u64, fiber, registerData, operands),
+        .f32_to_s8 => |operands| try ops.cast(f32, i8, fiber, registerData, operands),
+        .f32_to_s16 => |operands| try ops.cast(f32, i16, fiber, registerData, operands),
+        .f32_to_s32 => |operands| try ops.cast(f32, i32, fiber, registerData, operands),
+        .f32_to_s64 => |operands| try ops.cast(f32, i64, fiber, registerData, operands),
+        .f64_to_s8 => |operands| try ops.cast(f64, i8, fiber, registerData, operands),
+        .f64_to_s16 => |operands| try ops.cast(f64, i16, fiber, registerData, operands),
+        .f64_to_s32 => |operands| try ops.cast(f64, i32, fiber, registerData, operands),
+        .f64_to_s64 => |operands| try ops.cast(f64, i64, fiber, registerData, operands),
+    }
+}
+
+pub fn stepNative(fiber: *Fiber, registerData: RegisterDataSet, native: Bytecode.Function.Native) Fiber.Trap!void {
+    Support.todo(noreturn, .{fiber, registerData, native});
+}
+
+fn extractUp(registerData: RegisterDataSet) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!RegisterData {
+    if (registerData.upvalue) |ud| {
+        return ud;
+    } else {
+        @branchHint(.cold);
+        return Fiber.Trap.MissingEvidence;
+    }
+}
+
+fn getRegisterData(fiber: *Fiber, callFrame: *Fiber.CallFrame, function: *Bytecode.Function) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!RegisterDataSet {
+    return .{
+        .local = .{
+            .call = callFrame,
+            .layout = &function.layout_table,
         },
+        .upvalue = if (callFrame.evidence) |evRef| ev: {
+            const evidence = try fiber.evidence[evRef.index].getPtr(evRef.offset);
+            const evFrame = try fiber.stack.call.getPtr(evidence.call);
+            const evFunction = &fiber.program.functions[evFrame.function];
+            break :ev .{
+                .call = evFrame,
+                .layout = &evFunction.layout_table
+            };
+        } else null,
+    };
+}
+
+const ZeroCheck = enum {zero, non_zero};
+
+fn when(fiber: *Fiber, function: *Bytecode.Function, registerData: RegisterDataSet, newBlockIndex: Bytecode.BlockIndex, x: Bytecode.Operand, comptime zeroCheck: ZeroCheck) Fiber.Trap!void {
+    const cond = try read(u8, fiber, registerData, x);
 
-        .when_nz => |operands| {
-            const cond = try read(u8, globals, stack, localData, upvalueData, operands.x);
-            const newBlockIndex = operands.b;
+    if (newBlockIndex >= function.value.bytecode.blocks.len) {
+        @branchHint(.cold);
+        return Fiber.Trap.OutOfBounds;
+    }
+
+    const newBlock = &function.value.bytecode.blocks[newBlockIndex];
+
+    if (newBlock.kind.hasOutput()) {
+        @branchHint(.cold);
+        return Fiber.Trap.OutValueMismatch;
+    }
+
+    switch (zeroCheck) {
+        .zero => if (cond == 0) try fiber.stack.block.push(.noOutput(newBlockIndex, null)),
+        .non_zero => if (cond != 0) try fiber.stack.block.push(.noOutput(newBlockIndex, null)),
+    }
+}
+
+fn br(fiber: *Fiber, function: *Bytecode.Function, registerData: RegisterDataSet, terminatedBlockOffset: Bytecode.BlockIndex, x: ?Bytecode.Operand, comptime zeroCheck: ?ZeroCheck) Fiber.Trap!void {
+    const blockPtr = fiber.stack.block.ptr;
+
+    if (terminatedBlockOffset >= blockPtr) {
+        @branchHint(.cold);
+        return Fiber.Trap.OutOfBounds;
+    }
+
+    const terminatedBlockPtr = blockPtr - (terminatedBlockOffset + 1);
+    const terminatedBlockFrame = try fiber.stack.block.getPtr(terminatedBlockPtr);
+    const terminatedBlock = &function.value.bytecode.blocks[terminatedBlockFrame.index];
+
+    if (terminatedBlock.kind.hasOutput()) {
+        @branchHint(.cold);
+        return Fiber.Trap.OutValueMismatch;
+    }
+
+    if (zeroCheck) |zc| {
+        const cond = try read(u8, fiber, registerData, x.?);
+
+        switch (zc) {
+            .zero => if (cond != 0) return,
+            .non_zero => if (cond == 0) return,
+        }
+    }
+
+    try removeAnyHandlerSet(fiber, terminatedBlockFrame);
+
+    fiber.stack.block.ptr = terminatedBlockPtr;
+}
+
+fn br_v(fiber: *Fiber, function: *Bytecode.Function, registerData: RegisterDataSet, terminatedBlockOffset: Bytecode.BlockIndex, x: ?Bytecode.Operand, y: Bytecode.Operand, comptime zeroCheck: ?ZeroCheck) Fiber.Trap!void {
+    const blockPtr = fiber.stack.block.ptr;
+
+    if (terminatedBlockOffset >= blockPtr) {
+        @branchHint(.cold);
+        return Fiber.Trap.OutOfBounds;
+    }
+
+    const terminatedBlockPtr = blockPtr - (terminatedBlockOffset + 1);
+    const terminatedBlockFrame = try fiber.stack.block.getPtr(terminatedBlockPtr);
+    const terminatedBlock = &function.value.bytecode.blocks[terminatedBlockFrame.index];
+
+    if (!terminatedBlock.kind.hasOutput()) {
+        @branchHint(.cold);
+        return Fiber.Trap.OutValueMismatch;
+    }
+
+    if (zeroCheck) |zc| {
+        const cond = try read(u8, fiber, registerData, x.?);
+
+        switch (zc) {
+            .zero => if (cond != 0) return,
+            .non_zero => if (cond == 0) return,
+        }
+    }
+
+    const desiredSize = terminatedBlock.output_layout.?.size;
+    const src = try addr(fiber, registerData, y, desiredSize);
+    const dest = try addr(fiber, registerData, terminatedBlockFrame.out, desiredSize);
+    @memcpy(dest[0..desiredSize], src);
+
+    try removeAnyHandlerSet(fiber, terminatedBlockFrame);
+
+    fiber.stack.block.ptr = terminatedBlockPtr;
+}
 
-            if (newBlockIndex >= function.value.bytecode.blocks.len) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutOfBounds;
-            }
+fn re(fiber: *Fiber, function: *Bytecode.Function, registerData: RegisterDataSet, restartedBlockOffset: Bytecode.BlockIndex, x: ?Bytecode.Operand, comptime zeroCheck: ?ZeroCheck) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const blockPtr = fiber.stack.block.ptr;
 
-            const newBlock = &function.value.bytecode.blocks[newBlockIndex];
+    if (restartedBlockOffset >= blockPtr) {
+        @branchHint(.cold);
+        return Fiber.Trap.OutOfBounds;
+    }
 
-            if (newBlock.kind.hasOutput()) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutValueMismatch;
-            }
+    const restartedBlockPtr = blockPtr - (restartedBlockOffset + 1);
 
-            if (cond != 0) {
-                try fiber.stack.block.push(.noOutput(newBlockIndex));
-            }
-        },
+    const restartedBlockFrame = try fiber.stack.block.getPtr(restartedBlockPtr);
 
-        .re => |operands| {
-            const restartedBlockOffset = operands.b;
+    const restartedBlock = &function.value.bytecode.blocks[restartedBlockFrame.index];
 
-            const blockPtr = fiber.stack.block.ptr;
+    if (restartedBlock.kind != .basic) {
+        @branchHint(.cold);
+        return Fiber.Trap.InvalidBlockRestart;
+    }
 
-            if (restartedBlockOffset >= blockPtr) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutOfBounds;
-            }
+    if (zeroCheck) |zc| {
+        const cond = try read(u8, fiber, registerData, x.?);
 
-            const restartedBlockPtr = blockPtr - (restartedBlockOffset + 1);
+        switch (zc) {
+            .zero => if (cond != 0) return,
+            .non_zero => if (cond == 0) return,
+        }
+    }
 
-            const restartedBlockFrame = try fiber.stack.block.getPtr(restartedBlockPtr);
+    restartedBlockFrame.ip_offset = 0;
 
-            const restartedBlock = &function.value.bytecode.blocks[restartedBlockFrame.index];
+    fiber.stack.block.ptr = restartedBlockPtr + 1;
+}
 
-            if (restartedBlock.kind != .basic) {
-                @branchHint(.cold);
-                return Fiber.Trap.InvalidBlockRestart;
-            }
+fn blockImpl(fiber: *Fiber, function: *Bytecode.Function, newBlockIndex: Bytecode.BlockIndex, y: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    if (newBlockIndex >= function.value.bytecode.blocks.len) {
+        @branchHint(.cold);
+        return Fiber.Trap.OutOfBounds;
+    }
 
-            restartedBlockFrame.ip_offset = 0;
+    const newBlock = &function.value.bytecode.blocks[newBlockIndex];
 
-            fiber.stack.block.ptr = restartedBlockPtr + 1;
-        },
-
-        .re_z => |operands| {
-            const cond = try read(u8, globals, stack, localData, upvalueData, operands.x);
-
-            const restartedBlockOffset = operands.b;
-
-            const blockPtr = fiber.stack.block.ptr;
-
-            if (restartedBlockOffset >= blockPtr) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutOfBounds;
-            }
-
-            const restartedBlockPtr = blockPtr - (restartedBlockOffset + 1);
-
-            const restartedBlockFrame = try fiber.stack.block.getPtr(restartedBlockPtr);
-
-            const restartedBlock = &function.value.bytecode.blocks[restartedBlockFrame.index];
-
-            if (restartedBlock.kind != .basic) {
-                @branchHint(.cold);
-                return Fiber.Trap.InvalidBlockRestart;
-            }
-
-            if (cond == 0) {
-                restartedBlockFrame.ip_offset = 0;
-
-                fiber.stack.block.ptr = restartedBlockPtr + 1;
-            }
-        },
-
-        .re_nz => |operands| {
-            const cond = try read(u8, globals, stack, localData, upvalueData, operands.x);
-
-            const restartedBlockOffset = operands.b;
-
-            const blockPtr = fiber.stack.block.ptr;
-
-            if (restartedBlockOffset >= blockPtr) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutOfBounds;
-            }
-
-            const restartedBlockPtr = blockPtr - (restartedBlockOffset + 1);
-
-            const restartedBlockFrame = try fiber.stack.block.getPtr(restartedBlockPtr);
-
-            const restartedBlock = &function.value.bytecode.blocks[restartedBlockFrame.index];
-
-            if (restartedBlock.kind != .basic) {
-                @branchHint(.cold);
-                return Fiber.Trap.InvalidBlockRestart;
-            }
-
-            if (cond != 0) {
-                restartedBlockFrame.ip_offset = 0;
-
-                fiber.stack.block.ptr = restartedBlockPtr + 1;
-            }
-        },
-
-        .br => |operands | {
-            const terminatedBlockOffset = operands.b;
-
-            const blockPtr = fiber.stack.block.ptr;
-
-            if (terminatedBlockOffset >= blockPtr) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutOfBounds;
-            }
-
-            const terminatedBlockPtr = blockPtr - (terminatedBlockOffset + 1);
-            const terminatedBlockFrame = try fiber.stack.block.getPtr(terminatedBlockPtr);
-            const terminatedBlock = &function.value.bytecode.blocks[terminatedBlockFrame.index];
-
-            if (terminatedBlock.kind.hasOutput()) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutValueMismatch;
-            }
-
-            fiber.stack.block.ptr = terminatedBlockPtr;
-        },
-
-        .br_z => |operands | {
-            const cond = try read(u8, globals, stack, localData, upvalueData, operands.x);
-            const terminatedBlockOffset = operands.b;
-
-            const blockPtr = fiber.stack.block.ptr;
-
-            if (terminatedBlockOffset >= blockPtr) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutOfBounds;
-            }
-
-            const terminatedBlockPtr = blockPtr - (terminatedBlockOffset + 1);
-            const terminatedBlockFrame = try fiber.stack.block.getPtr(terminatedBlockPtr);
-            const terminatedBlock = &function.value.bytecode.blocks[terminatedBlockFrame.index];
-
-            if (terminatedBlock.kind.hasOutput()) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutValueMismatch;
-            }
-
-            if (cond == 0) {
-                fiber.stack.block.ptr = terminatedBlockPtr;
-            }
-        },
-
-        .br_nz => |operands | {
-            const cond = try read(u8, globals, stack, localData, upvalueData, operands.x);
-            const terminatedBlockOffset = operands.b;
-
-            const blockPtr = fiber.stack.block.ptr;
-
-            if (terminatedBlockOffset >= blockPtr) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutOfBounds;
-            }
-
-            const terminatedBlockPtr = blockPtr - (terminatedBlockOffset + 1);
-            const terminatedBlockFrame = try fiber.stack.block.getPtr(terminatedBlockPtr);
-            const terminatedBlock = &function.value.bytecode.blocks[terminatedBlockFrame.index];
-
-            if (terminatedBlock.kind.hasOutput()) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutValueMismatch;
-            }
-
-            if (cond != 0) {
-                fiber.stack.block.ptr = terminatedBlockPtr;
-            }
-        },
-
-        .br_v => |operands| {
-            const terminatedBlockOffset = operands.b;
-
-            const blockPtr = fiber.stack.block.ptr;
-
-            if (terminatedBlockOffset >= blockPtr) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutOfBounds;
-            }
-
-            const terminatedBlockPtr = blockPtr - (terminatedBlockOffset + 1);
-            const terminatedBlockFrame = try fiber.stack.block.getPtr(terminatedBlockPtr);
-            const terminatedBlock = &function.value.bytecode.blocks[terminatedBlockFrame.index];
-
-            if (!terminatedBlock.kind.hasOutput()) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutValueMismatch;
-            }
-
-            const desiredSize = terminatedBlock.output_layout.?.size;
-            const src = try addr(globals, stack, localData, upvalueData, operands.y, desiredSize);
-            const dest = try addr(globals, stack, localData, upvalueData, terminatedBlockFrame.out, desiredSize);
-            @memcpy(dest[0..desiredSize], src);
-
-            fiber.stack.block.ptr = terminatedBlockPtr;
-        },
-
-        .br_z_v => |operands| {
-            const cond = try read(u8, globals, stack, localData, upvalueData, operands.x);
-            const terminatedBlockOffset = operands.b;
-
-            const blockPtr = fiber.stack.block.ptr;
-
-            if (terminatedBlockOffset >= blockPtr) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutOfBounds;
-            }
-
-            const terminatedBlockPtr = blockPtr - (terminatedBlockOffset + 1);
-            const terminatedBlockFrame = try fiber.stack.block.getPtr(terminatedBlockPtr);
-            const terminatedBlock = &function.value.bytecode.blocks[terminatedBlockFrame.index];
-
-            if (!terminatedBlock.kind.hasOutput()) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutValueMismatch;
-            }
-
-            const desiredSize = terminatedBlock.output_layout.?.size;
-            const src = try addr(globals, stack, localData, upvalueData, operands.y, desiredSize);
-            const dest = try addr(globals, stack, localData, upvalueData, terminatedBlockFrame.out, desiredSize);
-            @memcpy(dest[0..desiredSize], src);
-
-            if (cond == 0) {
-                fiber.stack.block.ptr = terminatedBlockPtr;
-            }
-        },
-
-        .br_nz_v => |operands| {
-            const cond = try read(u8, globals, stack, localData, upvalueData, operands.x);
-            const terminatedBlockOffset = operands.b;
-
-            const blockPtr = fiber.stack.block.ptr;
-
-            if (terminatedBlockOffset >= blockPtr) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutOfBounds;
-            }
-
-            const terminatedBlockPtr = blockPtr - (terminatedBlockOffset + 1);
-            const terminatedBlockFrame = try fiber.stack.block.getPtr(terminatedBlockPtr);
-            const terminatedBlock = &function.value.bytecode.blocks[terminatedBlockFrame.index];
-
-            if (!terminatedBlock.kind.hasOutput()) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutValueMismatch;
-            }
-
-            const desiredSize = terminatedBlock.output_layout.?.size;
-            const src = try addr(globals, stack, localData, upvalueData, operands.y, desiredSize);
-            const dest = try addr(globals, stack, localData, upvalueData, terminatedBlockFrame.out, desiredSize);
-            @memcpy(dest[0..desiredSize], src);
-
-            if (cond != 0) {
-                fiber.stack.block.ptr = terminatedBlockPtr;
-            }
-        },
-
-        .block => |operands| {
-            const newBlockIndex = operands.b;
-
-            if (newBlockIndex >= function.value.bytecode.blocks.len) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutOfBounds;
-            }
-
-            const newBlock = &function.value.bytecode.blocks[newBlockIndex];
-
-            if (newBlock.kind.hasOutput()) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutValueMismatch;
-            }
-
-            try fiber.stack.block.push(.noOutput(newBlockIndex));
-        },
-
-        .block_v => |operands| {
-            const newBlockIndex = operands.b;
-
-            if (newBlockIndex >= function.value.bytecode.blocks.len) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutOfBounds;
-            }
-
-            const newBlock = &function.value.bytecode.blocks[newBlockIndex];
-
+    const block = block: {
+        if (y) |yOp| {
             if (!newBlock.kind.hasOutput()) {
                 @branchHint(.cold);
                 return Fiber.Trap.OutValueMismatch;
             }
 
-            try fiber.stack.block.push(.value(newBlockIndex, operands.y));
-        },
-
-        .if_nz => |operands| {
-            const cond = try read(u8, globals, stack, localData, upvalueData, operands.x);
-            const thenBlockIndex = operands.t;
-            const elseBlockIndex = operands.e;
-
-            const thenBlockInBounds = @intFromBool(thenBlockIndex < function.value.bytecode.blocks.len);
-            const elseBlockInBounds = @intFromBool(elseBlockIndex < function.value.bytecode.blocks.len);
-            if (thenBlockInBounds & elseBlockInBounds != 1) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutOfBounds;
-            }
-
-            const thenBlock = &function.value.bytecode.blocks[thenBlockIndex];
-            const elseBlock = &function.value.bytecode.blocks[elseBlockIndex];
-
-            const thenBlockHasOutput = @intFromBool(thenBlock.kind.hasOutput());
-            const elseBlockHasOutput = @intFromBool(elseBlock.kind.hasOutput());
-            if (thenBlockHasOutput | elseBlockHasOutput != 0) {
+            break :block Fiber.BlockFrame.value(newBlockIndex, yOp, null);
+        } else {
+            if (newBlock.kind.hasOutput()) {
                 @branchHint(.cold);
                 return Fiber.Trap.OutValueMismatch;
             }
 
-            if (cond != 0) {
-                try fiber.stack.block.push(.noOutput(thenBlockIndex));
-            } else {
-                try fiber.stack.block.push(.noOutput(elseBlockIndex));
-            }
-        },
+            break :block Fiber.BlockFrame.noOutput(newBlockIndex, null);
+        }
+    };
 
-        .if_nz_v => |operands| {
-            const cond = try read(u8, globals, stack, localData, upvalueData, operands.x);
-            const thenBlockIndex = operands.t;
-            const elseBlockIndex = operands.e;
+    try fiber.stack.block.push(block);
+}
 
-            const thenBlockInBounds = @intFromBool(thenBlockIndex < function.value.bytecode.blocks.len);
-            const elseBlockInBounds = @intFromBool(elseBlockIndex < function.value.bytecode.blocks.len);
-            if (thenBlockInBounds & elseBlockInBounds != 1) {
+fn with(fiber: *Fiber, function: *Bytecode.Function, newBlockIndex: Bytecode.BlockIndex, handlerSetIndex: Bytecode.HandlerSetIndex, y: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    if (newBlockIndex >= function.value.bytecode.blocks.len) {
+        @branchHint(.cold);
+        return Fiber.Trap.OutOfBounds;
+    }
+
+    const newBlock = &function.value.bytecode.blocks[newBlockIndex];
+
+    if (handlerSetIndex >= fiber.program.handler_sets.len) {
+        @branchHint(.cold);
+        return Fiber.Trap.OutOfBounds;
+    }
+
+    const handlerSet = fiber.program.handler_sets[handlerSetIndex];
+
+    for (handlerSet) |binding| {
+        if (binding.id >= fiber.evidence.len) {
+            @branchHint(.cold);
+            return Fiber.Trap.OutOfBounds;
+        }
+
+        try fiber.evidence[binding.id].push(Fiber.Evidence {
+            .handler = binding.handler,
+            .data = fiber.stack.data.ptr,
+            .call = fiber.stack.call.ptr,
+            .block = fiber.stack.block.ptr,
+        });
+    }
+
+    const block = block: {
+        if (y) |yOp| {
+            if (!newBlock.kind.hasOutput()) {
                 @branchHint(.cold);
-                return Fiber.Trap.OutOfBounds;
+                return Fiber.Trap.OutValueMismatch;
             }
 
-            const thenBlock = &function.value.bytecode.blocks[thenBlockIndex];
-            const elseBlock = &function.value.bytecode.blocks[elseBlockIndex];
+            break :block Fiber.BlockFrame.value(newBlockIndex, yOp, handlerSetIndex);
+        } else {
+            if (newBlock.kind.hasOutput()) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutValueMismatch;
+            }
 
-            const thenBlockHasOutput = @intFromBool(thenBlock.kind.hasOutput());
-            const elseBlockHasOutput = @intFromBool(elseBlock.kind.hasOutput());
+            break :block Fiber.BlockFrame.noOutput(newBlockIndex, handlerSetIndex);
+        }
+    };
+
+    try fiber.stack.block.push(block);
+}
+
+fn ifImpl(fiber: *Fiber, function: *Bytecode.Function, registerData: RegisterDataSet, thenBlockIndex: Bytecode.BlockIndex, elseBlockIndex: Bytecode.BlockIndex, x: Bytecode.Operand, y: ?Bytecode.Operand, comptime zeroCheck: ZeroCheck) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const cond = try read(u8, fiber, registerData, x);
+
+    const thenBlockInBounds = @intFromBool(thenBlockIndex < function.value.bytecode.blocks.len);
+    const elseBlockInBounds = @intFromBool(elseBlockIndex < function.value.bytecode.blocks.len);
+    if (thenBlockInBounds & elseBlockInBounds != 1) {
+        @branchHint(.cold);
+        return Fiber.Trap.OutOfBounds;
+    }
+
+    const thenBlock = &function.value.bytecode.blocks[thenBlockIndex];
+    const elseBlock = &function.value.bytecode.blocks[elseBlockIndex];
+
+    const thenBlockHasOutput = @intFromBool(thenBlock.kind.hasOutput());
+    const elseBlockHasOutput = @intFromBool(elseBlock.kind.hasOutput());
+
+    const destBlockIndex = switch (zeroCheck) {
+        .zero => if (cond == 0) thenBlockIndex else elseBlockIndex,
+        .non_zero => if (cond != 0) thenBlockIndex else elseBlockIndex,
+    };
+
+    const block = block: {
+        if (y) |yOp| {
             if (thenBlockHasOutput & elseBlockHasOutput != 1) {
                 @branchHint(.cold);
                 return Fiber.Trap.OutValueMismatch;
             }
 
-            if (cond != 0) {
-                try fiber.stack.block.push(.value(thenBlockIndex, operands.y));
-            } else {
-                try fiber.stack.block.push(.value(elseBlockIndex, operands.y));
-            }
-        },
-
-        .if_z => |operands| {
-            const cond = try read(u8, globals, stack, localData, upvalueData, operands.x);
-            const thenBlockIndex = operands.t;
-            const elseBlockIndex = operands.e;
-
-            const thenBlockInBounds = @intFromBool(thenBlockIndex < function.value.bytecode.blocks.len);
-            const elseBlockInBounds = @intFromBool(elseBlockIndex < function.value.bytecode.blocks.len);
-            if (thenBlockInBounds & elseBlockInBounds != 1) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutOfBounds;
-            }
-
-            const thenBlock = &function.value.bytecode.blocks[thenBlockIndex];
-            const elseBlock = &function.value.bytecode.blocks[elseBlockIndex];
-
-            const thenBlockHasOutput = @intFromBool(thenBlock.kind.hasOutput());
-            const elseBlockHasOutput = @intFromBool(elseBlock.kind.hasOutput());
+            break :block Fiber.BlockFrame.value(destBlockIndex, yOp, null);
+        } else {
             if (thenBlockHasOutput | elseBlockHasOutput != 0) {
                 @branchHint(.cold);
                 return Fiber.Trap.OutValueMismatch;
             }
 
-            if (cond == 0) {
-                try fiber.stack.block.push(.noOutput(thenBlockIndex));
-            } else {
-                try fiber.stack.block.push(.noOutput(elseBlockIndex));
-            }
-        },
+            break :block Fiber.BlockFrame.noOutput(destBlockIndex, null);
+        }
+    };
 
-        .if_z_v => |operands| {
-            const cond = try read(u8, globals, stack, localData, upvalueData, operands.x);
-            const thenBlockIndex = operands.t;
-            const elseBlockIndex = operands.e;
+    try fiber.stack.block.push(block);
+}
 
-            const thenBlockInBounds = @intFromBool(thenBlockIndex < function.value.bytecode.blocks.len);
-            const elseBlockInBounds = @intFromBool(elseBlockIndex < function.value.bytecode.blocks.len);
-            if (thenBlockInBounds & elseBlockInBounds != 1) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutOfBounds;
-            }
+fn case(fiber: *Fiber, function: *Bytecode.Function, registerData: RegisterDataSet, blockIndices: []const Bytecode.BlockIndex, x: Bytecode.Operand, y: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const index = try read(u8, fiber, registerData, x);
 
-            const thenBlock = &function.value.bytecode.blocks[thenBlockIndex];
-            const elseBlock = &function.value.bytecode.blocks[elseBlockIndex];
+    if (index >= blockIndices.len) {
+        @branchHint(.cold);
+        return Fiber.Trap.OutOfBounds;
+    }
 
-            const thenBlockHasOutput = @intFromBool(thenBlock.kind.hasOutput());
-            const elseBlockHasOutput = @intFromBool(elseBlock.kind.hasOutput());
-            if (thenBlockHasOutput & elseBlockHasOutput != 1) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutValueMismatch;
-            }
+    const caseBlockIndex = blockIndices[index];
 
-            if (cond == 0) {
-                try fiber.stack.block.push(.value(thenBlockIndex, operands.y));
-            } else {
-                try fiber.stack.block.push(.value(elseBlockIndex, operands.y));
-            }
-        },
-
-        .case => |operands| {
-            const index = try read(u8, globals, stack, localData, upvalueData, operands.x);
-
-            if (index >= operands.bs.len) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutOfBounds;
-            }
-
+    const block = block: {
+        if (y) |yOp| {
             // TODO: find a way to do this more efficiently
-            for (operands.bs) |blockIndex| {
-                const caseBlock = &function.value.bytecode.blocks[blockIndex];
-
-                if (caseBlock.kind.hasOutput()) {
+            for (blockIndices) |blockIndex| {
+                if (blockIndex >= function.value.bytecode.blocks.len) {
                     @branchHint(.cold);
-                    return Fiber.Trap.OutValueMismatch;
+                    return Fiber.Trap.OutOfBounds;
                 }
-            }
 
-            const caseBlockIndex = operands.bs[index];
-
-            try fiber.stack.block.push(.noOutput(caseBlockIndex));
-        },
-
-        .case_v => |operands| {
-            const index = try read(u8, globals, stack, localData, upvalueData, operands.x);
-
-            if (index >= operands.bs.len) {
-                @branchHint(.cold);
-                return Fiber.Trap.OutOfBounds;
-            }
-
-            // TODO: find a way to do this more efficiently
-            for (operands.bs) |blockIndex| {
                 const caseBlock = &function.value.bytecode.blocks[blockIndex];
 
                 if (!caseBlock.kind.hasOutput()) {
@@ -543,271 +621,44 @@ pub fn stepBytecode(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fib
                 }
             }
 
-            const caseBlockIndex = operands.bs[index];
+            break :block Fiber.BlockFrame.value(caseBlockIndex, yOp, null);
+        } else {
+            // TODO: find a way to do this more efficiently
+            for (blockIndices) |blockIndex| {
+                if (blockIndex >= function.value.bytecode.blocks.len) {
+                    @branchHint(.cold);
+                    return Fiber.Trap.OutOfBounds;
+                }
 
-            try fiber.stack.block.push(.value(caseBlockIndex, operands.y));
-        },
+                const caseBlock = &function.value.bytecode.blocks[blockIndex];
 
-        .addr => |operands| {
-            const bytes: [*]const u8 = try addr(globals, stack, localData, upvalueData, operands.x, 0);
+                if (caseBlock.kind.hasOutput()) {
+                    @branchHint(.cold);
+                    return Fiber.Trap.OutValueMismatch;
+                }
+            }
 
-            try write(globals, stack, localData, upvalueData, operands.y, bytes);
-        },
-
-        .load8 => |operands| try load(u8, globals, stack, localData, upvalueData, operands.x, operands.y),
-        .load16 => |operands| try load(u16, globals, stack, localData, upvalueData, operands.x, operands.y),
-        .load32 => |operands| try load(u32, globals, stack, localData, upvalueData, operands.x, operands.y),
-        .load64 => |operands| try load(u64, globals, stack, localData, upvalueData, operands.x, operands.y),
-
-        .store8 => |operands| try store(u8, globals, stack, localData, upvalueData, operands.x, operands.y),
-        .store16 => |operands| try store(u16, globals, stack, localData, upvalueData, operands.x, operands.y),
-        .store32 => |operands| try store(u32, globals, stack, localData, upvalueData, operands.x, operands.y),
-        .store64 => |operands| try store(u64, globals, stack, localData, upvalueData, operands.x, operands.y),
-
-        .clear8 => |operands| try clear(u8, globals, stack, localData, upvalueData, operands.x),
-        .clear16 => |operands| try clear(u16, globals, stack, localData, upvalueData, operands.x),
-        .clear32 => |operands| try clear(u32, globals, stack, localData, upvalueData, operands.x),
-        .clear64 => |operands| try clear(u64, globals, stack, localData, upvalueData, operands.x),
-
-        .swap8 => |operands| try swap(u8, globals, stack, localData, upvalueData, operands.x, operands.y),
-        .swap16 => |operands| try swap(u16, globals, stack, localData, upvalueData, operands.x, operands.y),
-        .swap32 => |operands| try swap(u32, globals, stack, localData, upvalueData, operands.x, operands.y),
-        .swap64 => |operands| try swap(u64, globals, stack, localData, upvalueData, operands.x, operands.y),
-
-        .copy8 => |operands| try copy(u8, globals, stack, localData, upvalueData, operands.x, operands.y),
-        .copy16 => |operands| try copy(u16, globals, stack, localData, upvalueData, operands.x, operands.y),
-        .copy32 => |operands| try copy(u32, globals, stack, localData, upvalueData, operands.x, operands.y),
-        .copy64 => |operands| try copy(u64, globals, stack, localData, upvalueData, operands.x, operands.y),
-
-        .b_not => |operands| try ops.unary(bool, "not", globals, stack, localData, upvalueData, operands),
-        .b_and => |operands| try ops.binary(bool, "and", globals, stack, localData, upvalueData, operands),
-        .b_or => |operands| try ops.binary(bool, "or", globals, stack, localData, upvalueData, operands),
-
-        .f_add32 => |operands| try ops.binary(f32, "add", globals, stack, localData, upvalueData, operands),
-        .f_add64 => |operands| try ops.binary(f64, "add", globals, stack, localData, upvalueData, operands),
-        .f_sub32 => |operands| try ops.binary(f32, "sub", globals, stack, localData, upvalueData, operands),
-        .f_sub64 => |operands| try ops.binary(f64, "sub", globals, stack, localData, upvalueData, operands),
-        .f_mul32 => |operands| try ops.binary(f32, "mul", globals, stack, localData, upvalueData, operands),
-        .f_mul64 => |operands| try ops.binary(f64, "mul", globals, stack, localData, upvalueData, operands),
-        .f_div32 => |operands| try ops.binary(f32, "div", globals, stack, localData, upvalueData, operands),
-        .f_div64 => |operands| try ops.binary(f64, "div", globals, stack, localData, upvalueData, operands),
-        .f_rem32 => |operands| try ops.binary(f32, "rem", globals, stack, localData, upvalueData, operands),
-        .f_rem64 => |operands| try ops.binary(f64, "rem", globals, stack, localData, upvalueData, operands),
-        .f_neg32 => |operands| try ops.unary(f32, "neg", globals, stack, localData, upvalueData, operands),
-        .f_neg64 => |operands| try ops.unary(f64, "neg", globals, stack, localData, upvalueData, operands),
-
-        .f_eq32 => |operands| try ops.binary(f32, "eq", globals, stack, localData, upvalueData, operands),
-        .f_eq64 => |operands| try ops.binary(f64, "eq", globals, stack, localData, upvalueData, operands),
-        .f_ne32 => |operands| try ops.binary(f32, "ne", globals, stack, localData, upvalueData, operands),
-        .f_ne64 => |operands| try ops.binary(f64, "ne", globals, stack, localData, upvalueData, operands),
-        .f_lt32 => |operands| try ops.binary(f32, "lt", globals, stack, localData, upvalueData, operands),
-        .f_lt64 => |operands| try ops.binary(f64, "lt", globals, stack, localData, upvalueData, operands),
-        .f_gt32 => |operands| try ops.binary(f32, "gt", globals, stack, localData, upvalueData, operands),
-        .f_gt64 => |operands| try ops.binary(f64, "gt", globals, stack, localData, upvalueData, operands),
-        .f_le32 => |operands| try ops.binary(f32, "le", globals, stack, localData, upvalueData, operands),
-        .f_le64 => |operands| try ops.binary(f64, "le", globals, stack, localData, upvalueData, operands),
-        .f_ge32 => |operands| try ops.binary(f32, "ge", globals, stack, localData, upvalueData, operands),
-        .f_ge64 => |operands| try ops.binary(f64, "ge", globals, stack, localData, upvalueData, operands),
-
-        .i_add8 => |operands| try ops.binary(u8, "add", globals, stack, localData, upvalueData, operands),
-        .i_add16 => |operands| try ops.binary(u16, "add", globals, stack, localData, upvalueData, operands),
-        .i_add32 => |operands| try ops.binary(u32, "add", globals, stack, localData, upvalueData, operands),
-        .i_add64 => |operands| try ops.binary(u64, "add", globals, stack, localData, upvalueData, operands),
-        .i_sub8 => |operands| try ops.binary(u8, "sub", globals, stack, localData, upvalueData, operands),
-        .i_sub16 => |operands| try ops.binary(u16, "sub", globals, stack, localData, upvalueData, operands),
-        .i_sub32 => |operands| try ops.binary(u32, "sub", globals, stack, localData, upvalueData, operands),
-        .i_sub64 => |operands| try ops.binary(u64, "sub", globals, stack, localData, upvalueData, operands),
-        .i_mul8 => |operands| try ops.binary(u8, "mul", globals, stack, localData, upvalueData, operands),
-        .i_mul16 => |operands| try ops.binary(u16, "mul", globals, stack, localData, upvalueData, operands),
-        .i_mul32 => |operands| try ops.binary(u32, "mul", globals, stack, localData, upvalueData, operands),
-        .i_mul64 => |operands| try ops.binary(u64, "mul", globals, stack, localData, upvalueData, operands),
-        .s_div8 => |operands| try ops.binary(i8, "divFloor", globals, stack, localData, upvalueData, operands),
-        .s_div16 => |operands| try ops.binary(i16, "divFloor", globals, stack, localData, upvalueData, operands),
-        .s_div32 => |operands| try ops.binary(i32, "divFloor", globals, stack, localData, upvalueData, operands),
-        .s_div64 => |operands| try ops.binary(i64, "divFloor", globals, stack, localData, upvalueData, operands),
-        .u_div8 => |operands| try ops.binary(u8, "div", globals, stack, localData, upvalueData, operands),
-        .u_div16 => |operands| try ops.binary(u16, "div", globals, stack, localData, upvalueData, operands),
-        .u_div32 => |operands| try ops.binary(u32, "div", globals, stack, localData, upvalueData, operands),
-        .u_div64 => |operands| try ops.binary(u64, "div", globals, stack, localData, upvalueData, operands),
-        .s_rem8 => |operands| try ops.binary(i8, "rem", globals, stack, localData, upvalueData, operands),
-        .s_rem16 => |operands| try ops.binary(i16, "rem", globals, stack, localData, upvalueData, operands),
-        .s_rem32 => |operands| try ops.binary(i32, "rem", globals, stack, localData, upvalueData, operands),
-        .s_rem64 => |operands| try ops.binary(i64, "rem", globals, stack, localData, upvalueData, operands),
-        .u_rem8 => |operands| try ops.binary(u8, "rem", globals, stack, localData, upvalueData, operands),
-        .u_rem16 => |operands| try ops.binary(u16, "rem", globals, stack, localData, upvalueData, operands),
-        .u_rem32 => |operands| try ops.binary(u32, "rem", globals, stack, localData, upvalueData, operands),
-        .u_rem64 => |operands| try ops.binary(u64, "rem", globals, stack, localData, upvalueData, operands),
-        .s_neg8 => |operands| try ops.unary(i8, "neg", globals, stack, localData, upvalueData, operands),
-        .s_neg16 => |operands| try ops.unary(i16, "neg", globals, stack, localData, upvalueData, operands),
-        .s_neg32 => |operands| try ops.unary(i32, "neg", globals, stack, localData, upvalueData, operands),
-        .s_neg64 => |operands| try ops.unary(i64, "neg", globals, stack, localData, upvalueData, operands),
-
-        .i_bitnot8 => |operands| try ops.unary(u8, "bitnot", globals, stack, localData, upvalueData, operands),
-        .i_bitnot16 => |operands| try ops.unary(u16, "bitnot", globals, stack, localData, upvalueData, operands),
-        .i_bitnot32 => |operands| try ops.unary(u32, "bitnot", globals, stack, localData, upvalueData, operands),
-        .i_bitnot64 => |operands| try ops.unary(u64, "bitnot", globals, stack, localData, upvalueData, operands),
-        .i_bitand8 => |operands| try ops.binary(u8, "bitand", globals, stack, localData, upvalueData, operands),
-        .i_bitand16 => |operands| try ops.binary(u16, "bitand", globals, stack, localData, upvalueData, operands),
-        .i_bitand32 => |operands| try ops.binary(u32, "bitand", globals, stack, localData, upvalueData, operands),
-        .i_bitand64 => |operands| try ops.binary(u64, "bitand", globals, stack, localData, upvalueData, operands),
-        .i_bitor8 => |operands| try ops.binary(u8, "bitor", globals, stack, localData, upvalueData, operands),
-        .i_bitor16 => |operands| try ops.binary(u16, "bitor", globals, stack, localData, upvalueData, operands),
-        .i_bitor32 => |operands| try ops.binary(u32, "bitor", globals, stack, localData, upvalueData, operands),
-        .i_bitor64 => |operands| try ops.binary(u64, "bitor", globals, stack, localData, upvalueData, operands),
-        .i_bitxor8 => |operands| try ops.binary(u8, "bitxor", globals, stack, localData, upvalueData, operands),
-        .i_bitxor16 => |operands| try ops.binary(u16, "bitxor", globals, stack, localData, upvalueData, operands),
-        .i_bitxor32 => |operands| try ops.binary(u32, "bitxor", globals, stack, localData, upvalueData, operands),
-        .i_bitxor64 => |operands| try ops.binary(u64, "bitxor", globals, stack, localData, upvalueData, operands),
-        .i_shiftl8 => |operands| try ops.binary(u8, "shiftl", globals, stack, localData, upvalueData, operands),
-        .i_shiftl16 => |operands| try ops.binary(u16, "shiftl", globals, stack, localData, upvalueData, operands),
-        .i_shiftl32 => |operands| try ops.binary(u32, "shiftl", globals, stack, localData, upvalueData, operands),
-        .i_shiftl64 => |operands| try ops.binary(u64, "shiftl", globals, stack, localData, upvalueData, operands),
-        .u_shiftr8 => |operands| try ops.binary(u8, "shiftr", globals, stack, localData, upvalueData, operands),
-        .u_shiftr16 => |operands| try ops.binary(u16, "shiftr", globals, stack, localData, upvalueData, operands),
-        .u_shiftr32 => |operands| try ops.binary(u32, "shiftr", globals, stack, localData, upvalueData, operands),
-        .u_shiftr64 => |operands| try ops.binary(u64, "shiftr", globals, stack, localData, upvalueData, operands),
-        .s_shiftr8 => |operands| try ops.binary(i8, "shiftr", globals, stack, localData, upvalueData, operands),
-        .s_shiftr16 => |operands| try ops.binary(i16, "shiftr", globals, stack, localData, upvalueData, operands),
-        .s_shiftr32 => |operands| try ops.binary(i32, "shiftr", globals, stack, localData, upvalueData, operands),
-        .s_shiftr64 => |operands| try ops.binary(i64, "shiftr", globals, stack, localData, upvalueData, operands),
-
-        .i_eq8 => |operands| try ops.binary(u8, "eq", globals, stack, localData, upvalueData, operands),
-        .i_eq16 => |operands| try ops.binary(u16, "eq", globals, stack, localData, upvalueData, operands),
-        .i_eq32 => |operands| try ops.binary(u32, "eq", globals, stack, localData, upvalueData, operands),
-        .i_eq64 => |operands| try ops.binary(u64, "eq", globals, stack, localData, upvalueData, operands),
-        .i_ne8 => |operands| try ops.binary(u8, "ne", globals, stack, localData, upvalueData, operands),
-        .i_ne16 => |operands| try ops.binary(u16, "ne", globals, stack, localData, upvalueData, operands),
-        .i_ne32 => |operands| try ops.binary(u32, "ne", globals, stack, localData, upvalueData, operands),
-        .i_ne64 => |operands| try ops.binary(u64, "ne", globals, stack, localData, upvalueData, operands),
-        .u_lt8 => |operands| try ops.binary(u8, "lt", globals, stack, localData, upvalueData, operands),
-        .u_lt16 => |operands| try ops.binary(u16, "lt", globals, stack, localData, upvalueData, operands),
-        .u_lt32 => |operands| try ops.binary(u32, "lt", globals, stack, localData, upvalueData, operands),
-        .u_lt64 => |operands| try ops.binary(u64, "lt", globals, stack, localData, upvalueData, operands),
-        .s_lt8 => |operands| try ops.binary(i8, "lt", globals, stack, localData, upvalueData, operands),
-        .s_lt16 => |operands| try ops.binary(i16, "lt", globals, stack, localData, upvalueData, operands),
-        .s_lt32 => |operands| try ops.binary(i32, "lt", globals, stack, localData, upvalueData, operands),
-        .s_lt64 => |operands| try ops.binary(i64, "lt", globals, stack, localData, upvalueData, operands),
-        .u_gt8 => |operands| try ops.binary(u8, "gt", globals, stack, localData, upvalueData, operands),
-        .u_gt16 => |operands| try ops.binary(u16, "gt", globals, stack, localData, upvalueData, operands),
-        .u_gt32 => |operands| try ops.binary(u32, "gt", globals, stack, localData, upvalueData, operands),
-        .u_gt64 => |operands| try ops.binary(u64, "gt", globals, stack, localData, upvalueData, operands),
-        .s_gt8 => |operands| try ops.binary(i8, "gt", globals, stack, localData, upvalueData, operands),
-        .s_gt16 => |operands| try ops.binary(i16, "gt", globals, stack, localData, upvalueData, operands),
-        .s_gt32 => |operands| try ops.binary(i32, "gt", globals, stack, localData, upvalueData, operands),
-        .s_gt64 => |operands| try ops.binary(i64, "gt", globals, stack, localData, upvalueData, operands),
-        .u_le8 => |operands| try ops.binary(u8, "le", globals, stack, localData, upvalueData, operands),
-        .u_le16 => |operands| try ops.binary(u16, "le", globals, stack, localData, upvalueData, operands),
-        .u_le32 => |operands| try ops.binary(u32, "le", globals, stack, localData, upvalueData, operands),
-        .u_le64 => |operands| try ops.binary(u64, "le", globals, stack, localData, upvalueData, operands),
-        .s_le8 => |operands| try ops.binary(i8, "le", globals, stack, localData, upvalueData, operands),
-        .s_le16 => |operands| try ops.binary(i16, "le", globals, stack, localData, upvalueData, operands),
-        .s_le32 => |operands| try ops.binary(i32, "le", globals, stack, localData, upvalueData, operands),
-        .s_le64 => |operands| try ops.binary(i64, "le", globals, stack, localData, upvalueData, operands),
-        .u_ge8 => |operands| try ops.binary(u8, "ge", globals, stack, localData, upvalueData, operands),
-        .u_ge16 => |operands| try ops.binary(u16, "ge", globals, stack, localData, upvalueData, operands),
-        .u_ge32 => |operands| try ops.binary(u32, "ge", globals, stack, localData, upvalueData, operands),
-        .u_ge64 => |operands| try ops.binary(u64, "ge", globals, stack, localData, upvalueData, operands),
-        .s_ge8 => |operands| try ops.binary(i8, "ge", globals, stack, localData, upvalueData, operands),
-        .s_ge16 => |operands| try ops.binary(i16, "ge", globals, stack, localData, upvalueData, operands),
-        .s_ge32 => |operands| try ops.binary(i32, "ge", globals, stack, localData, upvalueData, operands),
-        .s_ge64 => |operands| try ops.binary(i64, "ge", globals, stack, localData, upvalueData, operands),
-
-        .u_ext8x16 => |operands| try ops.cast(u8, u16, globals, stack, localData, upvalueData, operands),
-        .u_ext8x32 => |operands| try ops.cast(u8, u32, globals, stack, localData, upvalueData, operands),
-        .u_ext8x64 => |operands| try ops.cast(u8, u64, globals, stack, localData, upvalueData, operands),
-        .u_ext16x32 => |operands| try ops.cast(u16, u32, globals, stack, localData, upvalueData, operands),
-        .u_ext16x64 => |operands| try ops.cast(u16, u64, globals, stack, localData, upvalueData, operands),
-        .u_ext32x64 => |operands| try ops.cast(u32, u64, globals, stack, localData, upvalueData, operands),
-        .s_ext8x16 => |operands| try ops.cast(i8, i16, globals, stack, localData, upvalueData, operands),
-        .s_ext8x32 => |operands| try ops.cast(i8, i32, globals, stack, localData, upvalueData, operands),
-        .s_ext8x64 => |operands| try ops.cast(i8, i64, globals, stack, localData, upvalueData, operands),
-        .s_ext16x32 => |operands| try ops.cast(i16, i32, globals, stack, localData, upvalueData, operands),
-        .s_ext16x64 => |operands| try ops.cast(i16, i64, globals, stack, localData, upvalueData, operands),
-        .s_ext32x64 => |operands| try ops.cast(i32, i64, globals, stack, localData, upvalueData, operands),
-        .f_ext32x64 => |operands| try ops.cast(f32, i64, globals, stack, localData, upvalueData, operands),
-
-        .i_trunc64x32 => |operands| try ops.cast(u64, u32, globals, stack, localData, upvalueData, operands),
-        .i_trunc64x16 => |operands| try ops.cast(u64, u16, globals, stack, localData, upvalueData, operands),
-        .i_trunc64x8 => |operands| try ops.cast(u64, u8, globals, stack, localData, upvalueData, operands),
-        .i_trunc32x16 => |operands| try ops.cast(u32, u16, globals, stack, localData, upvalueData, operands),
-        .i_trunc32x8 => |operands| try ops.cast(u32, u8, globals, stack, localData, upvalueData, operands),
-        .i_trunc16x8 => |operands| try ops.cast(u16, u8, globals, stack, localData, upvalueData, operands),
-        .f_trunc64x32 => |operands| try ops.cast(f64, f32, globals, stack, localData, upvalueData, operands),
-
-        .u8_to_f32 => |operands| try ops.cast(u8, f32, globals, stack, localData, upvalueData, operands),
-        .u8_to_f64 => |operands| try ops.cast(u8, f64, globals, stack, localData, upvalueData, operands),
-        .u16_to_f32 => |operands| try ops.cast(u16, f32, globals, stack, localData, upvalueData, operands),
-        .u16_to_f64 => |operands| try ops.cast(u16, f64, globals, stack, localData, upvalueData, operands),
-        .u32_to_f32 => |operands| try ops.cast(u32, f32, globals, stack, localData, upvalueData, operands),
-        .u32_to_f64 => |operands| try ops.cast(u32, f64, globals, stack, localData, upvalueData, operands),
-        .u64_to_f32 => |operands| try ops.cast(u64, f32, globals, stack, localData, upvalueData, operands),
-        .u64_to_f64 => |operands| try ops.cast(u64, f64, globals, stack, localData, upvalueData, operands),
-        .s8_to_f32 => |operands| try ops.cast(i8, f32, globals, stack, localData, upvalueData, operands),
-        .s8_to_f64 => |operands| try ops.cast(i8, f64, globals, stack, localData, upvalueData, operands),
-        .s16_to_f32 => |operands| try ops.cast(i16, f32, globals, stack, localData, upvalueData, operands),
-        .s16_to_f64 => |operands| try ops.cast(i16, f64, globals, stack, localData, upvalueData, operands),
-        .s32_to_f32 => |operands| try ops.cast(i32, f32, globals, stack, localData, upvalueData, operands),
-        .s32_to_f64 => |operands| try ops.cast(i32, f64, globals, stack, localData, upvalueData, operands),
-        .s64_to_f32 => |operands| try ops.cast(i64, f32, globals, stack, localData, upvalueData, operands),
-        .s64_to_f64 => |operands| try ops.cast(i64, f64, globals, stack, localData, upvalueData, operands),
-        .f32_to_u8 => |operands| try ops.cast(f32, u8, globals, stack, localData, upvalueData, operands),
-        .f32_to_u16 => |operands| try ops.cast(f32, u16, globals, stack, localData, upvalueData, operands),
-        .f32_to_u32 => |operands| try ops.cast(f32, u32, globals, stack, localData, upvalueData, operands),
-        .f32_to_u64 => |operands| try ops.cast(f32, u64, globals, stack, localData, upvalueData, operands),
-        .f64_to_u8 => |operands| try ops.cast(f64, u8, globals, stack, localData, upvalueData, operands),
-        .f64_to_u16 => |operands| try ops.cast(f64, u16, globals, stack, localData, upvalueData, operands),
-        .f64_to_u32 => |operands| try ops.cast(f64, u32, globals, stack, localData, upvalueData, operands),
-        .f64_to_u64 => |operands| try ops.cast(f64, u64, globals, stack, localData, upvalueData, operands),
-        .f32_to_s8 => |operands| try ops.cast(f32, i8, globals, stack, localData, upvalueData, operands),
-        .f32_to_s16 => |operands| try ops.cast(f32, i16, globals, stack, localData, upvalueData, operands),
-        .f32_to_s32 => |operands| try ops.cast(f32, i32, globals, stack, localData, upvalueData, operands),
-        .f32_to_s64 => |operands| try ops.cast(f32, i64, globals, stack, localData, upvalueData, operands),
-        .f64_to_s8 => |operands| try ops.cast(f64, i8, globals, stack, localData, upvalueData, operands),
-        .f64_to_s16 => |operands| try ops.cast(f64, i16, globals, stack, localData, upvalueData, operands),
-        .f64_to_s32 => |operands| try ops.cast(f64, i32, globals, stack, localData, upvalueData, operands),
-        .f64_to_s64 => |operands| try ops.cast(f64, i64, globals, stack, localData, upvalueData, operands),
-
-        else => Support.todo(noreturn, {})
-    }
-}
-
-pub fn stepNative(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, native: Bytecode.Function.Native) Fiber.Trap!void {
-    Support.todo(noreturn, .{fiber, localData, upvalueData, native});
-}
-
-fn extractUp(upvalueData: ?RegisterData) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!RegisterData {
-    if (upvalueData) |ud| {
-        return ud;
-    } else {
-        @branchHint(.cold);
-        return Fiber.Trap.MissingEvidence;
-    }
-}
-
-fn registerData(fiber: *Fiber, callFrame: *Fiber.CallFrame, function: *Bytecode.Function) Fiber.Trap!struct {RegisterData, ?RegisterData} {
-    const localData = RegisterData {
-        .call = callFrame,
-        .layout = &function.layout_table,
+            break :block Fiber.BlockFrame.noOutput(caseBlockIndex, null);
+        }
     };
 
-    const upvalueData = if (callFrame.evidence != Bytecode.EVIDENCE_SENTINEL) ev: {
-        const evidence = &fiber.evidence[callFrame.evidence];
-        const evFrame = try fiber.stack.call.getPtr(evidence.call);
-        const evFunction = &fiber.program.functions[evFrame.function];
-        break :ev RegisterData { .call = evFrame, .layout = &evFunction.layout_table };
-    } else null;
-
-    return .{localData, upvalueData};
+    try fiber.stack.block.push(block);
 }
 
-fn load(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, x: Bytecode.Operand, y: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn addrImpl(fiber: *Fiber, registerData: RegisterDataSet, x: Bytecode.Operand, y: Bytecode.Operand) Fiber.Trap!void {
+    const bytes: [*]const u8 = try addr(fiber, registerData, x, 0);
+
+    try write(fiber, registerData, y, bytes);
+}
+
+fn load(comptime T: type, fiber: *Fiber, registerData: RegisterDataSet, x: Bytecode.Operand, y: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const size = @sizeOf(T);
     const alignment = @alignOf(T);
 
-    const inAddr: [*]const u8 = try read([*]const u8, globals, stack, localData, upvalueData, x);
-    const outAddr: [*]u8 = try addr(globals, stack, localData, upvalueData, y, size);
+    const inAddr: [*]const u8 = try read([*]const u8, fiber, registerData, x);
+    const outAddr: [*]u8 = try addr(fiber, registerData, y, size);
 
-    try boundsCheck(globals, stack, inAddr, size);
+    try boundsCheck(fiber, inAddr, size);
 
     const inAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(inAddr), alignment) == 0);
     const outAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(outAddr), alignment) == 0);
@@ -819,14 +670,14 @@ fn load(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack,
     @as(*T, @ptrCast(@alignCast(outAddr))).* = @as(*const T, @ptrCast(@alignCast(inAddr))).*;
 }
 
-fn store(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, x: Bytecode.Operand, y: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn store(comptime T: type, fiber: *Fiber, registerData: RegisterDataSet, x: Bytecode.Operand, y: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const size = @sizeOf(T);
     const alignment = @alignOf(T);
 
-    const inAddr: [*]const u8 = try addr(globals, stack, localData, upvalueData, x, size);
-    const outAddr: [*]u8 = try read([*]u8, globals, stack, localData, upvalueData, y);
+    const inAddr: [*]const u8 = try addr(fiber, registerData, x, size);
+    const outAddr: [*]u8 = try read([*]u8, fiber, registerData, y);
 
-    try boundsCheck(globals, stack, outAddr, size);
+    try boundsCheck(fiber, outAddr, size);
 
     const inAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(inAddr), alignment) == 0);
     const outAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(outAddr), alignment) == 0);
@@ -838,11 +689,11 @@ fn store(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack
     @as(*T, @ptrCast(@alignCast(outAddr))).* = @as(*const T, @ptrCast(@alignCast(inAddr))).*;
 }
 
-fn clear(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, x: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn clear(comptime T: type, fiber: *Fiber, registerData: RegisterDataSet, x: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const size = @sizeOf(T);
     const alignment = @alignOf(T);
 
-    const bytes: [*]u8 = try addr(globals, stack, localData, upvalueData, x, size);
+    const bytes: [*]u8 = try addr(fiber, registerData, x, size);
 
     if (Support.alignmentDelta(@intFromPtr(bytes), alignment) != 0) {
         @branchHint(.cold);
@@ -852,12 +703,12 @@ fn clear(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack
     @as(*T, @ptrCast(@alignCast(bytes))).* = 0;
 }
 
-fn swap(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, x: Bytecode.Operand, y: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn swap(comptime T: type, fiber: *Fiber, registerData: RegisterDataSet, x: Bytecode.Operand, y: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const size = @sizeOf(T);
     const alignment = @alignOf(T);
 
-    const xBytes: [*]u8 = try addr(globals, stack, localData, upvalueData, x, size);
-    const yBytes: [*]u8 = try addr(globals, stack, localData, upvalueData, y, size);
+    const xBytes: [*]u8 = try addr(fiber, registerData, x, size);
+    const yBytes: [*]u8 = try addr(fiber, registerData, y, size);
 
     const xAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(xBytes), alignment) == 0);
     const yAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(yBytes), alignment) == 0);
@@ -871,12 +722,12 @@ fn swap(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack,
     @as(*T, @ptrCast(@alignCast(yBytes))).* = temp;
 }
 
-fn copy(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, x: Bytecode.Operand, y: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn copy(comptime T: type, fiber: *Fiber, registerData: RegisterDataSet, x: Bytecode.Operand, y: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const size = @sizeOf(T);
     const alignment = @alignOf(T);
 
-    const xBytes: [*]const u8 = try addr(globals, stack, localData, upvalueData, x, size);
-    const yBytes: [*]u8 = try addr(globals, stack, localData, upvalueData, y, size);
+    const xBytes: [*]const u8 = try addr(fiber, registerData, x, size);
+    const yBytes: [*]u8 = try addr(fiber, registerData, y, size);
 
     const xAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(xBytes), alignment) == 0);
     const yAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(yBytes), alignment) == 0);
@@ -888,33 +739,40 @@ fn copy(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack,
     @as(*T, @ptrCast(@alignCast(yBytes))).* = @as(*const T, @ptrCast(@alignCast(xBytes))).*;
 }
 
-fn dynCall(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, func: Bytecode.Operand, args: []const Bytecode.Operand, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    const funcIndex = try read(Bytecode.FunctionIndex, &fiber.program.globals, &fiber.stack.data, localData, upvalueData, func);
+fn dynCall(fiber: *Fiber, oldCallFrame: *Fiber.CallFrame, oldFunction: *Bytecode.Function, registerData: RegisterDataSet, func: Bytecode.Operand, args: []const Bytecode.Operand, style: ReturnStyle) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const funcIndex = try read(Bytecode.FunctionIndex, fiber, registerData, func);
 
-    return call(fiber, localData, upvalueData, funcIndex, args, out);
+    return call(fiber, oldCallFrame, oldFunction, registerData, funcIndex, args, style);
 }
 
-fn call(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, funcIndex: Bytecode.FunctionIndex, args: []const Bytecode.Operand, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn call(fiber: *Fiber, oldCallFrame: *Fiber.CallFrame, oldFunction: *Bytecode.Function, registerData: RegisterDataSet, funcIndex: Bytecode.FunctionIndex, args: []const Bytecode.Operand, style: ReturnStyle) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     if (funcIndex >= fiber.program.functions.len) {
         @branchHint(.cold);
         return Fiber.Trap.OutOfBounds;
     }
 
-    return callImpl(fiber, localData, upvalueData, Bytecode.EVIDENCE_SENTINEL, funcIndex, args, out);
+    return callImpl(fiber, oldCallFrame, oldFunction, registerData, Bytecode.EVIDENCE_SENTINEL, funcIndex, args, style);
 }
 
-fn prompt(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, evIndex: Bytecode.EvidenceIndex, args: []const Bytecode.Operand, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn prompt(fiber: *Fiber, oldCallFrame: *Fiber.CallFrame, oldFunction: *Bytecode.Function, registerData: RegisterDataSet, evIndex: Bytecode.EvidenceIndex, args: []const Bytecode.Operand, style: ReturnStyle) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     if (evIndex >= fiber.evidence.len) {
         @branchHint(.cold);
         return Fiber.Trap.OutOfBounds;
     }
 
-    const evidence = &fiber.evidence[evIndex];
+    const evidence = try fiber.evidence[evIndex].topPtr();
 
-    return callImpl(fiber, localData, upvalueData, evIndex, evidence.handler, args, out);
+    return callImpl(fiber, oldCallFrame, oldFunction, registerData, evIndex, evidence.handler, args, style);
 }
 
-fn callImpl(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, evIndex: Bytecode.EvidenceIndex, funcIndex: Bytecode.FunctionIndex, args: []const Bytecode.Operand, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+const ReturnStyle = union(enum) {
+    tail: void,
+    tail_v: void,
+    no_tail: void,
+    no_tail_v: Bytecode.Operand,
+};
+
+fn callImpl(fiber: *Fiber, oldCallFrame: *Fiber.CallFrame, oldFunction: *Bytecode.Function, registerData: RegisterDataSet, evIndex: Bytecode.EvidenceIndex, funcIndex: Bytecode.FunctionIndex, args: []const Bytecode.Operand, style: ReturnStyle) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const newFunction = &fiber.program.functions[funcIndex];
 
     if (args.len != newFunction.layout_table.num_arguments) {
@@ -922,14 +780,75 @@ fn callImpl(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, 
         return Fiber.Trap.ArgCountMismatch;
     }
 
-    // ensure ret val will fit
-    if (out) |outOperand| {
-        if (newFunction.layout_table.return_layout) |returnLayout| {
-            _ = try slice(&fiber.program.globals, &fiber.stack.data, localData, upvalueData, outOperand, returnLayout.size);
-        } else {
-            @branchHint(.cold);
-            return Fiber.Trap.OutValueMismatch;
+    // // ensure ret val will fit
+    // if (out) |outOperand| {
+    //     if (newFunction.layout_table.return_layout) |returnLayout| {
+    //         _ = try slice(fiber, registerData, outOperand, returnLayout.size);
+    //     } else {
+    //         @branchHint(.cold);
+    //         return Fiber.Trap.OutValueMismatch;
+    //     }
+    // }
+
+    const newBlock, const isTail = returnData: {
+        switch (style) {
+            .no_tail => if (newFunction.layout_table.return_layout != null) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutValueMismatch;
+            } else {
+                break :returnData .{
+                    Fiber.BlockFrame.entryPoint(null),
+                    false,
+                };
+            },
+            .no_tail_v => |out| if (newFunction.layout_table.return_layout) |returnLayout| {
+                _ = try addr(fiber, registerData, out, returnLayout.size);
+                break :returnData .{
+                    Fiber.BlockFrame.entryPoint(out),
+                    false,
+                };
+            } else {
+                @branchHint(.cold);
+                return Fiber.Trap.OutValueMismatch;
+            },
+            .tail => if (oldFunction.layout_table.return_layout != null) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutValueMismatch;
+            } else {
+                break :returnData .{
+                    Fiber.BlockFrame.entryPoint(null),
+                    true,
+                };
+            },
+            .tail_v => if (oldFunction.layout_table.return_layout) |oldLayout| {
+                if (newFunction.layout_table.return_layout) |newLayout| {
+                    const sameSize = @intFromBool(oldLayout.size == newLayout.size);
+                    const sameAlign = @intFromBool(oldLayout.alignment == newLayout.alignment);
+                    if (sameSize & sameAlign != 1) {
+                        @branchHint(.cold);
+                        return Fiber.Trap.OutValueMismatch;
+                    }
+                    const oldFunctionRootBlockFrame = try fiber.stack.block.getPtr(oldCallFrame.root_block);
+                    const oldFunctionOutput = oldFunctionRootBlockFrame.out;
+                    break :returnData .{
+                        Fiber.BlockFrame.entryPoint(oldFunctionOutput),
+                        true,
+                    };
+                } else {
+                    @branchHint(.cold);
+                    return Fiber.Trap.OutValueMismatch;
+                }
+            } else {
+                @branchHint(.cold);
+                return Fiber.Trap.OutValueMismatch;
+            },
         }
+    };
+
+    if (isTail) {
+        fiber.stack.data.ptr = oldCallFrame.stack.base;
+        fiber.stack.call.ptr -= 1;
+        fiber.stack.block.ptr = oldCallFrame.root_block - 1;
     }
 
     const origin = fiber.stack.data.ptr;
@@ -940,30 +859,46 @@ fn callImpl(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, 
 
     for (0..args.len) |i| {
         const desiredSize = newFunction.layout_table.register_layouts[i].size;
-        const arg = try slice(&fiber.program.globals, &fiber.stack.data, localData, upvalueData, args[i], desiredSize);
+        const arg = try slice(fiber, registerData, args[i], desiredSize);
         @memcpy(fiber.stack.data.memory[newFunction.layout_table.register_offsets[i]..].ptr, arg);
     }
 
     try fiber.stack.call.push(Fiber.CallFrame {
         .function = funcIndex,
-        .evidence = evIndex,
-        .block = fiber.stack.block.ptr,
+        .evidence = if (evIndex != Bytecode.EVIDENCE_SENTINEL) ev: {
+            if (evIndex >= fiber.evidence.len) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutOfBounds;
+            }
+
+            if (fiber.evidence[evIndex].ptr == 0) {
+                @branchHint(.cold);
+                return Fiber.Trap.MissingEvidence;
+            }
+
+            break :ev .{
+                .index = evIndex,
+                .offset = fiber.evidence[evIndex].ptr - 1,
+            };
+        } else null,
+        .root_block = fiber.stack.block.ptr,
         .stack = .{
             .base = base,
             .origin = origin,
         },
     });
 
-    try fiber.stack.block.push(.entryPoint(out));
+    try fiber.stack.block.push(newBlock);
+
 }
 
-fn term(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame, localData: RegisterData, upvalueData: ?RegisterData, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    if (callFrame.evidence == Bytecode.EVIDENCE_SENTINEL) {
+fn term(fiber: *Fiber, callFrame: *Fiber.CallFrame, function: *Bytecode.Function, registerData: RegisterDataSet, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const evRef = if (callFrame.evidence) |e| e else {
         @branchHint(.cold);
         return Fiber.Trap.MissingEvidence;
-    }
+    };
 
-    const evidence = &fiber.evidence[callFrame.evidence];
+    const evidence = try fiber.evidence[evRef.index].getPtr(evRef.offset);
 
     const rootFunction = &fiber.program.functions[evidence.handler];
     const rootCallFrame = try fiber.stack.call.getPtr(evidence.call);
@@ -973,15 +908,15 @@ fn term(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame
     if (out) |outOp| {
         if (rootBlock.kind.hasOutput()) {
             const size = function.layout_table.term_layout.?.size;
-            const src: [*]const u8 = try addr(&fiber.program.globals, &fiber.stack.data, localData, upvalueData, outOp, size);
+            const src: [*]const u8 = try addr(fiber, registerData, outOp, size);
 
-            const rootLocalData, const rootUpvalueData = try registerData(fiber, rootCallFrame, rootFunction);
-            const dest: [*]u8 = try addr(&fiber.program.globals, &fiber.stack.data, rootLocalData, rootUpvalueData, rootBlockFrame.out, size);
+            const rootRegisterData = try getRegisterData(fiber, rootCallFrame, rootFunction);
+            const dest: [*]u8 = try addr(fiber, rootRegisterData, rootBlockFrame.out, size);
 
             @memcpy(dest[0..size], src);
         } else {
             @branchHint(.cold);
-            return Fiber.Trap.MissingOutputValue;
+            return Fiber.Trap.OutValueMismatch;
         }
     }
 
@@ -990,8 +925,8 @@ fn term(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame
     fiber.stack.block.ptr = evidence.block - 1;
 }
 
-fn ret(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame, localData: RegisterData, upvalueData: ?RegisterData, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    const rootBlockFrame = try fiber.stack.block.getPtr(callFrame.block);
+fn ret(fiber: *Fiber, callFrame: *Fiber.CallFrame, function: *Bytecode.Function, registerData: RegisterDataSet, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const rootBlockFrame = try fiber.stack.block.getPtr(callFrame.root_block);
     const rootBlock = &function.value.bytecode.blocks[rootBlockFrame.index];
 
     const callerFrame = try fiber.stack.call.getPtr(fiber.stack.call.ptr - 2);
@@ -1000,48 +935,48 @@ fn ret(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame,
     if (out) |outOp| {
         if (rootBlock.kind.hasOutput()) {
             const size = function.layout_table.return_layout.?.size;
-            const src: [*]const u8 = try addr(&fiber.program.globals, &fiber.stack.data, localData, upvalueData, outOp, size);
+            const src: [*]const u8 = try addr(fiber, registerData, outOp, size);
 
-            const callerLocalData, const callerUpvalueData = try registerData(fiber, callerFrame, callerFunction);
-            const dest: [*]u8 = try addr(&fiber.program.globals, &fiber.stack.data, callerLocalData, callerUpvalueData, rootBlockFrame.out, size);
+            const callerRegisterData = try getRegisterData(fiber, callerFrame, callerFunction);
+            const dest: [*]u8 = try addr(fiber, callerRegisterData, rootBlockFrame.out, size);
 
             @memcpy(dest[0..size], src);
         } else {
             @branchHint(.cold);
-            return Fiber.Trap.MissingOutputValue;
+            return Fiber.Trap.OutValueMismatch;
         }
     }
 
     fiber.stack.data.ptr = callFrame.stack.base;
     fiber.stack.call.ptr -= 1;
-    fiber.stack.block.ptr = callFrame.block - 1;
+    fiber.stack.block.ptr = callFrame.root_block - 1;
 }
 
-inline fn read(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand) Fiber.Trap!T {
+inline fn read(comptime T: type, fiber: *Fiber, registerData: RegisterDataSet, operand: Bytecode.Operand) Fiber.Trap!T {
     switch (operand.kind) {
-        .global => return readGlobal(T, globals, operand.data.global),
-        .upvalue => return readReg(T, stack, try extractUp(upvalueData), operand.data.register),
-        .local => return readReg(T, stack, localData, operand.data.register),
+        .global => return readGlobal(T, fiber, operand.data.global),
+        .upvalue => return readReg(T, fiber, try extractUp(registerData), operand.data.register),
+        .local => return readReg(T, fiber, registerData.local, operand.data.register),
     }
 }
 
-inline fn write(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand, value: anytype) Fiber.Trap!void {
+inline fn write(fiber: *Fiber, registerData: RegisterDataSet, operand: Bytecode.Operand, value: anytype) Fiber.Trap!void {
     switch (operand.kind) {
-        .global => return writeGlobal(globals, operand.data.global, value),
-        .upvalue => return writeReg(stack, try extractUp(upvalueData), operand.data.register, value),
-        .local => return writeReg(stack, localData, operand.data.register, value),
+        .global => return writeGlobal(fiber, operand.data.global, value),
+        .upvalue => return writeReg(fiber, try extractUp(registerData), operand.data.register, value),
+        .local => return writeReg(fiber, registerData.local, operand.data.register, value),
     }
 }
 
-inline fn addr(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand, size: Bytecode.RegisterLocalOffset) Fiber.Trap![*]u8 {
+inline fn addr(fiber: *Fiber, registerData: RegisterDataSet, operand: Bytecode.Operand, size: Bytecode.RegisterLocalOffset) Fiber.Trap![*]u8 {
     switch (operand.kind) {
-        .global => return addrGlobal(globals, operand.data.global, size),
-        .upvalue => return addrReg(stack, try extractUp(upvalueData), operand.data.register, size),
-        .local => return addrReg(stack, localData, operand.data.register, size),
+        .global => return addrGlobal(fiber, operand.data.global, size),
+        .upvalue => return addrReg(fiber, try extractUp(registerData), operand.data.register, size),
+        .local => return addrReg(fiber, registerData.local, operand.data.register, size),
     }
 }
 
-fn addrReg(stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.RegisterOperand, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap![*]u8 {
+fn addrReg(fiber: *Fiber, regData: RegisterData, operand: Bytecode.RegisterOperand, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap![*]u8 {
     const base = try getOperandOffset(regData, operand.register);
 
     if (!regData.layout.inbounds(operand, @truncate(size))) {
@@ -1049,15 +984,15 @@ fn addrReg(stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.Reg
         return Fiber.Trap.OutOfBounds;
     }
 
-    return @ptrCast(try stack.getPtr(base + operand.offset));
+    return @ptrCast(try fiber.stack.data.getPtr(base + operand.offset));
 }
 
-inline fn slice(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operand: Bytecode.Operand, size: Bytecode.RegisterLocalOffset) Fiber.Trap![]u8 {
-    return (try addr(globals, stack, localData, upvalueData, operand, size))[0..size];
+inline fn slice(fiber: *Fiber, registerData: RegisterDataSet, operand: Bytecode.Operand, size: Bytecode.RegisterLocalOffset) Fiber.Trap![]u8 {
+    return (try addr(fiber, registerData, operand, size))[0..size];
 }
 
-fn readGlobal(comptime T: type, globals: *Bytecode.GlobalSet, operand: Bytecode.GlobalOperand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!T {
-    const bytes = try addrGlobal(globals, operand, @sizeOf(T));
+fn readGlobal(comptime T: type, fiber: *Fiber, operand: Bytecode.GlobalOperand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!T {
+    const bytes = try addrGlobal(fiber, operand, @sizeOf(T));
 
     if (Support.alignmentDelta(@intFromPtr(bytes), @alignOf(T)) != 0) {
         @branchHint(.cold);
@@ -1067,7 +1002,7 @@ fn readGlobal(comptime T: type, globals: *Bytecode.GlobalSet, operand: Bytecode.
     return @as(*T, @ptrCast(@alignCast(bytes))).*;
 }
 
-fn readReg(comptime T: type, stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.RegisterOperand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!T {
+fn readReg(comptime T: type, fiber: *Fiber, regData: RegisterData, operand: Bytecode.RegisterOperand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!T {
     const size = @sizeOf(T);
 
     const base = try getOperandOffset(regData, operand.register);
@@ -1077,7 +1012,7 @@ fn readReg(comptime T: type, stack: *Fiber.DataStack, regData: RegisterData, ope
         return Fiber.Trap.OutOfBounds;
     }
 
-    const bytes = try stack.checkSlice(base + operand.offset, size);
+    const bytes = try fiber.stack.data.checkSlice(base + operand.offset, size);
 
     if (Support.alignmentDelta(@intFromPtr(bytes), @alignOf(T)) != 0) {
         @branchHint(.cold);
@@ -1087,9 +1022,9 @@ fn readReg(comptime T: type, stack: *Fiber.DataStack, regData: RegisterData, ope
     return @as(*T, @ptrCast(@alignCast(bytes))).*;
 }
 
-fn writeGlobal(globals: *Bytecode.GlobalSet, operand: Bytecode.GlobalOperand, value: anytype) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn writeGlobal(fiber: *Fiber, operand: Bytecode.GlobalOperand, value: anytype) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const T = @TypeOf(value);
-    const mem = try addrGlobal(globals, operand, @sizeOf(T));
+    const mem = try addrGlobal(fiber, operand, @sizeOf(T));
 
     if (Support.alignmentDelta(@intFromPtr(mem), @alignOf(T)) != 0) {
         @branchHint(.cold);
@@ -1099,7 +1034,7 @@ fn writeGlobal(globals: *Bytecode.GlobalSet, operand: Bytecode.GlobalOperand, va
     @as(*T, @ptrCast(@alignCast(mem))).* = value;
 }
 
-fn writeReg(stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.RegisterOperand, value: anytype) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn writeReg(fiber: *Fiber, regData: RegisterData, operand: Bytecode.RegisterOperand, value: anytype) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const T = @TypeOf(value);
     const size = @sizeOf(T);
 
@@ -1110,7 +1045,7 @@ fn writeReg(stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.Re
         return Fiber.Trap.OutOfBounds;
     }
 
-    const bytes = try stack.checkSlice(base, size);
+    const bytes = try fiber.stack.data.checkSlice(base, size);
 
     if (Support.alignmentDelta(@intFromPtr(bytes), @alignOf(T)) != 0) {
         @branchHint(.cold);
@@ -1120,20 +1055,20 @@ fn writeReg(stack: *Fiber.DataStack, regData: RegisterData, operand: Bytecode.Re
     @as(*T, @ptrCast(@alignCast(bytes))).* = value;
 }
 
-fn addrGlobal(globals: *Bytecode.GlobalSet, operand: Bytecode.GlobalOperand, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap![*]u8 {
-    if (operand.index >= globals.values.len) {
+fn addrGlobal(fiber: *Fiber, operand: Bytecode.GlobalOperand, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap![*]u8 {
+    if (operand.index >= fiber.program.globals.values.len) {
         @branchHint(.cold);
         return Fiber.Trap.OutOfBounds;
     }
 
-    const data = &globals.values[operand.index];
+    const data = &fiber.program.globals.values[operand.index];
 
     if (!data.layout.inbounds(operand.offset, size)) {
         @branchHint(.cold);
         return Fiber.Trap.OutOfBounds;
     }
 
-    return @ptrCast(&globals.memory[operand.offset]);
+    return @ptrCast(&fiber.program.globals.memory[operand.offset]);
 }
 
 fn getOperandOffset(regData: RegisterData, register: Bytecode.Register) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!Fiber.DataStack.Ptr {
@@ -1147,12 +1082,12 @@ fn getOperandOffset(regData: RegisterData, register: Bytecode.Register) callconv
     }
 }
 
-fn boundsCheck(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, address: [*]const u8, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    const validGlobalA = @intFromBool(@intFromPtr(address) >= @intFromPtr(globals.memory.ptr));
-    const validGlobalB = @intFromBool(@intFromPtr(address) + size <= @intFromPtr(globals.memory.ptr) + globals.memory.len);
+fn boundsCheck(fiber: *Fiber, address: [*]const u8, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const validGlobalA = @intFromBool(@intFromPtr(address) >= @intFromPtr(fiber.program.globals.memory.ptr));
+    const validGlobalB = @intFromBool(@intFromPtr(address) + size <= @intFromPtr(fiber.program.globals.memory.ptr) + fiber.program.globals.memory.len);
 
-    const validStackA = @intFromBool(@intFromPtr(address) >= @intFromPtr(stack.memory.ptr));
-    const validStackB = @intFromBool(@intFromPtr(address) + size <= stack.ptr);
+    const validStackA = @intFromBool(@intFromPtr(address) >= @intFromPtr(fiber.stack.data.memory.ptr));
+    const validStackB = @intFromBool(@intFromPtr(address) + size <= fiber.stack.data.ptr);
 
     if ((validGlobalA & validGlobalB) | (validStackA & validStackB) == 0) {
         @branchHint(.cold);
@@ -1160,10 +1095,22 @@ fn boundsCheck(globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, address: [
     }
 }
 
+fn removeAnyHandlerSet(fiber: *Fiber, blockFrame: *Fiber.BlockFrame) Fiber.Trap!void {
+    if (blockFrame.handler_set == Bytecode.HANDLER_SET_SENTINEL) return;
+
+    const handlerSet = fiber.program.handler_sets[blockFrame.handler_set];
+
+    for (handlerSet) |binding| {
+        const removedEv = try fiber.evidence[binding.id].pop();
+
+        std.debug.assert(removedEv.handler == binding.handler);
+    }
+}
+
 
 const ops = struct {
-    fn cast(comptime A: type, comptime B: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operands: Bytecode.ISA.TwoOperand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-        const x = try read(A, globals, stack, localData, upvalueData, operands.x);
+    fn cast(comptime A: type, comptime B: type, fiber: *Fiber, registerData: RegisterDataSet, operands: Bytecode.ISA.TwoOperand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+        const x = try read(A, fiber, registerData, operands.x);
 
         const aKind = @as(std.builtin.TypeId, @typeInfo(A));
         const bKind = @as(std.builtin.TypeId, @typeInfo(B));
@@ -1173,24 +1120,24 @@ const ops = struct {
                 else @call(Config.INLINING_CALL_MOD, floatCast, .{B, x})
             ) else @call(Config.INLINING_CALL_MOD, typeCast, .{B, x});
 
-        try write(globals, stack, localData, upvalueData, operands.y, result);
+        try write(fiber, registerData, operands.y, result);
     }
 
-    fn unary(comptime T: type, comptime op: []const u8, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operands: Bytecode.ISA.TwoOperand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-        const x = try read(T, globals, stack, localData, upvalueData, operands.x);
+    fn unary(comptime T: type, comptime op: []const u8, fiber: *Fiber, registerData: RegisterDataSet, operands: Bytecode.ISA.TwoOperand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+        const x = try read(T, fiber, registerData, operands.x);
 
         const result = @call(Config.INLINING_CALL_MOD, @field(ops, op), .{x});
 
-        try write(globals, stack, localData, upvalueData, operands.y, result);
+        try write(fiber, registerData, operands.y, result);
     }
 
-    fn binary(comptime T: type, comptime op: []const u8, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, operands: Bytecode.ISA.ThreeOperand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-        const x = try read(T, globals, stack, localData, upvalueData, operands.x);
-        const y = try read(T, globals, stack, localData, upvalueData, operands.y);
+    fn binary(comptime T: type, comptime op: []const u8, fiber: *Fiber, registerData: RegisterDataSet, operands: Bytecode.ISA.ThreeOperand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+        const x = try read(T, fiber, registerData, operands.x);
+        const y = try read(T, fiber, registerData, operands.y);
 
         const result = @call(Config.INLINING_CALL_MOD, @field(ops, op), .{x, y});
 
-        try write(globals, stack, localData, upvalueData, operands.z, result);
+        try write(fiber, registerData, operands.z, result);
     }
 
     fn intCast(comptime T: type, x: anytype) T {

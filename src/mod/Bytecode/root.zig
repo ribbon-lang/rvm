@@ -41,6 +41,7 @@ pub const MemorySize = u48;
 pub const MAX_REGISTERS = std.math.maxInt(RegisterIndex);
 
 pub const EVIDENCE_SENTINEL = std.math.maxInt(EvidenceIndex);
+pub const HANDLER_SET_SENTINEL = std.math.maxInt(HandlerSetIndex);
 
 pub const Register = reg: {
     const TagType = RegisterIndex;
@@ -253,8 +254,11 @@ pub const Function = struct {
     };
 };
 
-pub const HandlerSet = struct {
-    handlers: []FunctionIndex,
+pub const HandlerSet = []HandlerBinding;
+
+pub const HandlerBinding = struct {
+    id: EvidenceIndex,
+    handler: FunctionIndex,
 };
 
 pub const Global = struct {
@@ -308,7 +312,7 @@ pub const Program = struct {
     globals: GlobalSet,
     global_memory: []u8,
     functions: []Function,
-    handlerSets: []HandlerSet,
+    handler_sets: []HandlerSet,
     main: ?FunctionIndex,
 };
 

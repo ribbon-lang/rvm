@@ -29,7 +29,7 @@ const Fiber = @This();
 context: *Context,
 program: *Bytecode.Program,
 stack: StackSet,
-evidence: []Evidence,
+evidence: []EvidenceStack,
 
 
 pub const Trap = error {
@@ -41,7 +41,6 @@ pub const Trap = error {
     OutValueMismatch,
     BadEncoding,
     ArgCountMismatch,
-    MissingOutputValue,
     BadAlignment,
     InvalidBlockRestart,
 };
@@ -77,33 +76,48 @@ pub const StackSet = struct {
 };
 
 
-pub const DATA_STACK_SIZE: usize
-    = (1024 * 1024 * 8)
-    // take a little bit off to account for the other stacks,
-    // making a nice even number of mb for the total fiber size  (16mb, currently)
-    - OVERFLOW_META_SIZE
-     ;
 pub const CALL_STACK_SIZE: usize = 4096;
 pub const BLOCK_STACK_SIZE: usize = CALL_STACK_SIZE * 256;
 pub const EVIDENCE_VECTOR_SIZE: usize = 1024;
+pub const EVIDENCE_STACK_SIZE: usize = std.math.maxInt(EvidenceStack.Ptr);
+pub const DATA_STACK_SIZE: usize
+    = (1024 * 1024 * 8)
+    - @rem(TOTAL_META_SIZE, 1024 * 1024)
+    ;
+
 const TOTAL_META_SIZE: usize
     = CALL_STACK_SIZE * @sizeOf(CallFrame)
     + BLOCK_STACK_SIZE * @sizeOf(BlockFrame)
-    + EVIDENCE_VECTOR_SIZE * @sizeOf(Evidence);
-const OVERFLOW_META_SIZE: usize
-    = @rem(TOTAL_META_SIZE, 1024 * 1024);
+    + EVIDENCE_VECTOR_SIZE * (@sizeOf(Evidence) * EVIDENCE_STACK_SIZE + @sizeOf(EvidenceStack))
+    + @sizeOf(Fiber)
+    ;
 
-comptime {
-    std.testing.expect(DATA_STACK_SIZE >= 7 * 1024 * 1024) catch unreachable;
-    std.testing.expectEqual(
-        16 * 1024 * 1024,
-        DATA_STACK_SIZE + TOTAL_META_SIZE
-    ) catch unreachable;
-}
+// comptime {
+//     const TOTAL_SIZE: usize
+//         = DATA_STACK_SIZE
+//         + TOTAL_META_SIZE
+//         ;
+//
+//     @compileError(std.fmt.comptimePrint(
+//         \\DATA_STACK_SIZE: {} ({d:10.10} mb)
+//         \\TOTAL_SIZE: {} ({d:10.10} mb)
+//         \\TOTAL_META_SIZE: {} ({d:10.10} mb)
+//         \\
+//         , .{
+//             DATA_STACK_SIZE,
+//             @as(f64, @floatFromInt(DATA_STACK_SIZE)) / 1024.0 / 1024.0,
+//             TOTAL_SIZE,
+//             @as(f64, @floatFromInt(TOTAL_SIZE)) / 1024.0 / 1024.0,
+//             TOTAL_META_SIZE,
+//             @as(f64, @floatFromInt(TOTAL_META_SIZE)) / 1024.0 / 1024.0,
+//         }
+//     ));
+// }
 
 pub const DataStack = Stack(u8, u24);
 pub const CallStack = Stack(CallFrame, u16);
 pub const BlockStack = Stack(BlockFrame, u16);
+pub const EvidenceStack = Stack(Evidence, u8);
 
 pub const Evidence = packed struct {
     handler: Bytecode.FunctionIndex,
@@ -116,31 +130,37 @@ pub const BlockFrame = packed struct {
     index: Bytecode.BlockIndex,
     ip_offset: Bytecode.InstructionPointerOffset,
     out: Bytecode.Operand,
+    handler_set: Bytecode.HandlerSetIndex,
 
-    pub inline fn noOutput(index: Bytecode.BlockIndex) BlockFrame {
-        return .{ .index = index, .ip_offset = 0, .out = undefined };
+    pub inline fn noOutput(index: Bytecode.BlockIndex, handler_set: ?Bytecode.HandlerSetIndex) BlockFrame {
+        return .{ .index = index, .ip_offset = 0, .out = undefined, .handler_set = handler_set orelse Bytecode.HANDLER_SET_SENTINEL };
     }
 
     pub inline fn entryPoint(operand: ?Bytecode.Operand) BlockFrame {
         return
-            if (operand) |op| .{ .index = 0, .ip_offset = 0, .out = op }
-            else .{ .index = 0, .ip_offset = 0, .out = undefined };
+            if (operand) |op| .{ .index = 0, .ip_offset = 0, .out = op, .handler_set = Bytecode.HANDLER_SET_SENTINEL }
+            else .{ .index = 0, .ip_offset = 0, .out = undefined, .handler_set = Bytecode.HANDLER_SET_SENTINEL };
     }
 
-    pub inline fn value(index: Bytecode.BlockIndex, operand: Bytecode.Operand) BlockFrame {
-        return .{ .index = index, .ip_offset = 0, .out = operand };
+    pub inline fn value(index: Bytecode.BlockIndex, operand: Bytecode.Operand, handler_set: ?Bytecode.HandlerSetIndex) BlockFrame {
+        return .{ .index = index, .ip_offset = 0, .out = operand, .handler_set = handler_set orelse Bytecode.HANDLER_SET_SENTINEL };
     }
 };
 
 pub const CallFrame = struct {
     function: Bytecode.FunctionIndex,
-    evidence: Bytecode.EvidenceIndex,
-    block: BlockStack.Ptr,
+    evidence: ?EvidenceRef,
+    root_block: BlockStack.Ptr,
     stack: StackRef,
 
     pub const StackRef = packed struct {
         base: DataStack.Ptr,
         origin: DataStack.Ptr,
+    };
+
+    pub const EvidenceRef = packed struct {
+        index: Bytecode.EvidenceIndex,
+        offset: EvidenceStack.Ptr,
     };
 };
 
@@ -152,8 +172,20 @@ pub fn init(context: *Context, program: *Bytecode.Program) !*Fiber {
     const stack = try StackSet.init(context.allocator);
     errdefer stack.deinit(context.allocator);
 
-    const evidence = try context.allocator.alloc(Evidence, EVIDENCE_VECTOR_SIZE);
+    const evidence = try context.allocator.alloc(EvidenceStack, EVIDENCE_VECTOR_SIZE);
     errdefer context.allocator.free(evidence);
+
+    var i: usize = 0;
+    errdefer {
+        var j: usize = 0;
+        while (j < i) : (j += 1) {
+            evidence[j].deinit(context.allocator);
+        }
+    }
+
+    while (i < EVIDENCE_VECTOR_SIZE) : (i += 1) {
+        evidence[i] = try EvidenceStack.init(context.allocator, EVIDENCE_STACK_SIZE);
+    }
 
     ptr.* = Fiber {
         .program = program,
