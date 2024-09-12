@@ -9,6 +9,348 @@ const prototypes = Bytecode.ISA.InstructionPrototypes;
 const AVI = Bytecode.ISA.ArithmeticValueInfo;
 
 
+pub const std_options = std.Options{
+    .log_level = .warn,
+};
+
+const log = std.log.scoped(.@"templater:readme:isa");
+
+const Mode = enum {
+    TOC,
+    BODY,
+};
+
+const TOC = "toc";
+const BODY = "body";
+
+pub fn main() !void {
+    @setEvalBranchQuota(10_000);
+    
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    const args = try std.process.argsAlloc(allocator);
+    if (args.len < 2) {
+        log.err("expected either `{s}` or `{s}`, got nothing", .{ TOC, BODY });
+        return error.NotEnoughArguments;
+    } else if (args.len > 2) {
+        log.err("expected 1 argument, got {}:", .{args.len - 1});
+        for (args[1..]) |arg| {
+            log.err("`{s}`", .{arg});
+        }
+        return error.TooManyArguments;
+    }
+
+    const mode: Mode = mode: {
+        if (std.mem.eql(u8, args[1], TOC)) {
+            break :mode .TOC;
+        } else if (std.mem.eql(u8, args[1], BODY)) {
+            break :mode .BODY;
+        } else {
+            log.err("expected either ``{s}` or `{s}`, got `{s}`", .{ TOC, BODY, args[1] });
+            return error.InvalidModeArgument;
+        }
+    };
+
+    // const allocator = arena.allocator();
+
+    const out = std.io.getStdOut().writer();
+
+    switch (mode) {
+        .TOC => try toc(out),
+        .BODY => try body(out),
+    }
+}
+
+
+fn toc(out: anytype) !void {
+    inline for (comptime std.meta.fieldNames(@TypeOf(prototypes))) |categoryName| {
+        if (comptime !(std.mem.endsWith(u8, categoryName, "_bits") or std.mem.endsWith(u8, categoryName, "_v"))) {
+            try out.print("- [{s}](#{s})\n", .{categoryName, comptime kebabCase(categoryName)});
+        }
+    }
+}
+
+fn kebabCase(comptime str: []const u8) []const u8 {
+    comptime var out: []const u8 = "";
+
+    comptime var haveDash = true;
+
+    inline for (str) |c| {
+        out = out ++ dash: {
+            if ((std.ascii.isUpper(c) or std.ascii.isWhitespace(c)) and !haveDash) {
+                haveDash = true;
+                break :dash "-";
+            } else {
+                haveDash = false;
+                break :dash "";
+            }
+        } ++ if (!std.ascii.isWhitespace(c) and std.mem.indexOfScalar(u8, "<>", c) == null) .{ std.ascii.toLower(c) } else .{};
+    }
+
+    return out;
+}
+
+fn body(out: anytype) !void {
+    inline for (comptime std.meta.fieldNames(@TypeOf(prototypes))) |categoryName| {
+        const category = @field(prototypes, categoryName);
+
+        if (comptime strCmp(categoryName, "Arithmetic")) {
+            try out.print("\n#### {s}\n", .{categoryName});
+
+            inline for (0..category.len) |i| {
+                const proto = category[i];
+
+                const name = proto[0];
+                const doc = proto[1];
+                const multipliers: AVI = proto[2];
+                const operands = proto[3];
+
+                const numOperands = std.meta.fieldNames(operands).len;
+
+                try out.print(
+                    \\<table>
+                    \\    <tr>
+                    \\        <th colspan="3" align="left" width="100%">{s}<img width="960px" height="1" align="right"></th>
+                    \\        <td colspan="2">Params</td>
+                    \\    </tr>
+                    \\    <tr>
+                    \\        <td colspan="3" rowspan="{}" width="100%" align="center">{s}</td>
+                    \\    </tr>
+                    \\    {s}
+                    \\    {s}
+                    \\</table>
+                    \\
+                    , .{
+                        name,
+                        1 + numOperands, formatDoc(doc),
+                        formatParams(operands),
+                        switch (multipliers) {
+                            .none => std.fmt.comptimePrint("<tr><td>`{s}`</td></tr>", .{name}),
+                            .int_only => |signVariance| comptime makeIntFields(name, signVariance),
+                            .float_only => comptime makeFloatFields(name),
+                            .int_float => |signVariance| comptime makeIntFields(name, signVariance) ++ " " ++ makeFloatFields(name),
+                        },
+                    }
+                );
+            }
+        } else if (comptime std.mem.endsWith(u8, categoryName, "_bits")) {
+            inline for (0..category.len) |i| {
+                const proto = category[i];
+
+                const name = proto[0];
+                const doc = proto[1];
+                const operands = proto[2];
+                const numOperands = std.meta.fieldNames(operands).len;
+
+                try out.print(
+                    \\<table>
+                    \\    <tr>
+                    \\        <th colspan="3" align="left" width="100%">{s}<img width="960px" height="1" align="right"></th>
+                    \\        <td colspan="2">Params</td>
+                    \\    </tr>
+                    \\    <tr>
+                    \\        <td colspan="3" rowspan="{}" width="100%" align="center">{s}</td>
+                    \\    </tr>
+                    \\    {s}
+                    \\    {s}
+                    \\</table>
+                    \\
+                    , .{
+                        name,
+                        1 + numOperands, formatDoc(doc),
+                        formatParams(operands),
+                        comptime bitNames(name),
+                    }
+                );
+            }
+        } else if (comptime std.mem.endsWith(u8, categoryName, "_v")) {
+            inline for (0..category.len) |i| {
+                const proto = category[i];
+
+                const name = proto[0];
+                const doc = proto[1];
+                const operands = proto[2];
+                const vDoc = proto[3];
+                const vOperands = proto[4];
+                const numOperands = (if (operands != void) std.meta.fieldNames(operands).len else 1)
+                                  + (if (vOperands != void) std.meta.fieldNames(vOperands).len else 1);
+
+                const fieldName = std.fmt.comptimePrint("{s}_v", .{name});
+                const description = comptime longName(name);
+
+                try out.print(
+                    \\<table>
+                    \\    <tr>
+                    \\        <th colspan="3" align="left" width="100%">{s}<img width="960px" height="1" align="right"></th>
+                    \\        <td colspan="2">Params&nbsp;(both)</td>
+                    \\    </tr>
+                    \\    <tr>
+                    \\        <td colspan="3" rowspan="{}" width="100%" align="center">{s}<br><br>for <code>_v</code>, {s}</td>
+                    \\    </tr>
+                    \\    {s}
+                    \\    <tr>
+                    \\        <td colspan="2">Params&nbsp;(_v)</td>
+                    \\    </tr>
+                    \\    {s}
+                    \\    <tr>
+                    \\        <td align="right" width="1%"><code>0x{x:0>2}</code></td>
+                    \\        <td align="left" width="1%"><code>{s}</code></td>
+                    \\        <td align="center" colspan="3">{s}</td>
+                    \\    </tr>
+                    \\    <tr>
+                    \\        <td align="right" width="1%"><code>0x{x:0>2}</code></td>
+                    \\        <td align="left" width="1%"><code>{s}</code></td>
+                    \\        <td align="center" colspan="3">{s} with a result value</td>
+                    \\    </tr>
+                    \\</table>
+                    \\
+                    , .{
+                        name,
+                        2 + numOperands, formatDoc(doc), formatDoc(vDoc),
+                        formatParams(operands),
+                        formatParams(vOperands),
+                        @intFromEnum(@field(OpCode, name)), name, description,
+                        @intFromEnum(@field(OpCode, fieldName)), fieldName, description,
+                    }
+                );
+            }
+        } else if (comptime std.mem.startsWith(u8, categoryName, "Size Cast")) {
+            try out.print("\n#### {s}\n", .{categoryName});
+
+            inline for (0..category.len) |i| {
+                const proto = category[i];
+
+                const name = proto[0];
+                const doc = proto[1];
+                const order: AVI.SizeCast = proto[2];
+                const operands = proto[3];
+
+                const numOperands = std.meta.fieldNames(operands).len;
+
+                try out.print(
+                    \\<table>
+                    \\    <tr>
+                    \\        <th colspan="3" align="left" width="100%">{s}<img width="960px" height="1" align="right"></th>
+                    \\        <td colspan="2">Params</td>
+                    \\    </tr>
+                    \\    <tr>
+                    \\        <td colspan="3" rowspan="{}" width="100%" align="center">{s}</td>
+                    \\    </tr>
+                    \\    {s}
+                    \\    {s}
+                    \\</table>
+                    \\
+                    , .{
+                        name,
+                        1 + numOperands, formatDoc(doc),
+                        formatParams(operands),
+                        comptime makeSizeCastFields(name, categoryName, order),
+                    }
+                );
+            }
+        } else if (comptime strCmp(categoryName, "Int <-> Float Cast")) {
+            try out.print("\n#### {s}\n", .{categoryName});
+
+            const proto = category[0];
+
+            const name = proto[0];
+            const doc = proto[1];
+            const operands = proto[2];
+            const numOperands = std.meta.fieldNames(operands).len;
+
+            try out.print(
+                \\<table>
+                \\    <tr>
+                \\        <th colspan="3" align="left" width="100%">a_to_b<img width="960px" height="1" align="right"></th>
+                \\        <td colspan="2">Params</td>
+                \\    </tr>
+                \\    <tr>
+                \\        <td colspan="3" rowspan="{}" align="center">{s}</td>
+                \\    </tr>
+                \\    {s}
+                \\    {s}
+                \\</table>
+                \\
+                , .{
+                    1 + numOperands, formatDoc(doc),
+                    formatParams(operands),
+                    comptime makeIntFloatCastFields(name),
+                }
+            );
+        } else {
+            try out.print("\n#### {s}\n", .{categoryName});
+            inline for (0..category.len) |i| {
+                const proto = category[i];
+
+                const name = proto[0];
+                const doc = proto[1];
+                const operands = proto[2];
+
+                const description = comptime longName(name);
+
+                if (operands == void) {
+                    try out.print(
+                        \\<table>
+                        \\    <tr>
+                        \\        <th colspan="3" align="left" width="100%">{s}<img width="960px" height="1" align="right"></th>
+                        \\        <td>Params</td>
+                        \\    </tr>
+                        \\    <tr>
+                        \\        <td colspan="3" width="100%" align="center">{s}</td>
+                        \\        <td>None</td>
+                        \\    </tr>
+                        \\    <tr>
+                        \\        <td align="right" width="1%"><code>0x{x:0>2}</code></td>
+                        \\        <td align="left" width="1%"><code>{s}</code></td>
+                        \\        <td align="center" colspan="2">{s}</td>
+                        \\    </tr>
+                        \\</table>
+                        \\
+                        , .{
+                            name,
+                            formatDoc(doc),
+                            @intFromEnum(@field(OpCode, name)), name,
+                            description,
+                        }
+                    );
+                } else {
+                    const numOperands = std.meta.fieldNames(operands).len;
+
+                    try out.print(
+                        \\<table>
+                        \\    <tr>
+                        \\        <th colspan="3" align="left" width="100%">{s}<img width="960px" height="1" align="right"></th>
+                        \\        <td colspan="2">Params</td>
+                        \\    </tr>
+                        \\    <tr>
+                        \\        <td colspan="3" rowspan="{}" width="100%" align="center">{s}</td>
+                        \\    </tr>
+                        \\    {s}
+                        \\    <tr>
+                        \\        <td align="right" width="1%"><code>0x{x:0>2}</code></td>
+                        \\        <td align="left" width="1%"><code>{s}</code></td>
+                        \\        <td align="center" colspan="3">{s}</td>
+                        \\    </tr>
+                        \\</table>
+                        \\
+                        , .{
+                            name,
+                            1 + numOperands, formatDoc(doc),
+                            formatParams(operands),
+                            @intFromEnum(@field(OpCode, name)), name,
+                            description,
+                        }
+                    );
+                }
+            }
+        }
+    }
+}
+
+
 fn formatDoc(comptime doc: []const u8) []const u8 {
     comptime var out: []const u8 = "";
 
@@ -320,274 +662,4 @@ fn makeIntFloatCastFields(comptime name: [:0]const u8) []const u8 {
     }
 
     return out;
-}
-
-pub const std_options = std.Options{
-    .log_level = .warn,
-};
-
-const log = std.log.scoped(.@"templater:readme:isa");
-
-pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-
-    // const allocator = arena.allocator();
-
-    const out = std.io.getStdOut().writer();
-
-    inline for (comptime std.meta.fieldNames(@TypeOf(prototypes))) |categoryName| {
-        const category = @field(prototypes, categoryName);
-
-        if (comptime strCmp(categoryName, "Arithmetic")) {
-            try out.print("\n#### {s}\n", .{categoryName});
-
-            inline for (0..category.len) |i| {
-                const proto = category[i];
-
-                const name = proto[0];
-                const doc = proto[1];
-                const multipliers: AVI = proto[2];
-                const operands = proto[3];
-
-                const numOperands = std.meta.fieldNames(operands).len;
-
-                try out.print(
-                    \\<table>
-                    \\    <tr>
-                    \\        <th colspan="3" align="left" width="100%">{s}<img width="960px" height="1" align="right"></th>
-                    \\        <td colspan="2">Params</td>
-                    \\    </tr>
-                    \\    <tr>
-                    \\        <td colspan="3" rowspan="{}" width="100%" align="center">{s}</td>
-                    \\    </tr>
-                    \\    {s}
-                    \\    {s}
-                    \\</table>
-                    \\
-                    , .{
-                        name,
-                        1 + numOperands, formatDoc(doc),
-                        formatParams(operands),
-                        switch (multipliers) {
-                            .none => std.fmt.comptimePrint("<tr><td>`{s}`</td></tr>", .{name}),
-                            .int_only => |signVariance| comptime makeIntFields(name, signVariance),
-                            .float_only => comptime makeFloatFields(name),
-                            .int_float => |signVariance| comptime makeIntFields(name, signVariance) ++ " " ++ makeFloatFields(name),
-                        },
-                    }
-                );
-            }
-        } else if (comptime std.mem.endsWith(u8, categoryName, "_bits")) {
-            inline for (0..category.len) |i| {
-                const proto = category[i];
-
-                const name = proto[0];
-                const doc = proto[1];
-                const operands = proto[2];
-                const numOperands = std.meta.fieldNames(operands).len;
-
-                try out.print(
-                    \\<table>
-                    \\    <tr>
-                    \\        <th colspan="3" align="left" width="100%">{s}<img width="960px" height="1" align="right"></th>
-                    \\        <td colspan="2">Params</td>
-                    \\    </tr>
-                    \\    <tr>
-                    \\        <td colspan="3" rowspan="{}" width="100%" align="center">{s}</td>
-                    \\    </tr>
-                    \\    {s}
-                    \\    {s}
-                    \\</table>
-                    \\
-                    , .{
-                        name,
-                        1 + numOperands, formatDoc(doc),
-                        formatParams(operands),
-                        comptime bitNames(name),
-                    }
-                );
-            }
-        } else if (comptime std.mem.endsWith(u8, categoryName, "_v")) {
-            inline for (0..category.len) |i| {
-                const proto = category[i];
-
-                const name = proto[0];
-                const doc = proto[1];
-                const operands = proto[2];
-                const vDoc = proto[3];
-                const vOperands = proto[4];
-                const numOperands = (if (operands != void) std.meta.fieldNames(operands).len else 1)
-                                  + (if (vOperands != void) std.meta.fieldNames(vOperands).len else 1);
-
-                const fieldName = std.fmt.comptimePrint("{s}_v", .{name});
-                const description = comptime longName(name);
-
-                try out.print(
-                    \\<table>
-                    \\    <tr>
-                    \\        <th colspan="3" align="left" width="100%">{s}<img width="960px" height="1" align="right"></th>
-                    \\        <td colspan="2">Params&nbsp;(both)</td>
-                    \\    </tr>
-                    \\    <tr>
-                    \\        <td colspan="3" rowspan="{}" width="100%" align="center">{s}<br><br>for <code>_v</code>, {s}</td>
-                    \\    </tr>
-                    \\    {s}
-                    \\    <tr>
-                    \\        <td colspan="2">Params&nbsp;(_v)</td>
-                    \\    </tr>
-                    \\    {s}
-                    \\    <tr>
-                    \\        <td align="right" width="1%"><code>0x{x:0>2}</code></td>
-                    \\        <td align="left" width="1%"><code>{s}</code></td>
-                    \\        <td align="center" colspan="3">{s}</td>
-                    \\    </tr>
-                    \\    <tr>
-                    \\        <td align="right" width="1%"><code>0x{x:0>2}</code></td>
-                    \\        <td align="left" width="1%"><code>{s}</code></td>
-                    \\        <td align="center" colspan="3">{s} with a result value</td>
-                    \\    </tr>
-                    \\</table>
-                    \\
-                    , .{
-                        name,
-                        2 + numOperands, formatDoc(doc), formatDoc(vDoc),
-                        formatParams(operands),
-                        formatParams(vOperands),
-                        @intFromEnum(@field(OpCode, name)), name, description,
-                        @intFromEnum(@field(OpCode, fieldName)), fieldName, description,
-                    }
-                );
-            }
-        } else if (comptime std.mem.startsWith(u8, categoryName, "Size Cast")) {
-            try out.print("\n#### {s}\n", .{categoryName});
-
-            inline for (0..category.len) |i| {
-                const proto = category[i];
-
-                const name = proto[0];
-                const doc = proto[1];
-                const order: AVI.SizeCast = proto[2];
-                const operands = proto[3];
-
-                const numOperands = std.meta.fieldNames(operands).len;
-
-                try out.print(
-                    \\<table>
-                    \\    <tr>
-                    \\        <th colspan="3" align="left" width="100%">{s}<img width="960px" height="1" align="right"></th>
-                    \\        <td colspan="2">Params</td>
-                    \\    </tr>
-                    \\    <tr>
-                    \\        <td colspan="3" rowspan="{}" width="100%" align="center">{s}</td>
-                    \\    </tr>
-                    \\    {s}
-                    \\    {s}
-                    \\</table>
-                    \\
-                    , .{
-                        name,
-                        1 + numOperands, formatDoc(doc),
-                        formatParams(operands),
-                        comptime makeSizeCastFields(name, categoryName, order),
-                    }
-                );
-            }
-        } else if (comptime strCmp(categoryName, "Int <-> Float Cast")) {
-            try out.print("\n#### {s}\n", .{categoryName});
-
-            const proto = category[0];
-
-            const name = proto[0];
-            const doc = proto[1];
-            const operands = proto[2];
-            const numOperands = std.meta.fieldNames(operands).len;
-
-            try out.print(
-                \\<table>
-                \\    <tr>
-                \\        <th colspan="3" align="left" width="100%">a_to_b<img width="960px" height="1" align="right"></th>
-                \\        <td colspan="2">Params</td>
-                \\    </tr>
-                \\    <tr>
-                \\        <td colspan="3" rowspan="{}" align="center">{s}</td>
-                \\    </tr>
-                \\    {s}
-                \\    {s}
-                \\</table>
-                \\
-                , .{
-                    1 + numOperands, formatDoc(doc),
-                    formatParams(operands),
-                    comptime makeIntFloatCastFields(name),
-                }
-            );
-        } else {
-            try out.print("\n#### {s}\n", .{categoryName});
-            inline for (0..category.len) |i| {
-                const proto = category[i];
-
-                const name = proto[0];
-                const doc = proto[1];
-                const operands = proto[2];
-
-                const description = comptime longName(name);
-
-                if (operands == void) {
-                    try out.print(
-                        \\<table>
-                        \\    <tr>
-                        \\        <th colspan="3" align="left" width="100%">{s}<img width="960px" height="1" align="right"></th>
-                        \\        <td>Params</td>
-                        \\    </tr>
-                        \\    <tr>
-                        \\        <td colspan="3" width="100%" align="center">{s}</td>
-                        \\        <td>None</td>
-                        \\    </tr>
-                        \\    <tr>
-                        \\        <td align="right" width="1%"><code>0x{x:0>2}</code></td>
-                        \\        <td align="left" width="1%"><code>{s}</code></td>
-                        \\        <td align="center" colspan="2">{s}</td>
-                        \\    </tr>
-                        \\</table>
-                        \\
-                        , .{
-                            name,
-                            formatDoc(doc),
-                            @intFromEnum(@field(OpCode, name)), name,
-                            description,
-                        }
-                    );
-                } else {
-                    const numOperands = std.meta.fieldNames(operands).len;
-
-                    try out.print(
-                        \\<table>
-                        \\    <tr>
-                        \\        <th colspan="3" align="left" width="100%">{s}<img width="960px" height="1" align="right"></th>
-                        \\        <td colspan="2">Params</td>
-                        \\    </tr>
-                        \\    <tr>
-                        \\        <td colspan="3" rowspan="{}" width="100%" align="center">{s}</td>
-                        \\    </tr>
-                        \\    {s}
-                        \\    <tr>
-                        \\        <td align="right" width="1%"><code>0x{x:0>2}</code></td>
-                        \\        <td align="left" width="1%"><code>{s}</code></td>
-                        \\        <td align="center" colspan="3">{s}</td>
-                        \\    </tr>
-                        \\</table>
-                        \\
-                        , .{
-                            name,
-                            1 + numOperands, formatDoc(doc),
-                            formatParams(operands),
-                            @intFromEnum(@field(OpCode, name)), name,
-                            description,
-                        }
-                    );
-                }
-            }
-        }
-    }
 }

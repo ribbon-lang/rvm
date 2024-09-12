@@ -32,6 +32,9 @@ discouraged.
         * [From other languages](#from-other-languages)
     - [CLI](#cli)
 + [ISA](#isa)
+    - [High Level Properties](#high-level-properties)
+    - [Parameter Legend](#parameter-legend)
+    <!--#Readme:ISA toc-->
 
 ## Discussion
 
@@ -141,4 +144,4 @@ but here is a preliminary rundown.
 
 ### Op codes
 
-<!--#Readme:ISA-->
+<!--#Readme:ISA body-->

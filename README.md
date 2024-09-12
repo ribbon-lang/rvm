@@ -34,6 +34,17 @@ discouraged.
         * [From other languages](#from-other-languages)
     - [CLI](#cli)
 + [ISA](#isa)
+    - [High Level Properties](#high-level-properties)
+    - [Parameter Legend](#parameter-legend)
+    - [Basic](#basic)
+    - [Control Flow](#control-flow)
+    - [Memory](#memory)
+    - [Arithmetic](#arithmetic)
+    - [Boolean](#boolean)
+    - [Size Cast Int](#size-cast-int)
+    - [Size Cast Float](#size-cast-float)
+    - [Int <-> Float Cast](#int---float-cast)
+
 
 ## Discussion
 
