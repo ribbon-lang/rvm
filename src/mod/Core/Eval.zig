@@ -63,6 +63,8 @@ pub fn stepBytecode(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fib
 
         .call => |operands| try call(fiber, localData, upvalueData, operands.f, operands.as, null),
         .call_v => |operands| try call(fiber, localData, upvalueData, operands.f, operands.as, operands.y),
+        .dyn_call => |operands| try dynCall(fiber, localData, upvalueData, operands.f, operands.as, null),
+        .dyn_call_v => |operands| try dynCall(fiber, localData, upvalueData, operands.f, operands.as, operands.y),
         .prompt => |operands| try prompt(fiber, localData, upvalueData, operands.e, operands.as, null),
         .prompt_v => |operands| try prompt(fiber, localData, upvalueData, operands.e, operands.as, operands.y),
 
@@ -70,6 +72,491 @@ pub fn stepBytecode(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fib
         .ret_v => |operands| try ret(fiber, function, callFrame, localData, upvalueData, operands.y),
         .term => try term(fiber, function, callFrame, localData, upvalueData, null),
         .term_v => |operands| try term(fiber, function, callFrame, localData, upvalueData, operands.y),
+
+        .when_z => |operands| {
+            const cond = try read(u8, globals, stack, localData, upvalueData, operands.x);
+            const newBlockIndex = operands.b;
+
+            if (newBlockIndex >= function.value.bytecode.blocks.len) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutOfBounds;
+            }
+
+            const newBlock = &function.value.bytecode.blocks[newBlockIndex];
+
+            if (newBlock.kind.hasOutput()) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutValueMismatch;
+            }
+
+            if (cond == 0) {
+                try fiber.stack.block.push(.noOutput(newBlockIndex));
+            }
+        },
+
+        .when_nz => |operands| {
+            const cond = try read(u8, globals, stack, localData, upvalueData, operands.x);
+            const newBlockIndex = operands.b;
+
+            if (newBlockIndex >= function.value.bytecode.blocks.len) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutOfBounds;
+            }
+
+            const newBlock = &function.value.bytecode.blocks[newBlockIndex];
+
+            if (newBlock.kind.hasOutput()) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutValueMismatch;
+            }
+
+            if (cond != 0) {
+                try fiber.stack.block.push(.noOutput(newBlockIndex));
+            }
+        },
+
+        .re => |operands| {
+            const restartedBlockOffset = operands.b;
+
+            const blockPtr = fiber.stack.block.ptr;
+
+            if (restartedBlockOffset >= blockPtr) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutOfBounds;
+            }
+
+            const restartedBlockPtr = blockPtr - (restartedBlockOffset + 1);
+
+            const restartedBlockFrame = try fiber.stack.block.getPtr(restartedBlockPtr);
+
+            const restartedBlock = &function.value.bytecode.blocks[restartedBlockFrame.index];
+
+            if (restartedBlock.kind != .basic) {
+                @branchHint(.cold);
+                return Fiber.Trap.InvalidBlockRestart;
+            }
+
+            restartedBlockFrame.ip_offset = 0;
+
+            fiber.stack.block.ptr = restartedBlockPtr + 1;
+        },
+
+        .re_z => |operands| {
+            const cond = try read(u8, globals, stack, localData, upvalueData, operands.x);
+
+            const restartedBlockOffset = operands.b;
+
+            const blockPtr = fiber.stack.block.ptr;
+
+            if (restartedBlockOffset >= blockPtr) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutOfBounds;
+            }
+
+            const restartedBlockPtr = blockPtr - (restartedBlockOffset + 1);
+
+            const restartedBlockFrame = try fiber.stack.block.getPtr(restartedBlockPtr);
+
+            const restartedBlock = &function.value.bytecode.blocks[restartedBlockFrame.index];
+
+            if (restartedBlock.kind != .basic) {
+                @branchHint(.cold);
+                return Fiber.Trap.InvalidBlockRestart;
+            }
+
+            if (cond == 0) {
+                restartedBlockFrame.ip_offset = 0;
+
+                fiber.stack.block.ptr = restartedBlockPtr + 1;
+            }
+        },
+
+        .re_nz => |operands| {
+            const cond = try read(u8, globals, stack, localData, upvalueData, operands.x);
+
+            const restartedBlockOffset = operands.b;
+
+            const blockPtr = fiber.stack.block.ptr;
+
+            if (restartedBlockOffset >= blockPtr) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutOfBounds;
+            }
+
+            const restartedBlockPtr = blockPtr - (restartedBlockOffset + 1);
+
+            const restartedBlockFrame = try fiber.stack.block.getPtr(restartedBlockPtr);
+
+            const restartedBlock = &function.value.bytecode.blocks[restartedBlockFrame.index];
+
+            if (restartedBlock.kind != .basic) {
+                @branchHint(.cold);
+                return Fiber.Trap.InvalidBlockRestart;
+            }
+
+            if (cond != 0) {
+                restartedBlockFrame.ip_offset = 0;
+
+                fiber.stack.block.ptr = restartedBlockPtr + 1;
+            }
+        },
+
+        .br => |operands | {
+            const terminatedBlockOffset = operands.b;
+
+            const blockPtr = fiber.stack.block.ptr;
+
+            if (terminatedBlockOffset >= blockPtr) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutOfBounds;
+            }
+
+            const terminatedBlockPtr = blockPtr - (terminatedBlockOffset + 1);
+            const terminatedBlockFrame = try fiber.stack.block.getPtr(terminatedBlockPtr);
+            const terminatedBlock = &function.value.bytecode.blocks[terminatedBlockFrame.index];
+
+            if (terminatedBlock.kind.hasOutput()) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutValueMismatch;
+            }
+
+            fiber.stack.block.ptr = terminatedBlockPtr;
+        },
+
+        .br_z => |operands | {
+            const cond = try read(u8, globals, stack, localData, upvalueData, operands.x);
+            const terminatedBlockOffset = operands.b;
+
+            const blockPtr = fiber.stack.block.ptr;
+
+            if (terminatedBlockOffset >= blockPtr) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutOfBounds;
+            }
+
+            const terminatedBlockPtr = blockPtr - (terminatedBlockOffset + 1);
+            const terminatedBlockFrame = try fiber.stack.block.getPtr(terminatedBlockPtr);
+            const terminatedBlock = &function.value.bytecode.blocks[terminatedBlockFrame.index];
+
+            if (terminatedBlock.kind.hasOutput()) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutValueMismatch;
+            }
+
+            if (cond == 0) {
+                fiber.stack.block.ptr = terminatedBlockPtr;
+            }
+        },
+
+        .br_nz => |operands | {
+            const cond = try read(u8, globals, stack, localData, upvalueData, operands.x);
+            const terminatedBlockOffset = operands.b;
+
+            const blockPtr = fiber.stack.block.ptr;
+
+            if (terminatedBlockOffset >= blockPtr) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutOfBounds;
+            }
+
+            const terminatedBlockPtr = blockPtr - (terminatedBlockOffset + 1);
+            const terminatedBlockFrame = try fiber.stack.block.getPtr(terminatedBlockPtr);
+            const terminatedBlock = &function.value.bytecode.blocks[terminatedBlockFrame.index];
+
+            if (terminatedBlock.kind.hasOutput()) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutValueMismatch;
+            }
+
+            if (cond != 0) {
+                fiber.stack.block.ptr = terminatedBlockPtr;
+            }
+        },
+
+        .br_v => |operands| {
+            const terminatedBlockOffset = operands.b;
+
+            const blockPtr = fiber.stack.block.ptr;
+
+            if (terminatedBlockOffset >= blockPtr) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutOfBounds;
+            }
+
+            const terminatedBlockPtr = blockPtr - (terminatedBlockOffset + 1);
+            const terminatedBlockFrame = try fiber.stack.block.getPtr(terminatedBlockPtr);
+            const terminatedBlock = &function.value.bytecode.blocks[terminatedBlockFrame.index];
+
+            if (!terminatedBlock.kind.hasOutput()) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutValueMismatch;
+            }
+
+            const desiredSize = terminatedBlock.output_layout.?.size;
+            const src = try addr(globals, stack, localData, upvalueData, operands.y, desiredSize);
+            const dest = try addr(globals, stack, localData, upvalueData, terminatedBlockFrame.out, desiredSize);
+            @memcpy(dest[0..desiredSize], src);
+
+            fiber.stack.block.ptr = terminatedBlockPtr;
+        },
+
+        .br_z_v => |operands| {
+            const cond = try read(u8, globals, stack, localData, upvalueData, operands.x);
+            const terminatedBlockOffset = operands.b;
+
+            const blockPtr = fiber.stack.block.ptr;
+
+            if (terminatedBlockOffset >= blockPtr) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutOfBounds;
+            }
+
+            const terminatedBlockPtr = blockPtr - (terminatedBlockOffset + 1);
+            const terminatedBlockFrame = try fiber.stack.block.getPtr(terminatedBlockPtr);
+            const terminatedBlock = &function.value.bytecode.blocks[terminatedBlockFrame.index];
+
+            if (!terminatedBlock.kind.hasOutput()) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutValueMismatch;
+            }
+
+            const desiredSize = terminatedBlock.output_layout.?.size;
+            const src = try addr(globals, stack, localData, upvalueData, operands.y, desiredSize);
+            const dest = try addr(globals, stack, localData, upvalueData, terminatedBlockFrame.out, desiredSize);
+            @memcpy(dest[0..desiredSize], src);
+
+            if (cond == 0) {
+                fiber.stack.block.ptr = terminatedBlockPtr;
+            }
+        },
+
+        .br_nz_v => |operands| {
+            const cond = try read(u8, globals, stack, localData, upvalueData, operands.x);
+            const terminatedBlockOffset = operands.b;
+
+            const blockPtr = fiber.stack.block.ptr;
+
+            if (terminatedBlockOffset >= blockPtr) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutOfBounds;
+            }
+
+            const terminatedBlockPtr = blockPtr - (terminatedBlockOffset + 1);
+            const terminatedBlockFrame = try fiber.stack.block.getPtr(terminatedBlockPtr);
+            const terminatedBlock = &function.value.bytecode.blocks[terminatedBlockFrame.index];
+
+            if (!terminatedBlock.kind.hasOutput()) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutValueMismatch;
+            }
+
+            const desiredSize = terminatedBlock.output_layout.?.size;
+            const src = try addr(globals, stack, localData, upvalueData, operands.y, desiredSize);
+            const dest = try addr(globals, stack, localData, upvalueData, terminatedBlockFrame.out, desiredSize);
+            @memcpy(dest[0..desiredSize], src);
+
+            if (cond != 0) {
+                fiber.stack.block.ptr = terminatedBlockPtr;
+            }
+        },
+
+        .block => |operands| {
+            const newBlockIndex = operands.b;
+
+            if (newBlockIndex >= function.value.bytecode.blocks.len) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutOfBounds;
+            }
+
+            const newBlock = &function.value.bytecode.blocks[newBlockIndex];
+
+            if (newBlock.kind.hasOutput()) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutValueMismatch;
+            }
+
+            try fiber.stack.block.push(.noOutput(newBlockIndex));
+        },
+
+        .block_v => |operands| {
+            const newBlockIndex = operands.b;
+
+            if (newBlockIndex >= function.value.bytecode.blocks.len) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutOfBounds;
+            }
+
+            const newBlock = &function.value.bytecode.blocks[newBlockIndex];
+
+            if (!newBlock.kind.hasOutput()) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutValueMismatch;
+            }
+
+            try fiber.stack.block.push(.value(newBlockIndex, operands.y));
+        },
+
+        .if_nz => |operands| {
+            const cond = try read(u8, globals, stack, localData, upvalueData, operands.x);
+            const thenBlockIndex = operands.t;
+            const elseBlockIndex = operands.e;
+
+            const thenBlockInBounds = @intFromBool(thenBlockIndex < function.value.bytecode.blocks.len);
+            const elseBlockInBounds = @intFromBool(elseBlockIndex < function.value.bytecode.blocks.len);
+            if (thenBlockInBounds & elseBlockInBounds != 1) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutOfBounds;
+            }
+
+            const thenBlock = &function.value.bytecode.blocks[thenBlockIndex];
+            const elseBlock = &function.value.bytecode.blocks[elseBlockIndex];
+
+            const thenBlockHasOutput = @intFromBool(thenBlock.kind.hasOutput());
+            const elseBlockHasOutput = @intFromBool(elseBlock.kind.hasOutput());
+            if (thenBlockHasOutput | elseBlockHasOutput != 0) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutValueMismatch;
+            }
+
+            if (cond != 0) {
+                try fiber.stack.block.push(.noOutput(thenBlockIndex));
+            } else {
+                try fiber.stack.block.push(.noOutput(elseBlockIndex));
+            }
+        },
+
+        .if_nz_v => |operands| {
+            const cond = try read(u8, globals, stack, localData, upvalueData, operands.x);
+            const thenBlockIndex = operands.t;
+            const elseBlockIndex = operands.e;
+
+            const thenBlockInBounds = @intFromBool(thenBlockIndex < function.value.bytecode.blocks.len);
+            const elseBlockInBounds = @intFromBool(elseBlockIndex < function.value.bytecode.blocks.len);
+            if (thenBlockInBounds & elseBlockInBounds != 1) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutOfBounds;
+            }
+
+            const thenBlock = &function.value.bytecode.blocks[thenBlockIndex];
+            const elseBlock = &function.value.bytecode.blocks[elseBlockIndex];
+
+            const thenBlockHasOutput = @intFromBool(thenBlock.kind.hasOutput());
+            const elseBlockHasOutput = @intFromBool(elseBlock.kind.hasOutput());
+            if (thenBlockHasOutput & elseBlockHasOutput != 1) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutValueMismatch;
+            }
+
+            if (cond != 0) {
+                try fiber.stack.block.push(.value(thenBlockIndex, operands.y));
+            } else {
+                try fiber.stack.block.push(.value(elseBlockIndex, operands.y));
+            }
+        },
+
+        .if_z => |operands| {
+            const cond = try read(u8, globals, stack, localData, upvalueData, operands.x);
+            const thenBlockIndex = operands.t;
+            const elseBlockIndex = operands.e;
+
+            const thenBlockInBounds = @intFromBool(thenBlockIndex < function.value.bytecode.blocks.len);
+            const elseBlockInBounds = @intFromBool(elseBlockIndex < function.value.bytecode.blocks.len);
+            if (thenBlockInBounds & elseBlockInBounds != 1) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutOfBounds;
+            }
+
+            const thenBlock = &function.value.bytecode.blocks[thenBlockIndex];
+            const elseBlock = &function.value.bytecode.blocks[elseBlockIndex];
+
+            const thenBlockHasOutput = @intFromBool(thenBlock.kind.hasOutput());
+            const elseBlockHasOutput = @intFromBool(elseBlock.kind.hasOutput());
+            if (thenBlockHasOutput | elseBlockHasOutput != 0) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutValueMismatch;
+            }
+
+            if (cond == 0) {
+                try fiber.stack.block.push(.noOutput(thenBlockIndex));
+            } else {
+                try fiber.stack.block.push(.noOutput(elseBlockIndex));
+            }
+        },
+
+        .if_z_v => |operands| {
+            const cond = try read(u8, globals, stack, localData, upvalueData, operands.x);
+            const thenBlockIndex = operands.t;
+            const elseBlockIndex = operands.e;
+
+            const thenBlockInBounds = @intFromBool(thenBlockIndex < function.value.bytecode.blocks.len);
+            const elseBlockInBounds = @intFromBool(elseBlockIndex < function.value.bytecode.blocks.len);
+            if (thenBlockInBounds & elseBlockInBounds != 1) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutOfBounds;
+            }
+
+            const thenBlock = &function.value.bytecode.blocks[thenBlockIndex];
+            const elseBlock = &function.value.bytecode.blocks[elseBlockIndex];
+
+            const thenBlockHasOutput = @intFromBool(thenBlock.kind.hasOutput());
+            const elseBlockHasOutput = @intFromBool(elseBlock.kind.hasOutput());
+            if (thenBlockHasOutput & elseBlockHasOutput != 1) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutValueMismatch;
+            }
+
+            if (cond == 0) {
+                try fiber.stack.block.push(.value(thenBlockIndex, operands.y));
+            } else {
+                try fiber.stack.block.push(.value(elseBlockIndex, operands.y));
+            }
+        },
+
+        .case => |operands| {
+            const index = try read(u8, globals, stack, localData, upvalueData, operands.x);
+
+            if (index >= operands.bs.len) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutOfBounds;
+            }
+
+            // TODO: find a way to do this more efficiently
+            for (operands.bs) |blockIndex| {
+                const caseBlock = &function.value.bytecode.blocks[blockIndex];
+
+                if (caseBlock.kind.hasOutput()) {
+                    @branchHint(.cold);
+                    return Fiber.Trap.OutValueMismatch;
+                }
+            }
+
+            const caseBlockIndex = operands.bs[index];
+
+            try fiber.stack.block.push(.noOutput(caseBlockIndex));
+        },
+
+        .case_v => |operands| {
+            const index = try read(u8, globals, stack, localData, upvalueData, operands.x);
+
+            if (index >= operands.bs.len) {
+                @branchHint(.cold);
+                return Fiber.Trap.OutOfBounds;
+            }
+
+            // TODO: find a way to do this more efficiently
+            for (operands.bs) |blockIndex| {
+                const caseBlock = &function.value.bytecode.blocks[blockIndex];
+
+                if (!caseBlock.kind.hasOutput()) {
+                    @branchHint(.cold);
+                    return Fiber.Trap.OutValueMismatch;
+                }
+            }
+
+            const caseBlockIndex = operands.bs[index];
+
+            try fiber.stack.block.push(.value(caseBlockIndex, operands.y));
+        },
 
         .addr => |operands| {
             const bytes: [*]const u8 = try addr(globals, stack, localData, upvalueData, operands.x, 0);
@@ -395,9 +882,13 @@ fn copy(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack,
     @as(*T, @ptrCast(@alignCast(yBytes))).* = @as(*const T, @ptrCast(@alignCast(xBytes))).*;
 }
 
-fn call(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, func: Bytecode.Operand, args: []const Bytecode.Operand, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn dynCall(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, func: Bytecode.Operand, args: []const Bytecode.Operand, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const funcIndex = try read(Bytecode.FunctionIndex, &fiber.program.globals, &fiber.stack.data, localData, upvalueData, func);
 
+    return call(fiber, localData, upvalueData, funcIndex, args, out);
+}
+
+fn call(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, funcIndex: Bytecode.FunctionIndex, args: []const Bytecode.Operand, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     if (funcIndex >= fiber.program.functions.len) {
         @branchHint(.cold);
         return Fiber.Trap.OutOfBounds;
@@ -476,6 +967,8 @@ fn term(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame
         if (rootBlock.kind.hasOutput()) {
             const size = function.layout_table.term_layout.?.size;
             const src: [*]const u8 = try addr(&fiber.program.globals, &fiber.stack.data, localData, upvalueData, outOp, size);
+
+            // BUG: the destination needs to be looked up with local/upvalue data relative to the root function
             const dest: [*]u8 = try addr(&fiber.program.globals, &fiber.stack.data, localData, upvalueData, rootBlockFrame.out, size);
             @memcpy(dest[0..size], src);
         } else {
@@ -498,6 +991,8 @@ fn ret(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame,
         if (rootBlock.kind.hasOutput()) {
             const size = function.layout_table.return_layout.?.size;
             const src: [*]const u8 = try addr(&fiber.program.globals, &fiber.stack.data, localData, upvalueData, outOp, size);
+
+            // BUG: the destination needs to be looked up with local/upvalue data relative to the root function
             const dest: [*]u8 = try addr(&fiber.program.globals, &fiber.stack.data, localData, upvalueData, rootBlockFrame.out, size);
             @memcpy(dest[0..size], src);
         } else {

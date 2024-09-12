@@ -69,7 +69,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
                 return Error.OutOfBounds;
             }
 
-            return @ptrCast(self.memory[i..self.ptr].ptr);
+            return &self.memory[i];
         }
 
         pub fn getSlice(self: *const Self, i: Ptr, n: usize) callconv(Config.INLINING_CALL_CONV) Error![]T {

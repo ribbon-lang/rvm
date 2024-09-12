@@ -123,6 +123,7 @@ pub const Block = struct {
     base: InstructionPointer,
     size: InstructionPointerOffset,
     handlers: HandlerSetIndex,
+    output_layout: ?Layout,
 
     pub const Kind = enum(u8) {
           basic = 0x00, basic_v = 0x10,
@@ -402,7 +403,7 @@ test {
     const trap = Op { .trap = {} };
     try encoder.encode(allocator, trap);
 
-    const call = Op { .call_v = .{
+    const call = Op { .dyn_call_v = .{
         .f = .local(.r12, 45),
         .as = &[_]Bytecode.Operand {
             .local(.r1, 0), .local(.r2, 256), .upvalue(.r3, 13), .local(.r44, 44)

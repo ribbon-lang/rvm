@@ -43,6 +43,7 @@ pub const Trap = error {
     ArgCountMismatch,
     MissingOutputValue,
     BadAlignment,
+    InvalidBlockRestart,
 };
 
 
@@ -116,8 +117,8 @@ pub const BlockFrame = packed struct {
     ip_offset: Bytecode.InstructionPointerOffset,
     out: Bytecode.Operand,
 
-    pub inline fn noOutput(index: Bytecode.BlockIndex, ip_offset: Bytecode.InstructionPointerOffset) BlockFrame {
-        return .{ .index = index, .ip_offset = ip_offset, .out = undefined };
+    pub inline fn noOutput(index: Bytecode.BlockIndex) BlockFrame {
+        return .{ .index = index, .ip_offset = 0, .out = undefined };
     }
 
     pub inline fn entryPoint(operand: ?Bytecode.Operand) BlockFrame {
@@ -126,8 +127,8 @@ pub const BlockFrame = packed struct {
             else .{ .index = 0, .ip_offset = 0, .out = undefined };
     }
 
-    pub inline fn value(index: Bytecode.BlockIndex, ip_offset: Bytecode.InstructionPointerOffset, operand: Bytecode.Operand) BlockFrame {
-        return .{ .index = index, .ip_offset = ip_offset, .out = operand };
+    pub inline fn value(index: Bytecode.BlockIndex, operand: Bytecode.Operand) BlockFrame {
+        return .{ .index = index, .ip_offset = 0, .out = operand };
     }
 };
 

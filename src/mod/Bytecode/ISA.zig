@@ -10,6 +10,7 @@ const RegisterLocalOffset = Bytecode.RegisterLocalOffset;
 const BlockIndex = Bytecode.BlockIndex;
 const EvidenceIndex = Bytecode.EvidenceIndex;
 const ConstantIndex = Bytecode.ConstantIndex;
+const FunctionIndex = Bytecode.FunctionIndex;
 const HandlerSetIndex = Bytecode.HandlerSetIndex;
 
 const OpCodeIndex = u8;
@@ -28,47 +29,71 @@ pub const InstructionPrototypes = .{
     },
 
     .@"Control Flow" = .{
-        .{ "when"
-         , \\enter the block designated by `b`, if the condition in `x` is non-zero
+        .{ "when_nz"
+         , \\if the 8-bit condition in `x` is non-zero:
+           \\enter the block designated by `b`
+           \\
+           \\`b` is an absolute block index
          , BlockOperand
         },
 
-        .{ "unless"
-         , \\enter the block designated by `b`, if the condition in `x` is zero
+        .{ "when_z"
+         , \\if the 8-bit condition in `x` is zero:
+           \\enter the block designated by `b`
+           \\
+           \\`b` is an absolute block index
          , BlockOperand
         },
 
         .{ "re"
          , \\restart the block designated by `b`
+           \\
+           \\`b` is a relative block index
+           \\the designated block may not produce a value
          , Block
         },
 
-        .{ "re_if"
-         , \\restart the designated block, if the condition in `x` is non-zero
+        .{ "re_nz"
+         , \\if the 8-bit condition in `x` is non-zero:
+           \\restart the block designated by `b`
+           \\
+           \\`b` is a relative block index
+           \\
+           \\the designated block may not produce a value
+         , BlockOperand
+        },
+
+        .{ "re_z"
+         , \\if the 8-bit condition in `x` is zero:
+           \\restart the block designated by `b`
+           \\
+           \\`b` is a relative block index
+           \\
+           \\the designated block may not produce a value
          , BlockOperand
         },
     },
 
     .@"Control Flow _v" = .{
         .{ "call"
-         , \\call the function at the address stored in `f`
+         , \\call the function statically designated by `f`
            \\use the values designated by `as` as arguments
-         , Function
+         , StaticFunction
          , \\place the result in `y`
          , YieldOperand
         },
 
         .{ "tail_call"
-         , \\call the function at the address stored in `f`
+         , \\call the function statically designated by `f`
            \\use the values designated by `as` as arguments
            \\end the current function
-         , Function
+         , StaticFunction
          , \\place the result in the caller's return register
          , void
         },
 
         .{ "prompt"
-         , \\prompt the evidence given by `e`
+         , \\prompt the evidence designated by `e`
            \\use the values designated by `as` as arguments
          , Prompt
          , \\place the result in `y`
@@ -76,10 +101,27 @@ pub const InstructionPrototypes = .{
         },
 
         .{ "tail_prompt"
-         , \\prompt the evidence given by `e`
+         , \\prompt the evidence designated by `e`
            \\use the values designated by `as` as arguments
            \\end the current function
          , Prompt
+         , \\place the result in the caller's return register
+         , void
+        },
+
+        .{ "dyn_call"
+         , \\call the function at the index stored in `f`
+           \\use the values designated by `as` as arguments
+         , DynFunction
+         , \\place the result in `y`
+         , YieldOperand
+        },
+
+        .{ "dyn_tail_call"
+         , \\call the function at the index stored in `f`
+           \\use the values designated by `as` as arguments
+           \\end the current function
+         , DynFunction
          , \\place the result in the caller's return register
          , void
         },
@@ -100,6 +142,8 @@ pub const InstructionPrototypes = .{
 
         .{ "block"
          , \\enter the block designated by `b`
+           \\
+           \\`b` is an absolute block index
          , Block
          , \\place the result of the block in `y`
          , YieldOperand
@@ -108,31 +152,40 @@ pub const InstructionPrototypes = .{
         .{ "with"
          , \\enter the block designated by `b`
            \\use the effect handler set designated by `h` to handle effects
+           \\
+           \\`b` is an absolute block index
          , With
          , \\place the result of the block in `y`
          , YieldOperand
         },
 
         .{ "if_nz"
-         , \\if the condition in `x` is non-zero:
+         , \\if the 8-bit condition in `x` is non-zero:
            \\then: enter the block designated by `t`
            \\else: enter the block designated by `e`
+           \\
+           \\`t` and `e` are absolute block indices
          , Branch
          , \\place the result of the block in `y`
          , YieldOperand
         },
 
         .{ "if_z"
-         , \\if the condition in `x` is zero:
+         , \\if the 8-bit condition in `x` is zero:
            \\then: enter the block designated by `t`
            \\else: enter the block designated by `e`
+           \\
+           \\`t` and `e` are absolute block indices
          , Branch
          , \\place the result of the block in `y`
          , YieldOperand
         },
 
         .{ "case"
-         , \\enter one of the blocks designated in `bs`, indexed by the value in `x`
+         , \\indexed by the 8-bit value in `x`:
+           \\enter one of the blocks designated in `bs`
+           \\
+           \\each value of `bs` is an absolute block index
          , Case
          , \\place the result of the block in `y`
          , YieldOperand
@@ -140,13 +193,28 @@ pub const InstructionPrototypes = .{
 
         .{ "br"
          , \\exit the block designated by `b`
+           \\
+           \\`b` is a relative block index
          , Block
          , \\copy the value in `y` into the block's yield register
          , YieldOperand
         },
 
-        .{ "br_if"
-         , \\exit the block designated by `b`, if the condition in `x` is non-zero
+        .{ "br_nz"
+         , \\if the 8-bit condition in `x` is non-zero:
+           \\exit the block designated by `b`
+           \\
+           \\`b` is a relative block index
+         , BlockOperand
+         , \\copy the value in `y` into the block's yield register
+         , YieldOperand
+        },
+
+        .{ "br_z"
+         , \\if the 8-bit condition in `x` is zero:
+           \\exit the block designated by `b`
+           \\
+           \\`b` is a relative block index
          , BlockOperand
          , \\copy the value in `y` into the block's yield register
          , YieldOperand
@@ -421,7 +489,12 @@ pub const BlockOperand = struct {
     x: Operand,
 };
 
-pub const Function = struct {
+pub const StaticFunction = struct {
+    f: FunctionIndex,
+    as: []const Operand,
+};
+
+pub const DynFunction = struct {
     f: Operand,
     as: []const Operand,
 };

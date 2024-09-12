@@ -16,6 +16,7 @@ pub inline fn flip(value: std.builtin.Endian) std.builtin.Endian {
 
 pub inline fn bitCastTo(value: anytype) IntType(@TypeOf(value)).? {
     return switch (@typeInfo(@TypeOf(value))) {
+        .bool => @intFromBool(value),
         .@"enum" => @bitCast(@intFromEnum(value)),
 
         else => @bitCast(value),
@@ -24,6 +25,7 @@ pub inline fn bitCastTo(value: anytype) IntType(@TypeOf(value)).? {
 
 pub inline fn bitCastFrom(comptime T: type, value: IntType(T).?) T {
     return switch (@typeInfo(T)) {
+        .bool => value != 0,
         .@"enum" => |info| @enumFromInt(@as(info.tag_type, @bitCast(value))),
 
         else => @bitCast(value),
@@ -32,6 +34,8 @@ pub inline fn bitCastFrom(comptime T: type, value: IntType(T).?) T {
 
 pub fn IntType(comptime T: type) ?type {
     return switch (@typeInfo(T)) {
+        .bool => u8,
+
         .int => T,
         .vector => std.meta.Int(.unsigned, @sizeOf(T) * 8),
 
