@@ -27,32 +27,6 @@ pub const InstructionPrototypes = .{
         },
     },
 
-    .@"Functional" = .{
-        .{ "call"
-         , \\call the function at the address stored in `f`
-           \\use the registers `as` as arguments
-           \\place the result in `r`
-         , Function
-        },
-
-        .{ "prompt"
-         , \\prompt the evidence given by `e`
-           \\use the registers `as` as arguments
-           \\place the result in `r`
-         , Prompt
-        },
-
-        .{ "ret"
-         , \\return control from the current function
-         , void
-        },
-
-        .{ "terminate"
-         , \\terminate the current handler's with block
-         , void
-        },
-    },
-
     .@"Control Flow" = .{
         .{ "when"
          , \\enter the block designated by `b`, if the condition in `x` is non-zero
@@ -64,18 +38,66 @@ pub const InstructionPrototypes = .{
          , BlockOperand
         },
 
-        .{ "reiter"
+        .{ "re"
          , \\restart the block designated by `b`
          , Block
         },
 
-        .{ "reiter_if"
+        .{ "re_if"
          , \\restart the designated block, if the condition in `x` is non-zero
          , BlockOperand
         },
     },
 
     .@"Control Flow _v" = .{
+        .{ "call"
+         , \\call the function at the address stored in `f`
+           \\use the registers `as` as arguments
+         , Function
+         , \\place the result in `y`
+         , YieldOperand
+        },
+
+        .{ "tail_call"
+         , \\call the function at the address stored in `f`
+           \\use the registers `as` as arguments
+           \\end the current function
+         , Function
+         , \\place the result in the caller's return register
+         , void
+        },
+
+        .{ "prompt"
+         , \\prompt the evidence given by `e`
+           \\use the registers `as` as arguments
+         , Prompt
+         , \\place the result in `y`
+         , YieldOperand
+        },
+
+        .{ "tail_prompt"
+         , \\prompt the evidence given by `e`
+           \\use the registers `as` as arguments
+           \\end the current function
+         , Prompt
+         , \\place the result in the caller's return register
+         , void
+        },
+
+        .{ "ret"
+         , \\return control from the current function
+         , void
+         , \\place the result designated by `y` into the call's return register
+         , YieldOperand
+        },
+
+        .{ "term"
+         , \\terminate the current handler's with block
+         , void
+         , \\ place the result designated by `y` into the handler's return register
+         , YieldOperand
+        },
+
         .{ "block"
          , \\enter the block designated by `b`
          , Block
@@ -91,8 +113,17 @@ pub const InstructionPrototypes = .{
          , YieldOperand
         },
 
-        .{ "if_else"
+        .{ "if_nz"
          , \\if the condition in `x` is non-zero:
+           \\then: enter the block designated by `t`
+           \\else: enter the block designated by `e`
+         , Branch
+         , \\place the result of the block in `y`
+         , YieldOperand
+        },
+
+        .{ "if_z"
+         , \\if the condition in `x` is zero:
            \\then: enter the block designated by `t`
            \\else: enter the block designated by `e`
          , Branch
@@ -417,14 +448,12 @@ pub const BlockOperand = struct {
 
 pub const Function = struct {
     f: Operand,
-    r: Register,
-    as: []const Register,
+    as: []const Operand,
 };
 
 pub const Prompt = struct {
     e: EvidenceIndex,
-    r: Register,
-    as: []const Register,
+    as: []const Operand,
 };
 
 pub const With = struct {
@@ -609,7 +638,10 @@ pub const Op = ops: {
                     .name = fieldName,
                     .value = id,
                 };
-                const VT = TypeUtils.StructConcat(.{operands, vOperands});
+                const VT =
+                    if (operands == void) vOperands
+                    else if (vOperands == void) operands
+                    else TypeUtils.StructConcat(.{operands, vOperands});
                 unionFields[id] = .{
                     .name = fieldName,
                     .type = VT,

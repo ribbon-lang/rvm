@@ -33,13 +33,15 @@ pub const HandlerSetIndex = u16;
 pub const HandlerIndex = u8;
 pub const TypeIndex = u16;
 pub const RegisterIndex = u8;
-pub const GlobalIndex = u13;
+pub const GlobalIndex = u14;
 pub const GlobalOffset = u32;
 pub const EvidenceIndex = u16;
 pub const MemorySize = u48;
 
 
 pub const MAX_REGISTERS = std.math.maxInt(RegisterIndex);
+
+pub const EVIDENCE_SENTINEL = std.math.maxInt(EvidenceIndex);
 
 pub const Register = reg: {
     const TagType = RegisterIndex;
@@ -65,38 +67,28 @@ pub const Operand = packed struct {
     kind: Kind,
     data: OperandData,
 
-    pub const Kind = enum(u3) {
+    pub const Kind = enum(u2) {
         global,
-        local_var,
-        local_arg,
-        upvalue_var,
-        upvalue_arg,
+        upvalue,
+        local,
     };
 
     pub fn global(index: GlobalIndex, offset: RegisterLocalOffset) Operand {
         return .{ .kind = .global, .data = .{ .global = .{ .index = index, .offset = offset } } };
     }
 
-    pub fn local_var(reg: Register, offset: RegisterLocalOffset) Operand {
-        return .{ .kind = .local_var, .data = .{ .register = .{ .register = reg, .offset = offset } } };
+    pub fn upvalue(reg: Register, offset: RegisterLocalOffset) Operand {
+        return .{ .kind = .upvalue, .data = .{ .register = .{ .register = reg, .offset = offset } } };
     }
 
-    pub fn local_arg(reg: Register, offset: RegisterLocalOffset) Operand {
-        return .{ .kind = .local_arg, .data = .{ .register = .{ .register = reg, .offset = offset } } };
-    }
-
-    pub fn upvalue_var(reg: Register, offset: RegisterLocalOffset) Operand {
-        return .{ .kind = .upvalue_var, .data = .{ .register = .{ .register = reg, .offset = offset } } };
-    }
-
-    pub fn upvalue_arg(reg: Register, offset: RegisterLocalOffset) Operand {
-        return .{ .kind = .upvalue_arg, .data = .{ .register = .{ .register = reg, .offset = offset } } };
+    pub fn local(reg: Register, offset: RegisterLocalOffset) Operand {
+        return .{ .kind = .local, .data = .{ .register = .{ .register = reg, .offset = offset } } };
     }
 };
 
 comptime {
-    std.debug.assert(@sizeOf(Operand) == 4);
-    std.debug.assert(@bitSizeOf(Operand) == 32);
+    std.testing.expectEqual(32, @bitSizeOf(Operand)) catch unreachable;
+    std.testing.expectEqual(4, @sizeOf(Operand)) catch unreachable;
     // @compileError(std.fmt.comptimePrint(
     //     \\sizeOf(Operand) = {}, bitSizeOf(Operand) = {}
     //     \\sizeOf(OperandData) = {}, bitSizeOf(OperandData) = {}
@@ -197,19 +189,26 @@ pub const Type = union(enum) {
 };
 
 pub const LayoutTable = struct {
-    types: []TypeIndex,
-    layouts: []Layout,
-    local_offsets: []RegisterBaseOffset,
+    return_type: TypeIndex,
+    register_types: [*]TypeIndex,
+
+    return_layout: ?Layout,
+    register_layouts: [*]Layout,
+
+    register_offsets: [*]RegisterBaseOffset,
+
     size: LayoutTableSize,
     alignment: ValueAlignment,
-    num_params: RegisterIndex,
+
+    num_arguments: RegisterIndex,
+    num_registers: RegisterIndex,
 
     pub inline fn getType(self: *const LayoutTable, register: Register) TypeIndex {
-        return self.types[@as(RegisterIndex, @intFromEnum(register))];
+        return self.register_types[@as(RegisterIndex, @intFromEnum(register))];
     }
 
     pub inline fn getLayout(self: *const LayoutTable, register: Register) Layout {
-        return self.layouts[@as(RegisterIndex, @intFromEnum(register))];
+        return self.register_layouts[@as(RegisterIndex, @intFromEnum(register))];
     }
 
     pub inline fn inbounds(self: *const LayoutTable, operand: RegisterOperand, size: ValueSize) bool {
@@ -392,12 +391,12 @@ test {
     const trap = Op { .trap = {} };
     try encoder.encode(allocator, trap);
 
-    const call = Op { .call = .{
-        .f = .local_var(.r12, 45),
-        .r = .r33,
-        .as = &[_]Bytecode.Register {
-            .r1, .r2, .r3, .r44
+    const call = Op { .call_v = .{
+        .f = .local(.r12, 45),
+        .as = &[_]Bytecode.Operand {
+            .local(.r1, 0), .local(.r2, 256), .upvalue(.r3, 13), .local(.r44, 44)
         },
+        .y = .local(.r33, 0),
     }};
     try encoder.encode(allocator, call);
 
@@ -409,9 +408,8 @@ test {
 
     const prompt = Op { .prompt = .{
         .e = 234,
-        .r = .r55,
-        .as = &[_]Bytecode.Register {
-            .r4, .r6, .r9, .r133
+        .as = &[_]Bytecode.Operand {
+            .local(.r4, 100), .upvalue(.r6, 15), .local(.r9, 11), .local(.r133, 9)
         },
     }};
     try encoder.encode(allocator, prompt);

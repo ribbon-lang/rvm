@@ -38,8 +38,9 @@ pub const Trap = error {
     Overflow,
     OutOfBounds,
     MissingUpvalueContext,
-    ImmediateWrite,
+    OutValueMismatch,
     BadEncoding,
+    ArgCountMismatch,
 };
 
 
@@ -72,26 +73,28 @@ pub const StackSet = struct {
     }
 };
 
+
 pub const DATA_STACK_SIZE: usize
     = (1024 * 1024 * 8)
     // take a little bit off to account for the other stacks,
-    // making a nice even number of mb for the total fiber size  (16mb, currently)
-    - @rem(CALL_STACK_SIZE * @sizeOf(CallFrame)
-         + BLOCK_STACK_SIZE * @sizeOf(BlockFrame)
-         + EVIDENCE_VECTOR_SIZE * @sizeOf(Evidence)
-         , 1024 * 1024);
+    // making a nice even number of mb for the total fiber size  (24mb, currently)
+    - OVERFLOW_META_SIZE
+     ;
 pub const CALL_STACK_SIZE: usize = 4096;
 pub const BLOCK_STACK_SIZE: usize = CALL_STACK_SIZE * 256;
 pub const EVIDENCE_VECTOR_SIZE: usize = 1024;
+const TOTAL_META_SIZE: usize
+    = CALL_STACK_SIZE * @sizeOf(CallFrame)
+    + BLOCK_STACK_SIZE * @sizeOf(BlockFrame)
+    + EVIDENCE_VECTOR_SIZE * @sizeOf(Evidence);
+const OVERFLOW_META_SIZE: usize
+    = @rem(TOTAL_META_SIZE, 1024 * 1024);
 
 comptime {
     std.testing.expect(DATA_STACK_SIZE >= 7 * 1024 * 1024) catch unreachable;
     std.testing.expectEqual(
-        16 * 1024 * 1024,
-        DATA_STACK_SIZE
-         + CALL_STACK_SIZE * @sizeOf(CallFrame)
-         + BLOCK_STACK_SIZE * @sizeOf(BlockFrame)
-         + EVIDENCE_VECTOR_SIZE * @sizeOf(Evidence)
+        24 * 1024 * 1024,
+        DATA_STACK_SIZE + TOTAL_META_SIZE
     ) catch unreachable;
 }
 
@@ -99,26 +102,46 @@ pub const DataStack = Stack(u8, u24);
 pub const CallStack = Stack(CallFrame, u16);
 pub const BlockStack = Stack(BlockFrame, u16);
 
-pub const Evidence = struct {
+pub const Evidence = packed struct {
     handler: Bytecode.HandlerIndex,
     call: CallStack.Ptr,
     block: BlockStack.Ptr,
 };
 
-pub const BlockFrame = struct {
+pub const BlockFrame = packed struct {
     index: Bytecode.BlockIndex,
     ip_offset: Bytecode.InstructionPointerOffset,
+    output_kind: OutputKind,
     out: Bytecode.Operand,
+
+    pub const OutputKind = enum(u8) {
+        none,
+        call_none,
+        call_value,
+        value,
+    };
+
+    pub inline fn noOutput(index: Bytecode.BlockIndex, ip_offset: Bytecode.InstructionPointerOffset) BlockFrame {
+        return .{ .index = index, .ip_offset = ip_offset, .output_kind = .none, .out = undefined };
+    }
+
+    pub inline fn entryPoint(operand: ?Bytecode.Operand) BlockFrame {
+        return
+            if (operand) |op| .{ .index = 0, .ip_offset = 0, .output_kind = .call_value, .out = op }
+            else .{ .index = 0, .ip_offset = 0, .output_kind = .call_none, .out = undefined };
+    }
+
+    pub inline fn value(index: Bytecode.BlockIndex, ip_offset: Bytecode.InstructionPointerOffset, operand: Bytecode.Operand) BlockFrame {
+        return .{ .index = index, .ip_offset = ip_offset, .output_kind = .value, .out = operand };
+    }
 };
 
 pub const CallFrame = struct {
     function: Bytecode.FunctionIndex,
-    evidence: ?Bytecode.EvidenceIndex,
-    argument_offsets: []DataStack.Ptr,
-
+    evidence: Bytecode.EvidenceIndex,
     stack: StackRef,
 
-    pub const StackRef = struct {
+    pub const StackRef = packed struct {
         base: DataStack.Ptr,
         origin: DataStack.Ptr,
     };

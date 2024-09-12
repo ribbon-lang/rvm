@@ -29,7 +29,7 @@ fn formatDoc(comptime doc: []const u8) []const u8 {
 }
 
 fn formatParams(comptime T: type) []const u8 {
-    if (T == void) return "void";
+    if (T == void) return "<tr><td colspan=\"2\">None</td></tr>";
 
     comptime var out: []const u8 = "";
 
@@ -90,22 +90,24 @@ fn longName(comptime name: [:0]const u8) []const u8 {
         else if (strCmp(name, "nop")) "no operation"
 
         else if (strCmp(name, "call")) "function call"
+        else if (strCmp(name, "tail_call")) "function tail call"
         else if (strCmp(name, "prompt")) "dynamically bound effect handler call"
+        else if (strCmp(name, "tail_prompt")) "dynamically bound effect handler tail call"
         else if (strCmp(name, "ret")) "function return"
-        else if (strCmp(name, "terminate")) "effect handler termination"
+        else if (strCmp(name, "term")) "effect handler termination"
 
         else if (strCmp(name, "when")) "one-way conditional block"
         else if (strCmp(name, "unless")) "one-way conditional block"
-        else if (strCmp(name, "loop")) "loop block"
         else if (strCmp(name, "block")) "basic block"
         else if (strCmp(name, "with")) "effect handler block"
-        else if (strCmp(name, "if_else")) "two-way conditional block"
+        else if (strCmp(name, "if_z")) "two-way conditional block, based on the predicate being zero"
+        else if (strCmp(name, "if_nz")) "two-way conditional block, based on the predicate being non-zero"
         else if (strCmp(name, "case")) "jump table"
 
-        else if (strCmp(name, "br")) "unconditional branch"
-        else if (strCmp(name, "br_if")) "conditional branch"
-        else if (strCmp(name, "reiter")) "unconditional branch to start of loop"
-        else if (strCmp(name, "reiter_if")) "conditional branch to start of loop"
+        else if (strCmp(name, "br")) "unconditional branch out of block"
+        else if (strCmp(name, "br_if")) "conditional branch out of block"
+        else if (strCmp(name, "re")) "unconditional branch to start of block"
+        else if (strCmp(name, "re_if")) "conditional branch to start of block"
 
         else if (strCmp(name, "u_ext")) "unsigned integer extension"
         else if (strCmp(name, "s_ext")) "signed integer extension"
@@ -356,7 +358,8 @@ pub fn main() !void {
                 const operands = proto[2];
                 const vDoc = proto[3];
                 const vOperands = proto[4];
-                const numOperands = std.meta.fieldNames(operands).len + std.meta.fieldNames(vOperands).len;
+                const numOperands = (if (operands != void) std.meta.fieldNames(operands).len else 1)
+                                  + (if (vOperands != void) std.meta.fieldNames(vOperands).len else 1);
 
                 const fieldName = std.fmt.comptimePrint("{s}_v", .{name});
                 const description = comptime longName(name);

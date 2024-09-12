@@ -120,7 +120,7 @@ but here is a preliminary rundown.
 + Little-endian encoding
 + Separated address spaces for global data, executable, and working memory
 + Heap access controlled by host environment
-+ 13-bit address spaces for global data
++ 14-bit index x 16-bit address spaces for global data
 + Floating point values are IEEE754
 + Floats are fixed width, in sizes `32` and `64`
 + Integers are always two's complement

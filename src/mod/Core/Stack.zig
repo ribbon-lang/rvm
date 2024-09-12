@@ -94,9 +94,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
                 return Error.OutOfBounds;
             }
 
-            for (slice, i..) |value, j| {
-                self.memory[j] = value;
-            }
+            @memcpy(self.memory[i..i + slice.len], slice);
         }
 
         pub inline fn push(self: *Self, value: T) Error!void {
@@ -119,6 +117,17 @@ pub fn Stack(comptime T: type, comptime A: type) type {
                 self.memory[self.ptr] = value;
                 self.ptr += 1;
             }
+        }
+
+        pub inline fn pushUninitSlice(self: *Self, size: Ptr) ![]T {
+            if (self.ptr + size > self.memory.len) {
+                @branchHint(.cold);
+                return Error.Overflow;
+            }
+
+            const slice = &self.memory[self.ptr..self.ptr + size];
+            self.ptr += size;
+            return slice;
         }
 
         pub inline fn pop(self: *Self) Error!T {
