@@ -150,7 +150,11 @@ fn encodeStructure(self: *Encoder, comptime T: type, allocator: std.mem.Allocato
                 @compileError("cannot encode many-pointer `" ++ @typeName(T) ++ "` without sentinel");
             },
             .Slice => {
-                try self.encodeInline(usize, allocator, value.len);
+                if (value.len > std.math.maxInt(u8)) {
+                    @panic("cannot encode slice with length greater than u8");
+                }
+
+                try self.encodeInline(u8, allocator, @truncate(value.len));
 
                 try self.padInline(allocator, @alignOf(info.child));
 

@@ -206,13 +206,13 @@ fn decodeStructure(self: *const Decoder, comptime T: type) callconv(Config.INLIN
                 }
             },
             .Slice => {
-                const len = try self.decodeInline(usize);
+                const len = try self.decodeInline(u8);
 
                 try self.padInline(@alignOf(info.child));
 
                 const ptr: [*]const info.child = @alignCast(@ptrCast(&self.memory[self.ip()]));
 
-                const size = len * @sizeOf(info.child);
+                const size = len * @as(usize, @sizeOf(info.child));
 
                 if (!self.inbounds(size)) {
                     @branchHint(.cold);
