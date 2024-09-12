@@ -52,7 +52,7 @@ pub const InstructionPrototypes = .{
     .@"Control Flow _v" = .{
         .{ "call"
          , \\call the function at the address stored in `f`
-           \\use the registers `as` as arguments
+           \\use the values designated by `as` as arguments
          , Function
          , \\place the result in `y`
          , YieldOperand
@@ -60,7 +60,7 @@ pub const InstructionPrototypes = .{
 
         .{ "tail_call"
          , \\call the function at the address stored in `f`
-           \\use the registers `as` as arguments
+           \\use the values designated by `as` as arguments
            \\end the current function
          , Function
          , \\place the result in the caller's return register
@@ -69,7 +69,7 @@ pub const InstructionPrototypes = .{
 
         .{ "prompt"
          , \\prompt the evidence given by `e`
-           \\use the registers `as` as arguments
+           \\use the values designated by `as` as arguments
          , Prompt
          , \\place the result in `y`
          , YieldOperand
@@ -77,7 +77,7 @@ pub const InstructionPrototypes = .{
 
         .{ "tail_prompt"
          , \\prompt the evidence given by `e`
-           \\use the registers `as` as arguments
+           \\use the values designated by `as` as arguments
            \\end the current function
          , Prompt
          , \\place the result in the caller's return register
@@ -189,144 +189,126 @@ pub const InstructionPrototypes = .{
 
     .@"Arithmetic" = .{
         .{ "add"
-         , \\load two values from `x` and `y`
-           \\perform addition
+         , \\perform *addition* on the values designated by `x` and `y`
            \\store the result in `z`
          , intFloat(.same)
          , ThreeOperand
         },
 
         .{ "sub"
-         , \\load two values from `x` and `y`
-           \\perform subtraction
+         , \\perform *subtraction* on the values designated by `x` and `y`
            \\store the result in `z`
          , intFloat(.same)
          , ThreeOperand
         },
 
         .{ "mul"
-         , \\load two values from `x` and `y`
-           \\perform division
+         , \\perform *multiplication* on the values designated by `x` and `y`
            \\store the result in `z`
          , intFloat(.same)
          , ThreeOperand
         },
 
         .{ "div"
-         , \\load two values from `x` and `y`
-           \\perform division
+         , \\perform *division* on the values designated by `x` and `y`
            \\store the result in `z`
          , intFloat(.different)
          , ThreeOperand
         },
 
         .{ "rem"
-         , \\load two values from `x` and `y`
-           \\perform remainder division
+         , \\perform *remainder division* on the values designated by `x` and `y`
            \\store the result in `z`
          , intFloat(.different)
          , ThreeOperand
         },
 
         .{ "neg"
-         , \\load a value from `x`
-           \\perform negation
+         , \\perform *negation* on the value designated by `x`
            \\store the result in `y`
          , intFloat(.only_signed)
          , TwoOperand
         },
 
         .{ "bitnot"
-         , \\load a value from `x`
-           \\perform bitwise not
+         , \\perform *bitwise not* on the value designated by `x`
            \\store the result in `y`
          , intOnly(.same)
          , TwoOperand
         },
 
         .{ "bitand"
-         , \\load two values from `x` and `y`
-           \\perform bitwise and
+         , \\perform *bitwise and* on the values designated by `x` and `y`
            \\store the result in `z`
          , intOnly(.same)
          , ThreeOperand
         },
 
         .{ "bitor"
-         , \\load two values from `x` and `y`
-           \\perform bitwise or
+         , \\perform *bitwise or* on the values designated by `x` and `y`
            \\store the result in `z`
          , intOnly(.same)
          , ThreeOperand
         },
 
         .{ "bitxor"
-         , \\load two values from `x` and `y`
-           \\perform bitwise xor
+         , \\perform *bitwise xor* on the values designated by `x` and `y`
            \\store the result in `z`
          , intOnly(.same)
          , ThreeOperand
         },
 
         .{ "shiftl"
-         , \\load two values from `x` and `y`
-           \\perform bitwise left shift
+         , \\perform *bitwise left shift* on the values designated by `x` and `y`
            \\store the result in `z`
          , intOnly(.same)
          , ThreeOperand
         },
 
         .{ "shiftr"
-         , \\load two values from `x` and `y`
-           \\perform bitwise arithmetic right shift
+         , \\perform *bitwise right shift* on the values designated by `x` and `y`
            \\store the result in `z`
          , intOnly(.different)
          , ThreeOperand
         },
 
         .{ "eq"
-         , \\load two values from `x` and `y`
-           \\perform equality comparison
+         , \\perform *equality comparison* on the values designated by `x` and `y`
            \\store the result in `z`
          , intFloat(.same)
          , ThreeOperand
         },
 
         .{ "ne"
-         , \\load two values from `x` and `y`
-           \\perform inequality comparison
+         , \\perform *inequality comparison* on the values designated by `x` and `y`
            \\store the result in `z`
          , intFloat(.same)
          , ThreeOperand
         },
 
         .{ "lt"
-         , \\load two values from `x` and `y`
-           \\perform less than comparison
+         , \\perform *less than comparison* on the values designated by `x` and `y`
            \\store the result in `z`
          , intFloat(.different)
          , ThreeOperand
         },
 
         .{ "le"
-         , \\load two values from `x` and `y`
-           \\perform less than or equal comparison
+         , \\perform *less than or equal comparison* on the values designated by `x` and `y`
            \\store the result in `z`
          , intFloat(.different)
          , ThreeOperand
         },
 
         .{ "gt"
-         , \\load two values from `x` and `y`
-           \\perform greater than comparison
+         , \\perform *greater than comparison* on the values designated by `x` and `y`
            \\store the result in `z`
          , intFloat(.different)
          , ThreeOperand
         },
 
         .{ "ge"
-         , \\load two values from `x` and `y`
-           \\perform greater than or equal comparison
+         , \\perform *greater than or equal comparison* on the values designated by `x` and `y`
            \\store the result in `z`
          , intFloat(.different)
          , ThreeOperand
@@ -335,22 +317,19 @@ pub const InstructionPrototypes = .{
 
     .@"Boolean" = .{
         .{ "b_and"
-         , \\load two values from `x` and `y`
-           \\perform logical and
+         , \\perform *logical and* on the values designated by `x` and `y`
            \\store the result in `z`
          , ThreeOperand
         },
 
         .{ "b_or"
-         , \\load two values from `x` and `y`
-           \\perform logical or
+         , \\perform *logical or* on the values designated by `x` and `y`
            \\store the result in `z`
          , ThreeOperand
         },
 
         .{ "b_not"
-         , \\load a value from `x`
-           \\perform logical not
+         , \\perform *logical not* on the value designated by `x`
            \\store the result in `y`
          , TwoOperand
         },
@@ -358,22 +337,19 @@ pub const InstructionPrototypes = .{
 
     .@"Size Cast Int" = .{
         .{ "u_ext"
-         , \\load a value from `x`
-           \\perform zero extension
+         , \\perform *integer zero-extension* on the value designated by `x`
            \\store the result in `y`
          , .up
          , TwoOperand
         },
         .{ "s_ext"
-         , \\load a value from `x`
-           \\perform sign extension
+         , \\perform *integer sign-extension* on the value designated by `x`
            \\store the result in `y`
          , .up
          , TwoOperand
         },
         .{ "i_trunc"
-         , \\load a value from `x`
-           \\perform truncation
+         , \\perform *integer truncation* on the value designated by `x`
            \\store the result in `y`
          , .down
          , TwoOperand
@@ -382,15 +358,13 @@ pub const InstructionPrototypes = .{
 
     .@"Size Cast Float" = .{
         .{ "f_ext"
-         , \\load a value from `x`
-           \\perform floating point extension
+         , \\perform *floating point extension* on the value designated by `x`
            \\store the result in `y`
          , .up
          , TwoOperand
         },
         .{ "f_trunc"
-         , \\load a value from `x`
-           \\perform floating point truncation
+         , \\perform *floating point truncation* on the value designated by `x`
            \\store the result in `y`
          , .down
          , TwoOperand
@@ -399,8 +373,7 @@ pub const InstructionPrototypes = .{
 
     .@"Int <-> Float Cast" = .{
         .{ "to"
-         , \\load a value from `x`
-           \\perform int <-> float conversion
+         , \\perform *int <-> float conversion* on the value designated by `x`
            \\store the result in `y`
          , TwoOperand
         },

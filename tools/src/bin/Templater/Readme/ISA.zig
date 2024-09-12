@@ -13,11 +13,15 @@ fn formatDoc(comptime doc: []const u8) []const u8 {
     comptime var out: []const u8 = "";
 
     comptime var inCode: bool = false;
+    comptime var inEm: bool = false;
 
     inline for (doc) |c| {
         if (c == '`') {
             inCode = !inCode;
             out = out ++ if (inCode) "<code>" else "</code>";
+        } else if (c == '*') {
+            inEm = !inEm;
+            out = out ++ if (inEm) "<em>" else "</em>";
         } else if (c == '\n') {
             out = out ++ "<br>";
         } else {
@@ -56,6 +60,12 @@ fn formatType(comptime T: type) []const u8 {
 
 fn strCmp(a: []const u8, b: []const u8) bool {
     return std.mem.eql(u8, a, b);
+}
+
+fn extraIntInfo(comptime sign: std.builtin.Signedness, comptime name: [:0]const u8) []const u8 {
+    return
+        if (strCmp(name, "shiftr")) switch (sign) {.signed => "arithmetic", .unsigned => "logical"}
+        else std.fmt.comptimePrint("{s} integer", .{@tagName(sign)});
 }
 
 fn longName(comptime name: [:0]const u8) []const u8 {
@@ -159,7 +169,7 @@ fn makeIntFields(comptime name: [:0]const u8, comptime signVariance: AVI.SignVar
                             ++ "<td align=\"right\" width=\"1%\"><code>" ++ code ++ "</code></td>"
                             ++ "<td align=\"left\" width=\"1%\"><code>" ++ fieldName ++ "</code></td>"
                             ++ "<td align=\"center\" colspan=\"3\">"
-                                ++ std.fmt.comptimePrint("{} bit {s} integer {s}", .{size, @tagName(sign), longName(name)})
+                                ++ std.fmt.comptimePrint("{} bit {s} {s}", .{size, extraIntInfo(sign, name), longName(name)})
                             ++ "</td>"
                         ++ "</tr>";
                 }
