@@ -75,7 +75,7 @@ pub fn padInline(self: *Encoder, allocator: std.mem.Allocator, alignment: usize)
 }
 
 pub fn encodeInline(self: *Encoder, comptime T: type, allocator: std.mem.Allocator, value: T) callconv(Config.INLINING_CALL_CONV) Error!void {
-    @setEvalBranchQuota(Config.INLINING_BRANCH_QUOTA); // lots of inlining going on here
+    @setEvalBranchQuota(Config.INLINING_BRANCH_QUOTA);
 
     if (comptime T == void) return;
 

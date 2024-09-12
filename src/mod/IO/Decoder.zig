@@ -101,7 +101,7 @@ pub fn padInline(self: *const Decoder, alignment: usize) callconv(Config.INLININ
 }
 
 pub fn decodeInline(self: *const Decoder, comptime T: type) callconv(Config.INLINING_CALL_CONV) Error!T {
-    @setEvalBranchQuota(Config.INLINING_BRANCH_QUOTA); // lots of inlining here
+    @setEvalBranchQuota(Config.INLINING_BRANCH_QUOTA);
 
     if (comptime T == void) return {};
 

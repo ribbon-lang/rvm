@@ -40,7 +40,7 @@ pub fn step(fiber: *Fiber) Fiber.Trap!void {
 }
 
 pub fn stepBytecode(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame, localData: RegisterData, upvalueData: ?RegisterData) Fiber.Trap!void {
-    @setEvalBranchQuota(Config.INLINING_BRANCH_QUOTA); // tons of inlining going on here
+    @setEvalBranchQuota(Config.INLINING_BRANCH_QUOTA);
 
     const blockFrame = try fiber.stack.block.topPtr();
     const block = &function.value.bytecode.blocks[blockFrame.index];
