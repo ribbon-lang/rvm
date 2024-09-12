@@ -23,17 +23,7 @@ pub fn step(fiber: *Fiber) Fiber.Trap!void {
     const callFrame = try fiber.stack.call.topPtr();
     const function = &fiber.program.functions[callFrame.function];
 
-    const localData = RegisterData {
-        .call = callFrame,
-        .layout = &function.layout_table,
-    };
-
-    const upvalueData = if (callFrame.evidence != Bytecode.EVIDENCE_SENTINEL) ev: {
-        const evidence = &fiber.evidence[callFrame.evidence];
-        const evFrame = try fiber.stack.call.getPtr(evidence.call);
-        const evFunction = &fiber.program.functions[evFrame.function];
-        break :ev RegisterData { .call = evFrame, .layout = &evFunction.layout_table };
-    } else null;
+    const localData, const upvalueData = try registerData(fiber, callFrame, function);
 
     switch (function.value) {
         .bytecode => try @call(Config.INLINING_CALL_MOD, stepBytecode, .{fiber, function, callFrame, localData, upvalueData}),
@@ -794,6 +784,22 @@ fn extractUp(upvalueData: ?RegisterData) callconv(Config.INLINING_CALL_CONV) Fib
     }
 }
 
+fn registerData(fiber: *Fiber, callFrame: *Fiber.CallFrame, function: *Bytecode.Function) Fiber.Trap!struct {RegisterData, ?RegisterData} {
+    const localData = RegisterData {
+        .call = callFrame,
+        .layout = &function.layout_table,
+    };
+
+    const upvalueData = if (callFrame.evidence != Bytecode.EVIDENCE_SENTINEL) ev: {
+        const evidence = &fiber.evidence[callFrame.evidence];
+        const evFrame = try fiber.stack.call.getPtr(evidence.call);
+        const evFunction = &fiber.program.functions[evFrame.function];
+        break :ev RegisterData { .call = evFrame, .layout = &evFunction.layout_table };
+    } else null;
+
+    return .{localData, upvalueData};
+}
+
 fn load(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, x: Bytecode.Operand, y: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const size = @sizeOf(T);
     const alignment = @alignOf(T);
@@ -960,6 +966,7 @@ fn term(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame
     const evidence = &fiber.evidence[callFrame.evidence];
 
     const rootFunction = &fiber.program.functions[evidence.handler];
+    const rootCallFrame = try fiber.stack.call.getPtr(evidence.call);
     const rootBlockFrame = try fiber.stack.block.getPtr(evidence.block);
     const rootBlock = &rootFunction.value.bytecode.blocks[rootBlockFrame.index];
 
@@ -968,8 +975,9 @@ fn term(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame
             const size = function.layout_table.term_layout.?.size;
             const src: [*]const u8 = try addr(&fiber.program.globals, &fiber.stack.data, localData, upvalueData, outOp, size);
 
-            // BUG: the destination needs to be looked up with local/upvalue data relative to the root function
-            const dest: [*]u8 = try addr(&fiber.program.globals, &fiber.stack.data, localData, upvalueData, rootBlockFrame.out, size);
+            const rootLocalData, const rootUpvalueData = try registerData(fiber, rootCallFrame, rootFunction);
+            const dest: [*]u8 = try addr(&fiber.program.globals, &fiber.stack.data, rootLocalData, rootUpvalueData, rootBlockFrame.out, size);
+
             @memcpy(dest[0..size], src);
         } else {
             @branchHint(.cold);
@@ -984,16 +992,19 @@ fn term(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame
 
 fn ret(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fiber.CallFrame, localData: RegisterData, upvalueData: ?RegisterData, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const rootBlockFrame = try fiber.stack.block.getPtr(callFrame.block);
-
     const rootBlock = &function.value.bytecode.blocks[rootBlockFrame.index];
+
+    const callerFrame = try fiber.stack.call.getPtr(fiber.stack.call.ptr - 2);
+    const callerFunction = &fiber.program.functions[callerFrame.function];
 
     if (out) |outOp| {
         if (rootBlock.kind.hasOutput()) {
             const size = function.layout_table.return_layout.?.size;
             const src: [*]const u8 = try addr(&fiber.program.globals, &fiber.stack.data, localData, upvalueData, outOp, size);
 
-            // BUG: the destination needs to be looked up with local/upvalue data relative to the root function
-            const dest: [*]u8 = try addr(&fiber.program.globals, &fiber.stack.data, localData, upvalueData, rootBlockFrame.out, size);
+            const callerLocalData, const callerUpvalueData = try registerData(fiber, callerFrame, callerFunction);
+            const dest: [*]u8 = try addr(&fiber.program.globals, &fiber.stack.data, callerLocalData, callerUpvalueData, rootBlockFrame.out, size);
+
             @memcpy(dest[0..size], src);
         } else {
             @branchHint(.cold);
