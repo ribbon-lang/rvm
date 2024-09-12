@@ -77,46 +77,30 @@ pub fn stepBytecode(fiber: *Fiber, function: *Bytecode.Function, callFrame: *Fib
             try write(globals, stack, localData, upvalueData, operands.y, bytes);
         },
 
-        // TODO: replace these with specific bit-sized operations? ie load8, load16, etc
-        .load => |operands| {
-            const inAddr: [*]const u8 = try read([*]const u8, globals, stack, localData, upvalueData, operands.x);
-            const outAddr: [*]u8 = try addr(globals, stack, localData, upvalueData, operands.y, operands.m);
+        .load8 => |operands| try load(u8, globals, stack, localData, upvalueData, operands.x, operands.y),
+        .load16 => |operands| try load(u16, globals, stack, localData, upvalueData, operands.x, operands.y),
+        .load32 => |operands| try load(u32, globals, stack, localData, upvalueData, operands.x, operands.y),
+        .load64 => |operands| try load(u64, globals, stack, localData, upvalueData, operands.x, operands.y),
 
-            try boundsCheck(globals, stack, inAddr, operands.m);
+        .store8 => |operands| try store(u8, globals, stack, localData, upvalueData, operands.x, operands.y),
+        .store16 => |operands| try store(u16, globals, stack, localData, upvalueData, operands.x, operands.y),
+        .store32 => |operands| try store(u32, globals, stack, localData, upvalueData, operands.x, operands.y),
+        .store64 => |operands| try store(u64, globals, stack, localData, upvalueData, operands.x, operands.y),
 
-            @memcpy(outAddr[0..operands.m], inAddr);
-        },
+        .clear8 => |operands| try clear(u8, globals, stack, localData, upvalueData, operands.x),
+        .clear16 => |operands| try clear(u16, globals, stack, localData, upvalueData, operands.x),
+        .clear32 => |operands| try clear(u32, globals, stack, localData, upvalueData, operands.x),
+        .clear64 => |operands| try clear(u64, globals, stack, localData, upvalueData, operands.x),
 
-        .store => |operands| {
-            const inAddr: [*]const u8 = try addr(globals, stack, localData, upvalueData, operands.x, operands.m);
-            const outAddr: [*]u8 = try read([*]u8, globals, stack, localData, upvalueData, operands.y);
+        .swap8 => |operands| try swap(u8, globals, stack, localData, upvalueData, operands.x, operands.y),
+        .swap16 => |operands| try swap(u16, globals, stack, localData, upvalueData, operands.x, operands.y),
+        .swap32 => |operands| try swap(u32, globals, stack, localData, upvalueData, operands.x, operands.y),
+        .swap64 => |operands| try swap(u64, globals, stack, localData, upvalueData, operands.x, operands.y),
 
-            try boundsCheck(globals, stack, outAddr, operands.m);
-
-            @memcpy(outAddr[0..operands.m], inAddr);
-        },
-
-        .clear => |operands| {
-            const bytes: [*]u8 = try addr(globals, stack, localData, upvalueData, operands.x, operands.m);
-
-            @memset(bytes[0..operands.m], 0);
-        },
-
-        .swap => |operands| {
-            const xBytes: [*]u8 = try addr(globals, stack, localData, upvalueData, operands.x, operands.m);
-            const yBytes: [*]u8 = try addr(globals, stack, localData, upvalueData, operands.y, operands.m);
-
-            for (0..operands.m) |i| {
-                @call(Config.INLINING_CALL_MOD, std.mem.swap, .{u8, &xBytes[i], &yBytes[i]});
-            }
-        },
-
-        .copy => |operands| {
-            const xBytes: [*]const u8 = try addr(globals, stack, localData, upvalueData, operands.x, operands.m);
-            const yBytes: [*]u8 = try addr(globals, stack, localData, upvalueData, operands.y, operands.m);
-
-            @call(Config.INLINING_CALL_MOD, std.mem.copyForwards, .{u8, yBytes[0..operands.m], xBytes[0..operands.m]});
-        },
+        .copy8 => |operands| try copy(u8, globals, stack, localData, upvalueData, operands.x, operands.y),
+        .copy16 => |operands| try copy(u16, globals, stack, localData, upvalueData, operands.x, operands.y),
+        .copy32 => |operands| try copy(u32, globals, stack, localData, upvalueData, operands.x, operands.y),
+        .copy64 => |operands| try copy(u64, globals, stack, localData, upvalueData, operands.x, operands.y),
 
         .b_not => |operands| try ops.unary(bool, "not", globals, stack, localData, upvalueData, operands),
         .b_and => |operands| try ops.binary(bool, "and", globals, stack, localData, upvalueData, operands),
@@ -321,6 +305,94 @@ fn extractUp(upvalueData: ?RegisterData) callconv(Config.INLINING_CALL_CONV) Fib
         @branchHint(.cold);
         return Fiber.Trap.MissingEvidence;
     }
+}
+
+fn load(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, x: Bytecode.Operand, y: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const size = @sizeOf(T);
+    const alignment = @alignOf(T);
+
+    const inAddr: [*]const u8 = try read([*]const u8, globals, stack, localData, upvalueData, x);
+    const outAddr: [*]u8 = try addr(globals, stack, localData, upvalueData, y, size);
+
+    try boundsCheck(globals, stack, inAddr, size);
+
+    const inAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(inAddr), alignment) == 0);
+    const outAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(outAddr), alignment) == 0);
+    if (inAligned & outAligned != 1) {
+        @branchHint(.cold);
+        return Fiber.Trap.BadAlignment;
+    }
+
+    @as(*T, @ptrCast(@alignCast(outAddr))).* = @as(*const T, @ptrCast(@alignCast(inAddr))).*;
+}
+
+fn store(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, x: Bytecode.Operand, y: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const size = @sizeOf(T);
+    const alignment = @alignOf(T);
+
+    const inAddr: [*]const u8 = try addr(globals, stack, localData, upvalueData, x, size);
+    const outAddr: [*]u8 = try read([*]u8, globals, stack, localData, upvalueData, y);
+
+    try boundsCheck(globals, stack, outAddr, size);
+
+    const inAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(inAddr), alignment) == 0);
+    const outAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(outAddr), alignment) == 0);
+    if (inAligned & outAligned != 1) {
+        @branchHint(.cold);
+        return Fiber.Trap.BadAlignment;
+    }
+
+    @as(*T, @ptrCast(@alignCast(outAddr))).* = @as(*const T, @ptrCast(@alignCast(inAddr))).*;
+}
+
+fn clear(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, x: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const size = @sizeOf(T);
+    const alignment = @alignOf(T);
+
+    const bytes: [*]u8 = try addr(globals, stack, localData, upvalueData, x, size);
+
+    if (Support.alignmentDelta(@intFromPtr(bytes), alignment) != 0) {
+        @branchHint(.cold);
+        return Fiber.Trap.BadAlignment;
+    }
+
+    @as(*T, @ptrCast(@alignCast(bytes))).* = 0;
+}
+
+fn swap(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, x: Bytecode.Operand, y: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const size = @sizeOf(T);
+    const alignment = @alignOf(T);
+
+    const xBytes: [*]u8 = try addr(globals, stack, localData, upvalueData, x, size);
+    const yBytes: [*]u8 = try addr(globals, stack, localData, upvalueData, y, size);
+
+    const xAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(xBytes), alignment) == 0);
+    const yAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(yBytes), alignment) == 0);
+    if (xAligned & yAligned != 1) {
+        @branchHint(.cold);
+        return Fiber.Trap.BadAlignment;
+    }
+
+    const temp: T = @as(*T, @ptrCast(@alignCast(xBytes))).*;
+    @as(*T, @ptrCast(@alignCast(xBytes))).* = @as(*T, @ptrCast(@alignCast(yBytes))).*;
+    @as(*T, @ptrCast(@alignCast(yBytes))).* = temp;
+}
+
+fn copy(comptime T: type, globals: *Bytecode.GlobalSet, stack: *Fiber.DataStack, localData: RegisterData, upvalueData: ?RegisterData, x: Bytecode.Operand, y: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const size = @sizeOf(T);
+    const alignment = @alignOf(T);
+
+    const xBytes: [*]const u8 = try addr(globals, stack, localData, upvalueData, x, size);
+    const yBytes: [*]u8 = try addr(globals, stack, localData, upvalueData, y, size);
+
+    const xAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(xBytes), alignment) == 0);
+    const yAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(yBytes), alignment) == 0);
+    if (xAligned & yAligned != 1) {
+        @branchHint(.cold);
+        return Fiber.Trap.BadAlignment;
+    }
+
+    @as(*T, @ptrCast(@alignCast(yBytes))).* = @as(*const T, @ptrCast(@alignCast(xBytes))).*;
 }
 
 fn call(fiber: *Fiber, localData: RegisterData, upvalueData: ?RegisterData, func: Bytecode.Operand, args: []const Bytecode.Operand, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {

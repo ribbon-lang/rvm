@@ -158,32 +158,34 @@ pub const InstructionPrototypes = .{
          , \\copy the address of `x` into `y`
          , TwoOperand
         },
+    },
 
+    .@"Memory _bits" = .{
         .{ "load"
-         , \\copy `m` bytes from the address stored in `x` into `y`
+         , \\copy *n* aligned bits from the address stored in `x` into `y`
            \\the address must be located in the operand stack or global memory
-         , MemTwoOperand
+         , TwoOperand
         },
 
         .{ "store"
-         , \\copy `m` bytes from `x` to the address stored in `y`
+         , \\copy *n* aligned bits from `x` to the address stored in `y`
            \\the address must be located in the operand stack or global memory
-         , MemTwoOperand
+         , TwoOperand
         },
 
         .{ "clear"
-         , \\clear `m` bytes of `x`
-         , MemOneOperand
+         , \\clear *n* aligned bits of `x`
+         , OneOperand
         },
 
         .{ "swap"
-         , \\swap `m` bytes stored in `x` and `y`
-         , MemTwoOperand
+         , \\swap *n* aligned bits stored in `x` and `y`
+         , TwoOperand
         },
 
         .{ "copy"
-         , \\copy `m` bytes from `x` into `y`
-         , MemTwoOperand
+         , \\copy *n* aligned bits from `x` into `y`
+         , TwoOperand
         },
     },
 
@@ -583,6 +585,28 @@ pub const Op = ops: {
                         makeIntFields(&enumFields, &unionFields, &id, name, operands, signVariance);
                         makeFloatFields(&enumFields, &unionFields, &id, name, operands);
                     }
+                }
+            }
+        } else if (std.mem.endsWith(u8, categoryName, "_bits")) {
+            for (0..category.len) |i| {
+                const proto = category[i];
+
+                const name = proto[0];
+                // const doc = proto[1];
+                const operands = proto[2];
+
+                for (AVI.INTEGER_SIZE) |size| {
+                    const fieldName = std.fmt.comptimePrint("{s}{}", .{name, size});
+                    enumFields[id] = .{
+                        .name = fieldName,
+                        .value = id,
+                    };
+                    unionFields[id] = .{
+                        .name = fieldName,
+                        .type = operands,
+                        .alignment = @alignOf(operands),
+                    };
+                    id += 1;
                 }
             }
         } else if (std.mem.endsWith(u8, categoryName, "_v")) {

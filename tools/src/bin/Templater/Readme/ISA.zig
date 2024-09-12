@@ -68,6 +68,25 @@ fn extraIntInfo(comptime sign: std.builtin.Signedness, comptime name: [:0]const 
         else std.fmt.comptimePrint("{s} integer", .{@tagName(sign)});
 }
 
+fn bitNames(comptime name: [:0]const u8) []const u8 {
+    comptime var out: []const u8 = "";
+
+    inline for (AVI.INTEGER_SIZE) |size| {
+        const fieldName = std.fmt.comptimePrint("{s}{}", .{name, size});
+        const code = std.fmt.comptimePrint("0x{x:0>2}", .{@intFromEnum(@field(OpCode, fieldName))});
+        out = out
+            ++ "<tr>"
+                ++ "<td align=\"right\" width=\"1%\"><code>" ++ code ++ "</code></td>"
+                ++ "<td align=\"left\" width=\"1%\"><code>" ++ fieldName ++ "</code></td>"
+                ++ "<td align=\"center\" colspan=\"3\">"
+                    ++ std.fmt.comptimePrint("{} bit {s}", .{size, comptime longName(name)})
+                ++ "</td>"
+            ++ "</tr>";
+    }
+
+    return out ++ "";
+}
+
 fn longName(comptime name: [:0]const u8) []const u8 {
     return
         if (strCmp(name, "add")) "addition"
@@ -129,9 +148,9 @@ fn longName(comptime name: [:0]const u8) []const u8 {
         else if (strCmp(name, "addr")) "address extraction of operand"
         else if (strCmp(name, "load")) "read from address"
         else if (strCmp(name, "store")) "write to address"
-        else if (strCmp(name, "copy")) "copy value"
-        else if (strCmp(name, "swap")) "swap values"
-        else if (strCmp(name, "clear")) "fill with zeroes"
+        else if (strCmp(name, "copy")) "value copy"
+        else if (strCmp(name, "swap")) "value swap"
+        else if (strCmp(name, "clear")) "zeroing"
 
         else @compileError("unknown operation `" ++ name ++ "`");
 }
@@ -356,6 +375,36 @@ pub fn main() !void {
                             .float_only => comptime makeFloatFields(name),
                             .int_float => |signVariance| comptime makeIntFields(name, signVariance) ++ " " ++ makeFloatFields(name),
                         },
+                    }
+                );
+            }
+        } else if (comptime std.mem.endsWith(u8, categoryName, "_bits")) {
+            inline for (0..category.len) |i| {
+                const proto = category[i];
+
+                const name = proto[0];
+                const doc = proto[1];
+                const operands = proto[2];
+                const numOperands = std.meta.fieldNames(operands).len;
+
+                try out.print(
+                    \\<table>
+                    \\    <tr>
+                    \\        <th colspan="3" align="left" width="100%">{s}<img width="960px" height="1" align="right"></th>
+                    \\        <td colspan="2">Params</td>
+                    \\    </tr>
+                    \\    <tr>
+                    \\        <td colspan="3" rowspan="{}" width="100%" align="center">{s}</td>
+                    \\    </tr>
+                    \\    {s}
+                    \\    {s}
+                    \\</table>
+                    \\
+                    , .{
+                        name,
+                        1 + numOperands, formatDoc(doc),
+                        formatParams(operands),
+                        comptime bitNames(name),
                     }
                 );
             }
