@@ -170,11 +170,34 @@ pub const Type = union(enum) {
     function: Type.Function,
 
     pub const Int = struct {
-        bit_width: u8,
+        bit_width: BitWidth,
+        is_signed: bool,
+        pub const BitWidth = enum(u2) {
+            i8, i16, i32, i64,
+
+            pub fn toInt(self: BitWidth) u8 {
+                switch (self) {
+                    .i8 => return 8,
+                    .i16 => return 16,
+                    .i32 => return 32,
+                    .i64 => return 64,
+                }
+            }
+        };
     };
 
     pub const Float = struct {
-        bit_width: u8,
+        bit_width: BitWidth,
+        pub const BitWidth = enum (u1) {
+            f32, f64,
+
+            pub fn toInt(self: BitWidth) u8 {
+                switch (self) {
+                    .f32 => return 32,
+                    .f64 => return 64,
+                }
+            }
+        };
     };
 
     pub const Pointer = struct {
