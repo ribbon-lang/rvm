@@ -94,15 +94,45 @@ See `zig build --help` for more information.
 
 #### Zig Build Options
 In addition to typical zig build options, the build script supports the following options (though not all apply to every step):
-| Option | Description | Default |
-|-|-|-|
-|`-DlogLevel=<log.Level>`| Logging output level to display |`.err`|
-|`-DlogScopes=<string>`| Logging scopes to display |`ribboni`|
-|`-DuseEmoji=<bool>`| Use emoji in the output |`true`|
-|`-DuseAnsiStyles=<bool>`| Use ANSI styles in the output |`true`|
-|`-DforceNewSnapshot=<bool>`| (Tests) Force a new snapshot to be created instead of referring to an existing one |`false`|
-|`-DstripDebugInfo=<string>`| Override for optimization-specific settings for stripping debug info from the binary. If not explicitly provided, this will default to `true` when `-Doptimize` is not set to `Debug` |`null`|
-|`-DmaximumInlining=<string>`| Override for optimization-specific settings for inlining as much as possible in the interpreter. If not explicitly provided, this will default to `true` when `-Doptimize` is not set to `Debug` |`null`|
+<table>
+    <tr>
+        <td>Option</td>
+        <td>Description</td>
+        <td>Default</td>
+    <tr>
+        <td><code>-DlogLevel=&lt;log.Level&gt;</code></td>
+        <td>Logging output level to display</td>
+        <td><code>.err</code></td>
+    </tr>
+    <tr>
+        <td><code>-DlogScopes=&lt;string&gt;</code></td>
+        <td>Logging scopes to display</td>
+        <td><code>ribboni</code></td>
+    </tr>
+    <tr>
+        <td><code>-DuseEmoji=&lt;bool&gt;</code></td>
+        <td>Use emoji in the output</td>
+        <td><code>true</code></td>
+    </tr>
+    <tr>
+        <td><code>-DuseAnsiStyles=&lt;bool&gt;</code></td>
+        <td>Use ANSI styles in the output</td>
+        <td><code>true</code></td>
+    </tr>
+    <tr>
+        <td><code>-DforceNewSnapshot=&lt;bool&gt;</code></td>
+        <td>(Tests) Force a new snapshot to be created instead of referring to an existing one</td>
+        <td><code>false</code></td>
+    </tr>
+    <tr>
+        <td><code>-DstripDebugInfo=&lt;bool&gt;</code></td>
+        <td colspan="2">Override for optimization-specific settings for stripping debug info from the binary. This will default to <code>true</code> when <code>-Doptimize</code> is not set to <code>Debug</code></td>
+    </tr>
+    <tr>
+        <td><code>-DmaximumInlining=&lt;bool&gt;</code></td>
+        <td colspan="2">Override for optimization-specific settings for inlining as much as possible in the interpreter. This will default to <code>true</code> when <code>-Doptimize</code> is not set to <code>Debug</code></td>
+    </tr>
+</table>
 
 
 See `zig build --help` for more information.

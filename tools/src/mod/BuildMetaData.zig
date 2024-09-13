@@ -56,8 +56,8 @@ pub const options = .{
 
 pub const buildOptions = .{
     .forceNewSnapshot = .{ bool, "(Tests) Force a new snapshot to be created instead of referring to an existing one", false },
-    .stripDebugInfo = .{ ?bool, "Override for optimization-specific settings for stripping debug info from the binary. If not explicitly provided, this will default to `true` when `-Doptimize` is not set to `Debug`" },
-    .maximumInlining = .{ ?bool, "Override for optimization-specific settings for inlining as much as possible in the interpreter. If not explicitly provided, this will default to `true` when `-Doptimize` is not set to `Debug`" },
+    .stripDebugInfo = .{ ?bool, "Override for optimization-specific settings for stripping debug info from the binary. This will default to `true` when `-Doptimize` is not set to `Debug`" },
+    .maximumInlining = .{ ?bool, "Override for optimization-specific settings for inlining as much as possible in the interpreter. This will default to `true` when `-Doptimize` is not set to `Debug`" },
 };
 
 pub const releaseTargets: []const std.Target.Query = &.{

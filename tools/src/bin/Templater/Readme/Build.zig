@@ -82,9 +82,20 @@ pub fn main() !void {
             }
         },
         .OPTIONS => {
-            try out.writeAll("| Option | Description | Default |\n|-|-|-|\n");
+            try out.writeAll(
+                \\<table>
+                \\    <tr>
+                \\        <td>Option</td>
+                \\        <td>Description</td>
+                \\        <td>Default</td>
+                \\
+            );
             try printOptions(options, out);
             try printOptions(buildOptions, out);
+            try out.writeAll(
+                \\</table>
+                \\
+            );
         },
     }
 }
@@ -95,14 +106,68 @@ fn printOptions(opts: anytype, out: anytype) !void {
     inline for (optionNames) |optionName| {
         const option = @field(opts, optionName);
 
-        const optionType = option[0];
+        const optionType = switch (@typeInfo(option[0])) {
+            .optional => |info| info.child,
+            else => option[0],
+        };
         const optionDesc = option[1];
-        const optionDefault = if (comptime option.len == 3) option[2] else "null";
 
-        if (comptime TypeUtils.isString(@TypeOf(optionDefault))) {
-            try out.print("|`-D{s}=<string>`| {s} |`{s}`|\n", .{ optionName, optionDesc, optionDefault });
+        if (comptime option.len == 3) {
+            const optionDefault = option[2];
+
+            if (comptime TypeUtils.isString(@TypeOf(optionDefault))) {
+                try out.print(
+                    \\    <tr>
+                    \\        <td><code>-D{s}=&lt;string&gt;</code></td>
+                    \\        <td>{s}</td>
+                    \\        <td><code>{s}</code></td>
+                    \\    </tr>
+                    \\
+                    , .{ comptime formatDoc(optionName), comptime formatDoc(optionDesc), optionDefault }
+                );
+            } else {
+                try out.print(
+                    \\    <tr>
+                    \\        <td><code>-D{s}=&lt;{s}&gt;</code></td>
+                    \\        <td>{s}</td>
+                    \\        <td><code>{any}</code></td>
+                    \\    </tr>
+                    \\
+                    , .{ comptime formatDoc(optionName), @typeName(optionType), comptime formatDoc(optionDesc), optionDefault }
+                );
+            }
         } else {
-            try out.print("|`-D{s}=<{s}>`| {s} |`{any}`|\n", .{ optionName, @typeName(optionType), optionDesc, optionDefault });
+            try out.print(
+                \\    <tr>
+                \\        <td><code>-D{s}=&lt;{s}&gt;</code></td>
+                \\        <td colspan="2">{s}</td>
+                \\    </tr>
+                \\
+                , .{ comptime formatDoc(optionName), @typeName(optionType), comptime formatDoc(optionDesc) }
+            );
         }
     }
+}
+
+fn formatDoc(comptime doc: []const u8) []const u8 {
+    comptime var out: []const u8 = "";
+
+    comptime var inCode: bool = false;
+    comptime var inEm: bool = false;
+
+    inline for (doc) |c| {
+        if (c == '`') {
+            inCode = !inCode;
+            out = out ++ if (inCode) "<code>" else "</code>";
+        } else if (c == '*') {
+            inEm = !inEm;
+            out = out ++ if (inEm) "<em>" else "</em>";
+        } else if (c == '\n') {
+            out = out ++ "<br>";
+        } else {
+            out = out ++ .{c};
+        }
+    }
+
+    return out;
 }
