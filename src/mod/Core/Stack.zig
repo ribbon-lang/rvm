@@ -3,7 +3,7 @@ const std = @import("std");
 const Config = @import("Config");
 
 
-pub fn Stack(comptime T: type, comptime A: type) type {
+pub fn Stack(comptime T: type, comptime A: type, comptime alignment: ?u29) type {
     return struct {
         memory: []T,
         ptr: Ptr,
@@ -15,7 +15,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
         pub const Error = error { Overflow, Underflow, OutOfBounds };
 
         pub fn init(allocator: std.mem.Allocator, size: usize) !Self {
-            const mem = try allocator.alloc(T, size);
+            const mem = try allocator.allocWithOptions(T, size, alignment, null);
             return Self{ .memory = mem, .ptr = 0 };
         }
 
@@ -184,7 +184,7 @@ pub fn Stack(comptime T: type, comptime A: type) type {
 
 test {
     var mem = [1]u8 {0} ** 4;
-    var stack = Stack(u8, u8).initPreallocated(&mem);
+    var stack = Stack(u8, u8, 256).initPreallocated(&mem);
 
     try std.testing.expectError(error.Underflow, stack.pop());
 

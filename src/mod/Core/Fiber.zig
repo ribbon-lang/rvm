@@ -29,8 +29,8 @@ const Stack = Core.Stack;
 const Fiber = @This();
 
 
-context: *Context,
-program: *Bytecode.Program,
+context: *const Context,
+program: *const Bytecode.Program,
 stack: StackSet,
 evidence: []EvidenceStack,
 foreign: []const ForeignFunction,
@@ -52,7 +52,7 @@ pub const Trap = error {
 
 pub const RegisterData = extern struct {
     call: *Fiber.CallFrame,
-    layout: *Bytecode.LayoutTable,
+    layout: *const Bytecode.LayoutTable,
 };
 
 pub const RegisterDataSet = struct {
@@ -69,7 +69,7 @@ pub const RegisterDataSet = struct {
     }
 };
 
-pub const ForeignFunction = *const fn (*Fiber, Bytecode.BlockIndex, *const ForeignRegisterDataSet, *ForeignOut) callconv(.C) ForeignControl;
+pub const ForeignFunction = *const fn (*anyopaque, Bytecode.BlockIndex, *const ForeignRegisterDataSet, *ForeignOut) callconv(.C) ForeignControl;
 
 pub const ForeignControl = enum(u32) {
     step,
@@ -182,10 +182,10 @@ const TOTAL_META_SIZE: usize
 //     ));
 // }
 
-pub const DataStack = Stack(u8, u24);
-pub const CallStack = Stack(CallFrame, u16);
-pub const BlockStack = Stack(BlockFrame, u16);
-pub const EvidenceStack = Stack(Evidence, u8);
+pub const DataStack = Stack(u8, u24, std.mem.page_size);
+pub const CallStack = Stack(CallFrame, u16, null);
+pub const BlockStack = Stack(BlockFrame, u16, null);
+pub const EvidenceStack = Stack(Evidence, u8, null);
 
 pub const Evidence = packed struct {
     handler: Bytecode.FunctionIndex,
@@ -233,7 +233,7 @@ pub const CallFrame = struct {
 };
 
 
-pub fn init(context: *Context, program: *Bytecode.Program, foreign: []const ForeignFunction) !*Fiber {
+pub fn init(context: *const Context, program: *const Bytecode.Program, foreign: []const ForeignFunction) !*Fiber {
     const ptr = try context.allocator.create(Fiber);
     errdefer context.allocator.destroy(ptr);
 
@@ -320,7 +320,7 @@ pub fn removeHandlerSet(fiber: *Fiber, handlerSet: Bytecode.HandlerSet) callconv
     }
 }
 
-pub fn getRegisterData(fiber: *Fiber, callFrame: *Fiber.CallFrame, function: *Bytecode.Function) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!Fiber.RegisterDataSet {
+pub fn getRegisterData(fiber: *Fiber, callFrame: *Fiber.CallFrame, function: *const Bytecode.Function) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!Fiber.RegisterDataSet {
     return .{
         .local = .{
             .call = callFrame,
@@ -853,7 +853,7 @@ pub fn printValue(types: []const Bytecode.Type, ty: Bytecode.TypeIndex, bytes: [
 }
 
 
-pub fn typeLayout(types: []Bytecode.Type, ty: Bytecode.TypeIndex) ?Bytecode.Layout {
+pub fn typeLayout(types: []const Bytecode.Type, ty: Bytecode.TypeIndex) ?Bytecode.Layout {
     switch (types[ty]) {
         .void => return null,
         .bool => return .{ .size = 1, .alignment = 1 },

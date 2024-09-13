@@ -41,6 +41,7 @@ pub const ForeignId = u48;
 
 pub const MAX_REGISTERS = std.math.maxInt(RegisterIndex);
 
+pub const TYPE_SENTINEL = std.math.maxInt(TypeIndex);
 pub const EVIDENCE_SENTINEL = std.math.maxInt(EvidenceIndex);
 pub const HANDLER_SET_SENTINEL = std.math.maxInt(HandlerSetIndex);
 
@@ -226,13 +227,13 @@ pub const Type = union(enum) {
 pub const LayoutTable = struct {
     term_type: TypeIndex,
     return_type: TypeIndex,
-    register_types: [*]TypeIndex,
+    register_types: [*]const TypeIndex,
 
     term_layout: ?Layout,
     return_layout: ?Layout,
-    register_layouts: [*]Layout,
+    register_layouts: [*]const Layout,
 
-    register_offsets: [*]RegisterBaseOffset,
+    register_offsets: [*]const RegisterBaseOffset,
 
     size: LayoutTableSize,
     alignment: ValueAlignment,
@@ -268,7 +269,7 @@ pub const Function = struct {
     };
 };
 
-pub const HandlerSet = []HandlerBinding;
+pub const HandlerSet = []const HandlerBinding;
 
 pub const HandlerBinding = struct {
     id: EvidenceIndex,
@@ -305,7 +306,7 @@ pub const Global = struct {
 
 pub const GlobalSet = struct {
     memory: []u8,
-    values: []Global,
+    values: []const Global,
 
     pub fn read(reader: IO.Reader, context: anytype) !GlobalSet {
         var globalMemory = std.ArrayListUnmanaged(u8){};
@@ -322,11 +323,10 @@ pub const GlobalSet = struct {
 };
 
 pub const Program = struct {
-    types: []Type,
+    types: []const Type,
     globals: GlobalSet,
-    global_memory: []u8,
-    functions: []Function,
-    handler_sets: []HandlerSet,
+    functions: []const Function,
+    handler_sets: []const HandlerSet,
     main: ?FunctionIndex,
 };
 
