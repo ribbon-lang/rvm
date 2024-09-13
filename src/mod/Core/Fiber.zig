@@ -15,6 +15,8 @@
 
 const std = @import("std");
 
+const Config = @import("Config");
+const Support = @import("Support");
 const Extern = @import("Extern");
 const Bytecode = @import("Bytecode");
 const IO = @import("IO");
@@ -56,6 +58,15 @@ pub const RegisterData = extern struct {
 pub const RegisterDataSet = struct {
     local: RegisterData,
     upvalue: ?RegisterData,
+
+    pub fn extractUp(self: Fiber.RegisterDataSet) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!Fiber.RegisterData {
+        if (self.upvalue) |ud| {
+            return ud;
+        } else {
+            @branchHint(.cold);
+            return Fiber.Trap.MissingEvidence;
+        }
+    }
 };
 
 pub const ForeignFunction = *const fn (*Fiber, Bytecode.BlockIndex, *const ForeignRegisterDataSet, *ForeignOut) callconv(.C) ForeignControl;
@@ -279,3 +290,425 @@ pub fn getForeign(self: *const Fiber, index: Bytecode.ForeignId) !ForeignFunctio
 
     return self.foreign[index];
 }
+
+pub fn boundsCheck(fiber: *Fiber, address: [*]const u8, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const validGlobalA = @intFromBool(@intFromPtr(address) >= @intFromPtr(fiber.program.globals.memory.ptr));
+    const validGlobalB = @intFromBool(@intFromPtr(address) + size <= @intFromPtr(fiber.program.globals.memory.ptr) + fiber.program.globals.memory.len);
+
+    const validStackA = @intFromBool(@intFromPtr(address) >= @intFromPtr(fiber.stack.data.memory.ptr));
+    const validStackB = @intFromBool(@intFromPtr(address) + size <= fiber.stack.data.ptr);
+
+    if ((validGlobalA & validGlobalB) | (validStackA & validStackB) == 0) {
+        @branchHint(.cold);
+        return Fiber.Trap.OutOfBounds;
+    }
+}
+
+pub fn removeAnyHandlerSet(fiber: *Fiber, blockFrame: *Fiber.BlockFrame) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    if (blockFrame.handler_set == Bytecode.HANDLER_SET_SENTINEL) return;
+
+    const handlerSet = fiber.program.handler_sets[blockFrame.handler_set];
+
+    try removeHandlerSet(fiber, handlerSet);
+}
+
+pub fn removeHandlerSet(fiber: *Fiber, handlerSet: Bytecode.HandlerSet) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    for (handlerSet) |binding| {
+        const removedEv = try fiber.evidence[binding.id].pop();
+
+        std.debug.assert(removedEv.handler == binding.handler);
+    }
+}
+
+pub fn getRegisterData(fiber: *Fiber, callFrame: *Fiber.CallFrame, function: *Bytecode.Function) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!Fiber.RegisterDataSet {
+    return .{
+        .local = .{
+            .call = callFrame,
+            .layout = &function.layout_table,
+        },
+        .upvalue = if (callFrame.evidence) |evRef| ev: {
+            const evidence = try fiber.evidence[evRef.index].getPtr(evRef.offset);
+            const evFrame = try fiber.stack.call.getPtr(evidence.call);
+            const evFunction = &fiber.program.functions[evFrame.function];
+            break :ev .{
+                .call = evFrame,
+                .layout = &evFunction.layout_table
+            };
+        } else null,
+    };
+}
+
+
+pub fn load(fiber: *Fiber, comptime T: type, registerData: Fiber.RegisterDataSet, x: Bytecode.Operand, y: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const size = @sizeOf(T);
+    const alignment = @alignOf(T);
+
+    const inAddr: [*]const u8 = try fiber.read([*]const u8, registerData, x);
+    const outAddr: [*]u8 = try fiber.addr(registerData, y, size);
+
+    try fiber.boundsCheck(inAddr, size);
+
+    const inAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(inAddr), alignment) == 0);
+    const outAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(outAddr), alignment) == 0);
+    if (inAligned & outAligned != 1) {
+        @branchHint(.cold);
+        return Fiber.Trap.BadAlignment;
+    }
+
+    @as(*T, @ptrCast(@alignCast(outAddr))).* = @as(*const T, @ptrCast(@alignCast(inAddr))).*;
+}
+
+pub fn store(fiber: *Fiber, comptime T: type, registerData: Fiber.RegisterDataSet, x: Bytecode.Operand, y: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const size = @sizeOf(T);
+    const alignment = @alignOf(T);
+
+    const inAddr: [*]const u8 = try fiber.addr(registerData, x, size);
+    const outAddr: [*]u8 = try fiber.read([*]u8, registerData, y);
+
+    try fiber.boundsCheck(outAddr, size);
+
+    const inAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(inAddr), alignment) == 0);
+    const outAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(outAddr), alignment) == 0);
+    if (inAligned & outAligned != 1) {
+        @branchHint(.cold);
+        return Fiber.Trap.BadAlignment;
+    }
+
+    @as(*T, @ptrCast(@alignCast(outAddr))).* = @as(*const T, @ptrCast(@alignCast(inAddr))).*;
+}
+
+pub fn clear(fiber: *Fiber, comptime T: type, registerData: Fiber.RegisterDataSet, x: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const size = @sizeOf(T);
+    const alignment = @alignOf(T);
+
+    const bytes: [*]u8 = try fiber.addr(registerData, x, size);
+
+    if (Support.alignmentDelta(@intFromPtr(bytes), alignment) != 0) {
+        @branchHint(.cold);
+        return Fiber.Trap.BadAlignment;
+    }
+
+    @as(*T, @ptrCast(@alignCast(bytes))).* = 0;
+}
+
+pub fn swap(fiber: *Fiber, comptime T: type, registerData: Fiber.RegisterDataSet, x: Bytecode.Operand, y: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const size = @sizeOf(T);
+    const alignment = @alignOf(T);
+
+    const xBytes: [*]u8 = try fiber.addr(registerData, x, size);
+    const yBytes: [*]u8 = try fiber.addr(registerData, y, size);
+
+    const xAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(xBytes), alignment) == 0);
+    const yAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(yBytes), alignment) == 0);
+    if (xAligned & yAligned != 1) {
+        @branchHint(.cold);
+        return Fiber.Trap.BadAlignment;
+    }
+
+    const temp: T = @as(*T, @ptrCast(@alignCast(xBytes))).*;
+    @as(*T, @ptrCast(@alignCast(xBytes))).* = @as(*T, @ptrCast(@alignCast(yBytes))).*;
+    @as(*T, @ptrCast(@alignCast(yBytes))).* = temp;
+}
+
+pub fn copy(fiber: *Fiber, comptime T: type, registerData: Fiber.RegisterDataSet, x: Bytecode.Operand, y: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const size = @sizeOf(T);
+    const alignment = @alignOf(T);
+
+    const xBytes: [*]const u8 = try fiber.addr(registerData, x, size);
+    const yBytes: [*]u8 = try fiber.addr(registerData, y, size);
+
+    const xAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(xBytes), alignment) == 0);
+    const yAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(yBytes), alignment) == 0);
+    if (xAligned & yAligned != 1) {
+        @branchHint(.cold);
+        return Fiber.Trap.BadAlignment;
+    }
+
+    @as(*T, @ptrCast(@alignCast(yBytes))).* = @as(*const T, @ptrCast(@alignCast(xBytes))).*;
+}
+
+pub inline fn read(fiber: *Fiber, comptime T: type, registerData: Fiber.RegisterDataSet, operand: Bytecode.Operand) Fiber.Trap!T {
+    switch (operand.kind) {
+        .global => return fiber.readGlobal(T, operand.data.global),
+        .upvalue => return fiber.readReg(T, try registerData.extractUp(), operand.data.register),
+        .local => return fiber.readReg(T, registerData.local, operand.data.register),
+    }
+}
+
+pub inline fn write(fiber: *Fiber, registerData: Fiber.RegisterDataSet, operand: Bytecode.Operand, value: anytype) Fiber.Trap!void {
+    switch (operand.kind) {
+        .global => return fiber.writeGlobal(operand.data.global, value),
+        .upvalue => return fiber.writeReg(try registerData.extractUp(), operand.data.register, value),
+        .local => return fiber.writeReg(registerData.local, operand.data.register, value),
+    }
+}
+
+pub inline fn addr(fiber: *Fiber, registerData: Fiber.RegisterDataSet, operand: Bytecode.Operand, size: Bytecode.RegisterLocalOffset) Fiber.Trap![*]u8 {
+    switch (operand.kind) {
+        .global => return fiber.addrGlobal(operand.data.global, size),
+        .upvalue => return fiber.addrReg(try registerData.extractUp(), operand.data.register, size),
+        .local => return fiber.addrReg(registerData.local, operand.data.register, size),
+    }
+}
+
+pub fn addrReg(fiber: *Fiber, regData: Fiber.RegisterData, operand: Bytecode.RegisterOperand, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap![*]u8 {
+    const base = try getRegisterOffset(regData, operand.register);
+
+    if (!regData.layout.inbounds(operand, @truncate(size))) {
+        @branchHint(.cold);
+        return Fiber.Trap.OutOfBounds;
+    }
+
+    return @ptrCast(try fiber.stack.data.getPtr(base + operand.offset));
+}
+
+pub fn readGlobal(fiber: *Fiber, comptime T: type, operand: Bytecode.GlobalOperand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!T {
+    const bytes = try addrGlobal(fiber, operand, @sizeOf(T));
+
+    if (Support.alignmentDelta(@intFromPtr(bytes), @alignOf(T)) != 0) {
+        @branchHint(.cold);
+        return Fiber.Trap.BadAlignment;
+    }
+
+    return @as(*T, @ptrCast(@alignCast(bytes))).*;
+}
+
+pub fn readReg(fiber: *Fiber, comptime T: type, regData: Fiber.RegisterData, operand: Bytecode.RegisterOperand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!T {
+    const size = @sizeOf(T);
+
+    const base = try getRegisterOffset(regData, operand.register);
+
+    if (!regData.layout.inbounds(operand, size)) {
+        @branchHint(.cold);
+        return Fiber.Trap.OutOfBounds;
+    }
+
+    const bytes = try fiber.stack.data.checkSlice(base + operand.offset, size);
+
+    if (Support.alignmentDelta(@intFromPtr(bytes), @alignOf(T)) != 0) {
+        @branchHint(.cold);
+        return Fiber.Trap.BadAlignment;
+    }
+
+    return @as(*T, @ptrCast(@alignCast(bytes))).*;
+}
+
+pub fn writeGlobal(fiber: *Fiber, operand: Bytecode.GlobalOperand, value: anytype) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const T = @TypeOf(value);
+    const mem = try addrGlobal(fiber, operand, @sizeOf(T));
+
+    if (Support.alignmentDelta(@intFromPtr(mem), @alignOf(T)) != 0) {
+        @branchHint(.cold);
+        return Fiber.Trap.BadAlignment;
+    }
+
+    @as(*T, @ptrCast(@alignCast(mem))).* = value;
+}
+
+pub fn writeReg(fiber: *Fiber, regData: Fiber.RegisterData, operand: Bytecode.RegisterOperand, value: anytype) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const T = @TypeOf(value);
+    const size = @sizeOf(T);
+
+    const base = try getRegisterOffset(regData, operand.register);
+
+    if (!regData.layout.inbounds(operand, size)) {
+        @branchHint(.cold);
+        return Fiber.Trap.OutOfBounds;
+    }
+
+    const bytes = try fiber.stack.data.checkSlice(base, size);
+
+    if (Support.alignmentDelta(@intFromPtr(bytes), @alignOf(T)) != 0) {
+        @branchHint(.cold);
+        return Fiber.Trap.BadAlignment;
+    }
+
+    @as(*T, @ptrCast(@alignCast(bytes))).* = value;
+}
+
+pub fn addrGlobal(fiber: *Fiber, operand: Bytecode.GlobalOperand, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap![*]u8 {
+    if (operand.index >= fiber.program.globals.values.len) {
+        @branchHint(.cold);
+        return Fiber.Trap.OutOfBounds;
+    }
+
+    const data = &fiber.program.globals.values[operand.index];
+
+    if (!data.layout.inbounds(operand.offset, size)) {
+        @branchHint(.cold);
+        return Fiber.Trap.OutOfBounds;
+    }
+
+    return @ptrCast(&fiber.program.globals.memory[operand.offset]);
+}
+
+pub fn getRegisterOffset(regData: Fiber.RegisterData, register: Bytecode.Register) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!Fiber.DataStack.Ptr {
+    const regNumber: Bytecode.RegisterIndex = @intFromEnum(register);
+
+    if (regNumber < regData.layout.num_registers) {
+        return regData.call.stack.base + regData.layout.register_offsets[regNumber];
+    } else {
+        @branchHint(.cold);
+        return Fiber.Trap.OutOfBounds;
+    }
+}
+
+pub fn cast(fiber: *Fiber, comptime A: type, comptime B: type, registerData: Fiber.RegisterDataSet, operands: Bytecode.ISA.TwoOperand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const x = try fiber.read(A, registerData, operands.x);
+
+    const aKind = @as(std.builtin.TypeId, @typeInfo(A));
+    const bKind = @as(std.builtin.TypeId, @typeInfo(B));
+    const result =
+        if (comptime aKind == bKind) (
+            if (comptime aKind == .int) @call(Config.INLINING_CALL_MOD, ops.intCast, .{B, x})
+            else @call(Config.INLINING_CALL_MOD, ops.floatCast, .{B, x})
+        ) else @call(Config.INLINING_CALL_MOD, ops.typeCast, .{B, x});
+
+    try fiber.write(registerData, operands.y, result);
+}
+
+pub fn unary(fiber: *Fiber, comptime T: type, comptime op: []const u8, registerData: Fiber.RegisterDataSet, operands: Bytecode.ISA.TwoOperand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const x = try fiber.read(T, registerData, operands.x);
+
+    const result = @call(Config.INLINING_CALL_MOD, @field(ops, op), .{x});
+
+    try fiber.write(registerData, operands.y, result);
+}
+
+pub fn binary(fiber: *Fiber, comptime T: type, comptime op: []const u8, registerData: Fiber.RegisterDataSet, operands: Bytecode.ISA.ThreeOperand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const x = try fiber.read(T, registerData, operands.x);
+    const y = try fiber.read(T, registerData, operands.y);
+
+    const result = @call(Config.INLINING_CALL_MOD, @field(ops, op), .{x, y});
+
+    try fiber.write(registerData, operands.z, result);
+}
+
+const ops = struct {
+    fn intCast(comptime T: type, x: anytype) T {
+        const U = @TypeOf(x);
+
+        if (comptime @typeInfo(U).int.bits > @typeInfo(T).int.bits) {
+            return @truncate(x);
+        } else {
+            return x;
+        }
+    }
+
+    fn floatCast(comptime T: type, x: anytype) T {
+        return @floatCast(x);
+    }
+
+    fn typeCast(comptime T: type, x: anytype) T {
+        const U = @TypeOf(x);
+
+        const tagT = @as(std.builtin.TypeId, @typeInfo(T));
+        const tagU = @as(std.builtin.TypeId, @typeInfo(U));
+
+        if (comptime tagT == .int and tagU == .float) {
+            return @intFromFloat(x);
+        } else if (comptime tagT == .float and tagU == .int) {
+            return @floatFromInt(x);
+        } else unreachable;
+    }
+
+    fn neg(a: anytype) @TypeOf(a) {
+        return -a;
+    }
+
+    fn add(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+        return a + b;
+    }
+
+    fn sub(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+        return a - b;
+    }
+
+    fn mul(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+        return a * b;
+    }
+
+    fn div(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+        return a / b;
+    }
+
+    fn divFloor(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+        return @divFloor(a, b);
+    }
+
+    fn rem(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+        return @rem(a, b);
+    }
+
+    fn bitnot(a: anytype) @TypeOf(a) {
+        return ~a;
+    }
+
+    fn not(a: anytype) @TypeOf(a) {
+        return !a;
+    }
+
+    fn bitand(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+        return a & b;
+    }
+
+    fn @"and"(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+        return a and b;
+    }
+
+    fn bitor(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+        return a | b;
+    }
+
+    fn @"or"(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+        return a or b;
+    }
+
+    fn bitxor(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+        return a ^ b;
+    }
+
+    fn shiftl(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+        const T = @TypeOf(a);
+        const bits = @bitSizeOf(T);
+        const S = std.meta.Int(.unsigned, std.math.log2(bits));
+        const U = std.meta.Int(.unsigned, bits);
+        const bu: U = @bitCast(b);
+        const bs: U = @rem(std.math.maxInt(S), bu);
+        return a << @truncate(bs);
+    }
+
+    fn shiftr(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+        const T = @TypeOf(a);
+        const bits = @bitSizeOf(T);
+        const S = std.meta.Int(.unsigned, std.math.log2(bits));
+        const U = std.meta.Int(.unsigned, bits);
+        const bu: U = @bitCast(b);
+        const bs: U = @rem(std.math.maxInt(S), bu);
+        return a >> @truncate(bs);
+    }
+
+    fn eq(a: anytype, b: @TypeOf(a)) bool {
+        return a == b;
+    }
+
+    fn ne(a: anytype, b: @TypeOf(a)) bool {
+        return a != b;
+    }
+
+    fn lt(a: anytype, b: @TypeOf(a)) bool {
+        return a < b;
+    }
+
+    fn gt(a: anytype, b: @TypeOf(a)) bool {
+        return a > b;
+    }
+
+    fn le(a: anytype, b: @TypeOf(a)) bool {
+        return a <= b;
+    }
+
+    fn ge(a: anytype, b: @TypeOf(a)) bool {
+        return a >= b;
+    }
+};
