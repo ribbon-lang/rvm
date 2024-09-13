@@ -9,7 +9,7 @@ pub const Unit = extern struct {};
 
 const Support = @This();
 
-pub const IOError = std.fs.File.WriteError || std.fs.File.ReadError || std.fs.File.OpenError || error{
+pub const IOError = std.fs.File.WriteError || std.fs.File.ReadError || std.fs.File.OpenError || error {
     StreamTooLong,
 };
 

@@ -36,6 +36,7 @@ pub const GlobalIndex = u14;
 pub const GlobalOffset = u32;
 pub const EvidenceIndex = u16;
 pub const MemorySize = u48;
+pub const ForeignId = u48;
 
 
 pub const MAX_REGISTERS = std.math.maxInt(RegisterIndex);
@@ -235,22 +236,12 @@ pub const Function = struct {
 
     pub const Value = union(Kind) {
         bytecode: Bytecode,
-        native: Native,
+        foreign: ForeignId,
     };
 
     pub const Kind = enum(u1) {
         bytecode,
-        native,
-    };
-
-    pub const Native = *const fn (fiber: *anyopaque) callconv(.C) NativeControl;
-
-    pub const NativeControl = enum(u8) {
-        returning,
-        continuing,
-        prompting,
-        stepping,
-        trapping,
+        foreign,
     };
 };
 

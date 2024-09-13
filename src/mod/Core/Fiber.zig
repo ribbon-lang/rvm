@@ -15,6 +15,7 @@
 
 const std = @import("std");
 
+const Extern = @import("Extern");
 const Bytecode = @import("Bytecode");
 const IO = @import("IO");
 
@@ -30,9 +31,11 @@ context: *Context,
 program: *Bytecode.Program,
 stack: StackSet,
 evidence: []EvidenceStack,
+foreign: []const ForeignFunction,
 
 
 pub const Trap = error {
+    ForeignUnknown,
     Unreachable,
     Underflow,
     Overflow,
@@ -45,6 +48,60 @@ pub const Trap = error {
     InvalidBlockRestart,
 };
 
+pub const RegisterData = extern struct {
+    call: *Fiber.CallFrame,
+    layout: *Bytecode.LayoutTable,
+};
+
+pub const RegisterDataSet = struct {
+    local: RegisterData,
+    upvalue: ?RegisterData,
+};
+
+pub const ForeignFunction = *const fn (*Fiber, Bytecode.BlockIndex, *const ForeignRegisterDataSet, *ForeignOut) callconv(.C) ForeignControl;
+
+pub const ForeignControl = enum(u32) {
+    step,
+    done,
+    trap,
+};
+
+pub const ForeignOut = extern union {
+    step: Bytecode.BlockIndex,
+    done: Bytecode.Operand,
+    trap: Extern.Error,
+};
+
+pub const ForeignRegisterDataSet = extern struct {
+    local: RegisterData,
+    upvalue: Extern.Option(RegisterData),
+
+    pub fn fromNative(data: RegisterDataSet) ForeignRegisterDataSet {
+        return .{
+            .local = data.local,
+            .upvalue = .fromNative(data.upvalue),
+        };
+    }
+
+    pub fn toNative(self: ForeignRegisterDataSet) RegisterDataSet {
+        return .{
+            .local = self.local,
+            .upvalue = self.upvalue.toNative(),
+        };
+    }
+};
+
+pub fn convertForeignError(e: Extern.Error) Trap {
+    const i = @intFromError(e.toNative());
+
+    inline for (comptime std.meta.fieldNames(Trap)) |trapName| {
+        if (i == @intFromError(@field(Trap, trapName))) {
+            return @field(Trap, trapName);
+        }
+    }
+
+    return Trap.ForeignUnknown;
+}
 
 pub const StackSet = struct {
     data: DataStack,
@@ -165,7 +222,7 @@ pub const CallFrame = struct {
 };
 
 
-pub fn init(context: *Context, program: *Bytecode.Program) !*Fiber {
+pub fn init(context: *Context, program: *Bytecode.Program, foreign: []const ForeignFunction) !*Fiber {
     const ptr = try context.allocator.create(Fiber);
     errdefer context.allocator.destroy(ptr);
 
@@ -192,6 +249,7 @@ pub fn init(context: *Context, program: *Bytecode.Program) !*Fiber {
         .context = context,
         .stack = stack,
         .evidence = evidence,
+        .foreign = foreign,
     };
 
     return ptr;
@@ -212,4 +270,12 @@ pub fn getLocation(self: *const Fiber) Trap!Bytecode.Location {
         .block = block.index,
         .offset = block.ip_offset,
     };
+}
+
+pub fn getForeign(self: *const Fiber, index: Bytecode.ForeignId) !ForeignFunction {
+    if (index >= self.foreign.len) {
+        return Trap.OutOfBounds;
+    }
+
+    return self.foreign[index];
 }

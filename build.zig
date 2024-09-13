@@ -194,7 +194,7 @@ pub fn build(b: *Build) !void {
                 }
             }
 
-            const rel = try fullBuild(b, nativeCompSet, &cliOptions, &manifest, &buildOptions, .private, .ReleaseSafe, stripDebugInfo, t);
+            const rel = try fullBuild(b, nativeCompSet, &cliOptions, &manifest, &buildOptions, .private, .ReleaseFast, stripDebugInfo, t);
             releaseCommand.dependOn(&rel.step);
         }
     }
