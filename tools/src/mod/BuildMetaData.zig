@@ -52,12 +52,12 @@ pub const options = .{
     .logScopes = .{ []const u8, "Logging scopes to display", "ribboni" },
     .useEmoji = .{ bool, "Use emoji in the output", true },
     .useAnsiStyles = .{ bool, "Use ANSI styles in the output", true },
-    .maximumInlining = .{ bool, "Try to inline as much as possible in the interpreter", false },
 };
 
 pub const buildOptions = .{
     .forceNewSnapshot = .{ bool, "(Tests) Force a new snapshot to be created instead of referring to an existing one", false },
-    .stripDebugInfo = .{ ?bool, "Override for optimization-specific settings for stripping debug info from the binary" },
+    .stripDebugInfo = .{ ?bool, "Override for optimization-specific settings for stripping debug info from the binary. If not explicitly provided, this will default to `true` when `-Doptimize` is not set to `Debug`" },
+    .maximumInlining = .{ ?bool, "Override for optimization-specific settings for inlining as much as possible in the interpreter. If not explicitly provided, this will default to `true` when `-Doptimize` is not set to `Debug`" },
 };
 
 pub const releaseTargets: []const std.Target.Query = &.{

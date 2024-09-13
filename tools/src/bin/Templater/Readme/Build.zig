@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const TypeUtils = @import("ZigTypeUtils");
+
 const Manifest = @import("ZigBuilder:Manifest");
 
 const BuildMetaData = @import("BuildMetaData");
@@ -97,7 +99,7 @@ fn printOptions(opts: anytype, out: anytype) !void {
         const optionDesc = option[1];
         const optionDefault = if (comptime option.len == 3) option[2] else "null";
 
-        if (comptime optionType == []const u8) {
+        if (comptime TypeUtils.isString(@TypeOf(optionDefault))) {
             try out.print("|`-D{s}=<string>`| {s} |`{s}`|\n", .{ optionName, optionDesc, optionDefault });
         } else {
             try out.print("|`-D{s}=<{s}>`| {s} |`{any}`|\n", .{ optionName, @typeName(optionType), optionDesc, optionDefault });

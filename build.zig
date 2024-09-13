@@ -19,28 +19,31 @@ const targets = BuildMetaData.releaseTargets;
 const log = std.log.scoped(.build);
 
 pub fn build(b: *Build) !void {
+    const defaultTarget = b.standardTargetOptions(.{});
+    const defaultOptimize = b.standardOptimizeOption(.{});
+
     const cwdPath = try std.fs.cwd().realpathAlloc(b.allocator, ".");
     const prefixPath = if (std.mem.startsWith(u8, b.install_prefix, cwdPath)) b.fmt(".{s}", .{b.install_prefix[cwdPath.len..]}) else b.install_prefix;
 
     const manifest = try Manifest.readFile(b.allocator, "build.zig.zon");
 
-    const config = makeConfig(b, &manifest);
-    const buildOptions = makeBuildOptions(b);
+    const cliOptions = makeCliOptions(b);
+    const buildOptions = makeBuildOptions(&cliOptions);
+
+    const nativeConfig = makeConfig(b, &cliOptions, &manifest);
+    nativeConfig.addOption(bool, "maximumInlining", false);
 
     try validatePackageDeps(&manifest, BuildMetaData.packageDeps);
 
-    const dependencies =
+    const nativeDependencies =
         TypeUtils.structConcat(.{ BuildMetaData.packageDeps, .{
-        .config = config,
+        .config = nativeConfig,
     } });
 
     const buildCommands = try makeBuildCommands(b);
 
     const nativeTarget = b.resolveTargetQuery(.{});
     const nativeOptimize = .Debug;
-
-    const defaultTarget = b.standardTargetOptions(.{});
-    const defaultOptimize = b.standardOptimizeOption(.{});
 
     const toolingTree = try SourceTree.getMap(b.allocator, BuildMetaData.paths.withTooling);
     const sourceTree = try SourceTree.getMap(b.allocator, BuildMetaData.paths.sourceOnly);
@@ -51,7 +54,7 @@ pub fn build(b: *Build) !void {
         b,
         "native",
         toolingTree,
-        dependencies,
+        nativeDependencies,
         .{
             .meta = .native,
             .vis = .private,
@@ -63,7 +66,15 @@ pub fn build(b: *Build) !void {
         },
     );
 
-    const testCompSet = try Compilation.init(b, "tests", sourceTree, dependencies, .{
+    const testConfig = makeConfig(b, &cliOptions, &manifest);
+    testConfig.addOption(bool, "maximumInlining", buildOptions.maximumInlining orelse (defaultOptimize != .Debug));
+
+    const testDependencies =
+        TypeUtils.structConcat(.{ BuildMetaData.packageDeps, .{
+        .config = testConfig,
+    } });
+
+    const testCompSet = try Compilation.init(b, "tests", sourceTree, testDependencies, .{
         .meta = .{ .generative = nativeCompSet },
         .vis = .private,
         .target = defaultTarget,
@@ -76,7 +87,7 @@ pub fn build(b: *Build) !void {
     var snapshotHelper = try nativeCompSet.getSnapshotHelper("tests/.snapshot");
 
     const defaultFullBuild = defaultFullBuild: {
-        break :defaultFullBuild try fullBuild(b, nativeCompSet, dependencies, .public, defaultOptimize, stripDebugInfo, defaultTarget.query);
+        break :defaultFullBuild try fullBuild(b, nativeCompSet, &cliOptions, &manifest, &buildOptions, .public, defaultOptimize, stripDebugInfo, defaultTarget.query);
     };
 
     const defaultCommand: *Build.Step = b.default_step;
@@ -120,7 +131,7 @@ pub fn build(b: *Build) !void {
     {
         snapshotHelper.runWith(cliTestsCommand);
 
-        const releaseHost = try fullBuild(b, nativeCompSet, dependencies, .private, .ReleaseSafe, stripDebugInfo, nativeTarget.query);
+        const releaseHost = try fullBuild(b, nativeCompSet, &cliOptions, &manifest, &buildOptions, .private, .ReleaseSafe, stripDebugInfo, nativeTarget.query);
 
         try cliTest(b, &buildOptions, &snapshotHelper, releaseHost.bin, cliTestsCommand, .Pass);
         try cliTest(b, &buildOptions, &snapshotHelper, releaseHost.bin, cliTestsCommand, .Fail);
@@ -131,8 +142,8 @@ pub fn build(b: *Build) !void {
         snapshotHelper.runWith(cTestsCommand);
 
         if (hostOS == .linux and hostArch == .x86_64 and hostAbi == .gnu) {
-            try cTest(b, cTestsCommand, &buildOptions, &snapshotHelper, prefixPath, nativeCompSet, dependencies, stripDebugInfo, .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .gnu }, null);
-            try cTest(b, cTestsCommand, &buildOptions, &snapshotHelper, prefixPath, nativeCompSet, dependencies, stripDebugInfo, .{ .cpu_arch = .x86_64, .os_tag = .windows, .abi = .gnu }, "wine64");
+            try cTest(b, cTestsCommand, &cliOptions, &manifest, &buildOptions, &snapshotHelper, prefixPath, nativeCompSet, stripDebugInfo, .{ .cpu_arch = .x86_64, .os_tag = .linux, .abi = .gnu }, null);
+            try cTest(b, cTestsCommand, &cliOptions, &manifest, &buildOptions, &snapshotHelper, prefixPath, nativeCompSet, stripDebugInfo, .{ .cpu_arch = .x86_64, .os_tag = .windows, .abi = .gnu }, "wine64");
         } else {
             const warn = Build.Step.Run.create(b, "unsupported c-test host");
             warn.addArgs(&[_][]const u8{ "echo", b.fmt("\x1b[33mWarning\x1b[39m: c-tests are currently only supported on \x1b[32mx86_64-linux-gnu\x1b[39m, " ++ "current host is \x1b[31m{s}\x1b[39m; skipping c-tests", .{try (std.Target.Query{ .cpu_arch = hostArch, .os_tag = hostOS, .abi = hostAbi }).zigTriple(b.allocator)}) });
@@ -183,7 +194,7 @@ pub fn build(b: *Build) !void {
                 }
             }
 
-            const rel = try fullBuild(b, nativeCompSet, dependencies, .private, .ReleaseSafe, stripDebugInfo, t);
+            const rel = try fullBuild(b, nativeCompSet, &cliOptions, &manifest, &buildOptions, .private, .ReleaseSafe, stripDebugInfo, t);
             releaseCommand.dependOn(&rel.step);
         }
     }
@@ -261,7 +272,73 @@ fn makeBuildCommands(b: *Build) !std.StringHashMap(*Build.Step) {
     return map;
 }
 
-fn makeConfig(b: *Build, manifest: *const Manifest) *Build.Step.Options {
+const CliOptions = opts: {
+    const optionNames = std.meta.fieldNames(@TypeOf(BuildMetaData.options));
+    const buildOptionNames = std.meta.fieldNames(@TypeOf(BuildMetaData.buildOptions));
+    const totalFields = optionNames.len + buildOptionNames.len;
+    var fields = [1]std.builtin.Type.StructField{undefined} ** totalFields;
+
+    var i: usize = 0;
+    for (optionNames) |fieldName| {
+        const opt = @field(BuildMetaData.options, fieldName);
+        fields[i] = .{
+            .name = fieldName,
+            .type = opt[0],
+            .default_value = null,
+            .is_comptime = false,
+            .alignment = @alignOf(opt[0]),
+        };
+        i += 1;
+    }
+
+    for (buildOptionNames) |fieldName| {
+        const opt = @field(BuildMetaData.buildOptions, fieldName);
+
+        const ty = switch (@typeInfo(opt[0])) {
+            .optional => opt[0],
+            else => ?opt[0],
+        };
+
+        fields[i] = .{
+            .name = fieldName,
+            .type = ty,
+            .default_value = null,
+            .is_comptime = false,
+            .alignment = @alignOf(opt[0]),
+        };
+        i += 1;
+    }
+
+    break :opts @Type(.{
+        .@"struct" = .{
+            .layout = .auto,
+            .fields = &fields,
+            .decls = &[0]std.builtin.Type.Declaration{},
+            .is_tuple = false,
+        },
+    });
+};
+
+fn makeCliOptions(b: *Build) CliOptions {
+    var out: CliOptions = undefined;
+    inline for (comptime std.meta.fieldNames(@TypeOf(BuildMetaData.options))) |dataOpt| {
+        const opt = @field(BuildMetaData.options, dataOpt);
+        if (opt.len == 3) {
+            @field(out, dataOpt) = b.option(opt[0], dataOpt, opt[1]) orelse opt[2];
+        }
+    }
+    inline for (comptime std.meta.fieldNames(@TypeOf(BuildMetaData.buildOptions))) |dataOpt| {
+        const opt = @field(BuildMetaData.buildOptions, dataOpt);
+        const ty = switch (@typeInfo(opt[0])) {
+            .optional => |info| info.child,
+            else => opt[0],
+        };
+        @field(out, dataOpt) = b.option(ty, dataOpt, opt[1]);
+    }
+    return out;
+}
+
+fn makeConfig(b: *Build, cliOptions: *const CliOptions, manifest: *const Manifest) *Build.Step.Options {
     const proto = TypeUtils.structConcat(.{
         .{
             .version = .{std.SemanticVersion},
@@ -274,7 +351,7 @@ fn makeConfig(b: *Build, manifest: *const Manifest) *Build.Step.Options {
         const opt = @field(proto, dataOpt);
         switch (opt.len) {
             3 => {
-                config.addOption(opt[0], dataOpt, b.option(opt[0], dataOpt, opt[1]) orelse opt[2]);
+                config.addOption(opt[0], dataOpt, @field(cliOptions, dataOpt));
             },
             2 => {
                 config.addOption(opt[0], dataOpt, opt[1]);
@@ -290,21 +367,18 @@ fn makeConfig(b: *Build, manifest: *const Manifest) *Build.Step.Options {
     return config;
 }
 
-fn makeBuildOptions(b: *Build) BuildOptions {
+fn makeBuildOptions(cliOptions: *const CliOptions) BuildOptions {
     var options: BuildOptions = undefined;
     inline for (comptime std.meta.fieldNames(@TypeOf(BuildMetaData.buildOptions))) |dataOpt| {
         const opt = @field(BuildMetaData.buildOptions, dataOpt);
         if (comptime opt.len != 3) {
             if (comptime opt.len == 2) {
-                switch (@typeInfo(opt[0])) {
-                    .optional => |x| @field(options, dataOpt) = b.option(x.child, dataOpt, opt[1]),
-                    else => @compileError("invalid build config option `" ++ dataOpt ++ "`"),
-                }
+                @field(options, dataOpt) = @field(cliOptions, dataOpt);
             } else {
                 @compileError("invalid build config option `" ++ dataOpt ++ "`");
             }
         } else {
-            @field(options, dataOpt) = b.option(opt[0], dataOpt, opt[1]) orelse opt[2];
+            @field(options, dataOpt) = @field(cliOptions, dataOpt) orelse opt[2];
         }
     }
     return options;
@@ -312,9 +386,9 @@ fn makeBuildOptions(b: *Build) BuildOptions {
 
 const BuildOptions = ty: {
     const T = @TypeOf(BuildMetaData.buildOptions);
-    var fields = [1]std.builtin.Type.StructField{undefined} ** 128;
-    var i: usize = 0;
-    for (std.meta.fieldNames(T)) |name| {
+    const fieldNames = std.meta.fieldNames(T);
+    var fields = [1]std.builtin.Type.StructField{undefined} ** fieldNames.len;
+    for (fieldNames, 0..) |name, i| {
         const field = @field(BuildMetaData.buildOptions, name);
         const ty = field[0];
         fields[i] = .{
@@ -324,12 +398,11 @@ const BuildOptions = ty: {
             .is_comptime = false,
             .alignment = @alignOf(ty),
         };
-        i += 1;
     }
     break :ty @Type(.{
         .@"struct" = .{
             .layout = .auto,
-            .fields = fields[0..i],
+            .fields = &fields,
             .decls = &[0]std.builtin.Type.Declaration{},
             .is_tuple = false,
         },
@@ -401,9 +474,19 @@ fn makeGuard(step: *Build.Step, opts: Build.Step.MakeOptions) anyerror!void {
     step.result_cached = all_cached;
 }
 
-fn fullBuild(b: *Build, nativeCompSet: *Compilation, dependencies: anytype, vis: SourceTree.EntryVis, optimize: std.builtin.OptimizeMode, stripDebugInfo: ?bool, t: std.Target.Query) !*FullBuild {
+fn fullBuild(b: *Build, nativeCompSet: *Compilation, cliOptions: *const CliOptions, manifest: *const Manifest, buildOptions: *const BuildOptions, vis: SourceTree.EntryVis, optimize: std.builtin.OptimizeMode, stripDebugInfo: ?bool, t: std.Target.Query) !*FullBuild {
     const relTarget = b.resolveTargetQuery(t);
     const relPath = b.fmt("{s}-{s}", .{try relTarget.query.zigTriple(b.allocator), optimizeModeName(optimize)});
+
+
+    const config = makeConfig(b, cliOptions, manifest);
+    config.addOption(bool, "maximumInlining", buildOptions.maximumInlining orelse (optimize != .Debug));
+
+    const dependencies =
+        TypeUtils.structConcat(.{ BuildMetaData.packageDeps, .{
+        .config = config,
+    } });
+
 
     const comp = try Compilation.init(
         b,
@@ -555,8 +638,8 @@ fn cliTest(b: *Build, buildOptions: *const BuildOptions, snapshotHelper: *Snapsh
     }
 }
 
-fn cTest(b: *Build, command: *Build.Step, buildOptions: *const BuildOptions, snapshotHelper: *Snapshot.Helper, prefixPath: []const u8, nativeCompSet: *Compilation, dependencies: anytype, stripDebugInfo: ?bool, t: std.Target.Query, runner: ?[]const u8) !void {
-    const rel = try fullBuild(b, nativeCompSet, dependencies, .private, .ReleaseSafe, stripDebugInfo, t);
+fn cTest(b: *Build, command: *Build.Step, cliOptions: *const CliOptions, manifest: *const Manifest, buildOptions: *const BuildOptions, snapshotHelper: *Snapshot.Helper, prefixPath: []const u8, nativeCompSet: *Compilation, stripDebugInfo: ?bool, t: std.Target.Query, runner: ?[]const u8) !void {
+    const rel = try fullBuild(b, nativeCompSet, cliOptions, manifest, buildOptions, .private, .ReleaseSafe, stripDebugInfo, t);
 
     if (b.args) |args| {
         for (args) |arg| {
