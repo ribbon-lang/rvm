@@ -140,7 +140,7 @@ fn earlyTesting(gpa: std.mem.Allocator, output: std.fs.File.Writer, _: []const [
             .values = &[_]Bytecode.Global {
                 .{
                     .type = u8_t,
-                    .layout = Core.Fiber.typeLayout(&basic_types, u8_t).?,
+                    .layout = Bytecode.typeLayout(&basic_types, u8_t).?,
                     .offset = 0,
                 }
             },
@@ -153,11 +153,11 @@ fn earlyTesting(gpa: std.mem.Allocator, output: std.fs.File.Writer, _: []const [
                     .register_types = &[_] Bytecode.TypeIndex {},
 
                     .term_layout = null,
-                    .return_layout = Core.Fiber.typeLayout(&basic_types, u8_t).?,
+                    .return_layout = Bytecode.typeLayout(&basic_types, u8_t).?,
                     .register_layouts = &[_] Bytecode.Layout {
-                        Core.Fiber.typeLayout(&basic_types, u8_t).?,
-                        Core.Fiber.typeLayout(&basic_types, u8_t).?,
-                        Core.Fiber.typeLayout(&basic_types, u8_t).?,
+                        Bytecode.typeLayout(&basic_types, u8_t).?,
+                        Bytecode.typeLayout(&basic_types, u8_t).?,
+                        Bytecode.typeLayout(&basic_types, u8_t).?,
                     },
 
                     .register_offsets = &[_] Bytecode.RegisterBaseOffset {

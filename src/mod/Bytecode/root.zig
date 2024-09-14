@@ -2,6 +2,7 @@
 
 const std = @import("std");
 
+const Support = @import("Support");
 const TextUtils = @import("ZigTextUtils");
 const TypeUtils = @import("ZigTypeUtils");
 
@@ -168,6 +169,7 @@ pub const Type = union(enum) {
     array: Array,
     product: Product,
     sum: Sum,
+    raw_sum: Sum,
     function: Type.Function,
 
     pub const Int = struct {
@@ -215,6 +217,11 @@ pub const Type = union(enum) {
     };
 
     pub const Sum = struct {
+        discriminator: TypeIndex,
+        types: []TypeIndex,
+    };
+
+    pub const RawSum = struct {
         types: []TypeIndex,
     };
 
@@ -404,9 +411,254 @@ pub fn readInstructionsImpl(reader: IO.Reader, encoderAllocator: std.mem.Allocat
 }
 
 
-test {
-    const Support = @import("Support");
 
+pub fn printType(types: []const Bytecode.Type, ty: Bytecode.TypeIndex, writer: anytype) !void {
+    switch (types[ty]) {
+        .void => try writer.writeAll("void"),
+        .bool => try writer.writeAll("bool"),
+        .int => |info| try writer.print("{u}{}", .{ if (info.is_signed) 's' else 'u', info.bit_width.toInt() }),
+        .float => |info| try writer.print("f{}", .{ info.bit_width.toInt() }),
+        .pointer => |info| {
+            try writer.writeAll("*");
+            try printType(types, info.target, writer);
+        },
+        .array => |info| {
+            try writer.print("[{}]", .{info.length});
+            try printType(types, info.element, writer);
+        },
+        .product => |info| {
+            try writer.writeAll("(prod: ");
+            for (info.fields, 0..) |field, i| {
+                try printType(types, field, writer);
+                if (i < info.fields.len - 1) {
+                    try writer.writeAll(" * ");
+                }
+            }
+            try writer.writeAll(")");
+        },
+        .sum => |info| {
+            try writer.writeAll("(sum ");
+            try printType(types, info.discriminator, writer);
+            try writer.writeAll(": ");
+            for (info.fields, 0..) |field, i| {
+                try printType(types, field, writer);
+                if (i < info.fields.len - 1) {
+                    try writer.writeAll(" + ");
+                }
+            }
+            try writer.writeAll(")");
+        },
+        .raw_sum => |info| {
+            try writer.writeAll("(raw_sum: ");
+            for (info.fields, 0..) |field, i| {
+                try printType(types, field, writer);
+                if (i < info.fields.len - 1) {
+                    try writer.writeAll(" + ");
+                }
+            }
+            try writer.writeAll(")");
+        },
+        .function => |info| {
+            try writer.writeAll("(fn: ");
+            for (info.params, 0..) |arg, i| {
+                try printType(types, arg, writer);
+                if (i < info.params.len - 1) {
+                    try writer.writeAll(", ");
+                }
+            }
+            try writer.writeAll(" -> ");
+            try printType(types, info.result, writer);
+            try writer.writeAll(")");
+        },
+    }
+}
+
+pub fn printValue(types: []const Bytecode.Type, ty: Bytecode.TypeIndex, bytes: [*]const u8, len: ?usize, writer: anytype) !void {
+    switch (types[ty]) {
+        .void => if (len) |l| try writer.print("{any}", .{bytes[0..l]}) else try writer.writeAll("[cannot display]"),
+        .bool => try writer.print("{}", .{ @as(*align(1) bool, @ptrCast(bytes)).* }),
+        .int => |info| {
+            if (info.is_signed) {
+                switch (info.bit_width) {
+                    .i8 => try writer.print("{}", .{ @as(*align(1) i8, @ptrCast(bytes)).* }),
+                    .i16 => try writer.print("{}", .{ @as(*align(1) i16, @ptrCast(bytes)).* }),
+                    .i32 => try writer.print("{}", .{ @as(*align(1) i32, @ptrCast(bytes)).* }),
+                    .i64 => try writer.print("{}", .{ @as(*align(1) i64, @ptrCast(bytes)).* }),
+                }
+            } else {
+                switch (info.bit_width) {
+                    .i8 => try writer.print("{}", .{ @as(*align(1) i8, @ptrCast(bytes)).* }),
+                    .i16 => try writer.print("{}", .{ @as(*align(1) i16, @ptrCast(bytes)).* }),
+                    .i32 => try writer.print("{}", .{ @as(*align(1) i32, @ptrCast(bytes)).* }),
+                    .i64 => try writer.print("{}", .{ @as(*align(1) i64, @ptrCast(bytes)).* }),
+                }
+            }
+        },
+        .float => |info| switch (info.bit_width) {
+            .f32 => try writer.print("{}", .{ @as(*align(1) f32, @ptrCast(bytes)).* }),
+            .f64 => try writer.print("{}", .{ @as(*align(1) f64, @ptrCast(bytes)).* }),
+        },
+        .pointer => |info| {
+            const ptr = @as(*align(1) [*]const u8, @ptrCast(bytes)).*;
+            try writer.print("@{x:0>16} => ", .{ @intFromPtr(ptr) });
+            try printValue(types, info.target, ptr, null, writer);
+        },
+        .array => |info| {
+            if (typeLayout(types, info.element)) |layout| {
+                try writer.writeAll("[");
+                for (0..info.length) |i| {
+                    try printValue(types, info.element, bytes + layout.size * i, layout.size, writer);
+                    if (i < info.length - 1) {
+                        try writer.writeAll(", ");
+                    }
+                }
+                try writer.writeAll("]");
+            } else {
+                try writer.writeAll("[cannot display]");
+            }
+        },
+        .product => |info| {
+            var offset: usize = 0;
+            try writer.writeAll("(");
+            for (info.fields, 0..) |field, i| {
+                if (typeLayout(types, field)) |fieldLayout| {
+                    offset += Support.alignmentDelta(offset, fieldLayout.alignment);
+                    try printValue(types, field, bytes + offset, fieldLayout.size, writer);
+                    if (i < info.fields.len - 1) {
+                        try writer.writeAll(" * ");
+                    }
+                    offset += fieldLayout.size;
+                } else {
+                    try writer.writeAll("... cannot display");
+                    break;
+                }
+            }
+            try writer.writeAll(")");
+        },
+        .sum => |info| {
+            var offset: usize, const disc = if (typeLayout(types, info.discriminator)) |discLayout| layout: {
+                try printValue(types, info.discriminator, bytes, discLayout.size, writer);
+                const discValue: usize = switch (discLayout.size) {
+                    1 => @as(*align(1) u8, @ptrCast(bytes)).*,
+                    2 => @as(*align(1) u16, @ptrCast(bytes)).*,
+                    4 => @as(*align(1) u32, @ptrCast(bytes)).*,
+                    8 => @as(*align(1) u64, @ptrCast(bytes)).*,
+                    else => return writer.writeAll("[cannot display]"),
+                };
+                break :layout .{discLayout.size, discValue};
+            } else {
+                return writer.writeAll("[cannot display]");
+            };
+
+            const fieldType = info.types[disc.discValue];
+
+            if (typeLayout(types, fieldType)) |fieldLayout| {
+                offset += Support.alignmentDelta(offset, fieldLayout.alignment);
+                try printValue(types, fieldType, bytes + offset, fieldLayout.size, writer);
+            } else {
+                try writer.writeAll("[cannot display]");
+            }
+        },
+        .raw_sum => if (len) |l| {
+            try writer.print("{any}", .{bytes[0..l]});
+        } else {
+            try writer.writeAll("[cannot display]");
+        },
+        .function => try writer.print("(fn {})", .{ @as(*align(1) u64, @ptrCast(bytes)).* }),
+    }
+}
+
+
+pub fn typeLayout(types: []const Bytecode.Type, ty: Bytecode.TypeIndex) ?Bytecode.Layout {
+    switch (types[ty]) {
+        .void => return null,
+        .bool => return .{ .size = 1, .alignment = 1 },
+        .int => |info| switch (info.bit_width) {
+            .i8 => return .{ .size = 1, .alignment = 1 },
+            .i16 => return .{ .size = 2, .alignment = 2 },
+            .i32 => return .{ .size = 4, .alignment = 4 },
+            .i64 => return .{ .size = 8, .alignment = 8 },
+        },
+        .float => |info| switch (info.bit_width) {
+            .f32 => return .{ .size = 4, .alignment = 4 },
+            .f64 => return .{ .size = 8, .alignment = 8 },
+        },
+        .pointer => return .{ .size = 8, .alignment = 8 },
+        .array => |info| if (typeLayout(types, info.element)) |elementLayout| {
+            return .{
+                .size = @intCast(elementLayout.size * info.length),
+                .alignment = elementLayout.alignment,
+            };
+        } else {
+            return null;
+        },
+        .product => |info| {
+            var size: u16 = 0;
+            var alignment: u16 = 1;
+
+            for (info.types) |field| {
+                if (typeLayout(types, field)) |fieldLayout| {
+                    alignment = @max(alignment, fieldLayout.alignment);
+
+                    const padding = Support.alignmentDelta(size, alignment);
+
+                    size += padding + fieldLayout.size;
+                } else {
+                    return null;
+                }
+            }
+
+            return .{ .size = size, .alignment = alignment };
+        },
+        .sum => |info| {
+            var size: u16 = 0;
+            var alignment: u16 = 1;
+
+            if (typeLayout(types, info.discriminator)) |discInfo| {
+                size += discInfo.size;
+                alignment = @max(alignment, discInfo.alignment);
+            } else {
+                return null;
+            }
+
+            const baseSize = size;
+
+            for (info.types) |field| {
+                if (typeLayout(types, field)) |fieldLayout| {
+                    size = @max(size, fieldLayout.size);
+                    alignment = @max(alignment, fieldLayout.alignment);
+                } else {
+                    return null;
+                }
+            }
+
+            const padding = Support.alignmentDelta(baseSize, alignment);
+            size += padding;
+
+            return .{ .size = size, .alignment = alignment };
+        },
+        .raw_sum => |info| {
+            var size: u16 = 0;
+            var alignment: u16 = 1;
+
+            for (info.types) |field| {
+                if (typeLayout(types, field)) |fieldLayout| {
+                    size = @max(size, fieldLayout.size);
+                    alignment = @max(alignment, fieldLayout.alignment);
+                } else {
+                    return null;
+                }
+            }
+
+            return .{ .size = size, .alignment = alignment };
+        },
+        .function => return .{ .size = 8, .alignment = 8 },
+    }
+}
+
+
+
+test {
     const allocator = std.testing.allocator;
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();

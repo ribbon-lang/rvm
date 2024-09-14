@@ -228,36 +228,60 @@ pub fn fnv1a_128(a: anytype) u128 {
 
 pub fn hashWith(hasher: anytype, a: anytype) void {
     const T = @TypeOf(a);
-    const info = @typeInfo(T);
 
-    switch (info) {
-        .Bool, .Int, .Float, .ComptimeInt, .ComptimeFloat => {
+    switch (@typeInfo(T)) {
+        .void, .undefined, .noreturn => return,
+        .error_set => {
+            return hashWith(hasher, @intFromError(a));
+        },
+        .bool, .int, .float, .comptime_int, .comptime_float => {
             return hashRawWith(T, hasher, &a);
         },
-        // .ComptimeInt => {
-        //     return hashRawWith(u128, hasher, &a);
-        // },
-        // .ComptimeFloat => {
-        //     return hashRawWith(f64, hasher, &a);
-        // },
-        .Optional => {
+        .@"enum" => {
+            return hashWith(hasher, @intFromEnum(a));
+        },
+        .@"struct" => |info| {
+            inline for (info.fields) |field| {
+                hashWith(hasher, @field(a, field.name));
+            }
+        },
+        .@"union" => |info| {
+            if (info.tag_type) |TT| {
+                const tag = @as(TT, a);
+                hashWith(hasher, tag);
+                inline for (info.fields) |field| {
+                    if (tag == @field(TT, field.name)) {
+                        return hashWith(hasher, @field(a, field.name));
+                    }
+                }
+                unreachable;
+            } else if (info.layout == .@"packed") {
+                const I = std.meta.Int(.unsigned, @bitSizeOf(T));
+                const aInt: I = @bitCast(a);
+                return hashWith(hasher, aInt);
+            } else {
+                @compileError("Cannot do compare for union type `" ++ @typeName(T) ++ "` without tag or packed layout");
+            }
+        },
+        .optional => {
             if (a) |ax| {
                 return hashWith(hasher, ax);
             } else {
                 return hasher.update("\x00N\x00U\x00L\x00L\x00");
             }
         },
-        .Pointer => {
-            switch (info.Pointer.size) {
+        .pointer => |info| {
+            switch (info.size) {
                 .One, .C => {
-                    if (info.Pointer.child == anyopaque) {
+                    if (info.child == anyopaque) {
                         @compileError("Cannot hash opaque pointers");
                     } else {
                         return hashWith(hasher, a.*);
                     }
                 },
                 .Slice => {
-                    if (info.Pointer.child == u8) {
+                    hashWith(hasher, a.len);
+                    if (info.child == u8) {
                         return hasher.update(a);
                     }
 
@@ -270,8 +294,10 @@ pub fn hashWith(hasher: anytype, a: anytype) void {
                 },
             }
         },
-        .Array => {
-            if (info.Array.child == u8) {
+        .array => |info| {
+            hashWith(hasher, info.len);
+
+            if (info.child == u8) {
                 return hasher.update(&a);
             }
 
@@ -280,11 +306,7 @@ pub fn hashWith(hasher: anytype, a: anytype) void {
             }
         },
         else => {
-            if (comptime std.meta.hasFn(T, "hashWith")) {
-                return T.hashWith(a, hasher);
-            } else {
-                @compileError("Cannot do hash for type `" ++ @typeName(T) ++ "`");
-            }
+            @compileError("Cannot do hash for type `" ++ @typeName(T) ++ "`");
         },
     }
 }
