@@ -181,16 +181,6 @@ pub const InstructionPrototypes = .{
          , YieldOperand
         },
 
-        .{ "case"
-         , \\indexed by the 8-bit value in `x`:
-           \\enter one of the blocks designated in `bs`
-           \\
-           \\each value of `bs` is an absolute block index
-         , Case
-         , \\place the result of the block in `y`
-         , YieldOperand
-        },
-
         .{ "br"
          , \\exit the block designated by `b`
            \\

@@ -133,19 +133,13 @@ pub const Block = struct {
 
     pub const Kind = enum(u8) {
           basic = 0x00, basic_v = 0x10,
-          if_nz = 0x01, if_nz_v = 0x11,
-           if_z = 0x02,  if_z_v = 0x12,
-           case = 0x03,  case_v = 0x13,
            with = 0x04,  with_v = 0x14,
           entry = 0x05, entry_v = 0x15,
-
-           when = 0x06,
-         unless = 0x07,
 
         pub inline fn hasOutput(self: Kind) bool {
             return switch (self) {
                 inline
-                    .basic_v, .if_nz_v, .if_z_v, .case_v, .with_v, .entry_v
+                    .basic_v, .with_v, .entry_v
                 => true,
                 inline else => false,
             };
@@ -171,12 +165,11 @@ pub const Type = union(enum) {
     array: Array,
     product: Product,
     sum: Sum,
-    raw_sum: Sum,
+    raw_sum: RawSum,
     function: Type.Function,
 
     pub const Int = struct {
         bit_width: BitWidth,
-        is_signed: bool,
         pub const BitWidth = enum(u2) {
             i8, i16, i32, i64,
 
@@ -187,6 +180,10 @@ pub const Type = union(enum) {
                     .i32 => return 32,
                     .i64 => return 64,
                 }
+            }
+
+            pub fn byteSize(self: BitWidth) u8 {
+                return self.toInt() / 8;
             }
         };
     };
@@ -202,6 +199,10 @@ pub const Type = union(enum) {
                     .f64 => return 64,
                 }
             }
+
+            pub fn byteSize(self: BitWidth) u8 {
+                return self.toInt() / 8;
+            }
         };
     };
 
@@ -215,22 +216,64 @@ pub const Type = union(enum) {
     };
 
     pub const Product = struct {
-        types: []TypeIndex,
+        types: []const TypeIndex,
     };
 
     pub const Sum = struct {
         discriminator: TypeIndex,
-        types: []TypeIndex,
+        types: []const TypeIndex,
     };
 
     pub const RawSum = struct {
-        types: []TypeIndex,
+        types: []const TypeIndex,
     };
 
     pub const Function = struct {
-        params: []TypeIndex,
+        params: []const TypeIndex,
+        term: TypeIndex,
         result: TypeIndex,
+        evidence: []const EvidenceIndex,
     };
+
+    /// The passed allocator should be an arena or a similar allocator that doesn't care about freeing individual allocations,
+    /// as this does not free anything on error and there is no Type.deinit
+    pub fn clone(self: Type, allocator: std.mem.Allocator) std.mem.Allocator.Error!Type {
+        switch (self) {
+            .void => return self,
+            .bool => return self,
+            .int => return self,
+            .float => return self,
+            .pointer => return self,
+            .array => return self,
+            .product => |info| {
+                const types = try allocator.alloc(TypeIndex, info.types.len);
+                @memcpy(types, info.types);
+
+                return .{ .product = .{ .types = types } };
+            },
+            .sum => |info| {
+                const types = try allocator.alloc(TypeIndex, info.types.len);
+                @memcpy(types, info.types);
+
+                return .{ .sum = .{ .discriminator = info.discriminator, .types = types } };
+            },
+            .raw_sum => |info| {
+                const types = try allocator.alloc(TypeIndex, info.types.len);
+                @memcpy(types, info.types);
+
+                return .{ .raw_sum = .{ .types = types } };
+            },
+            .function => |info| {
+                const params = try allocator.alloc(TypeIndex, info.params.len);
+                @memcpy(params, info.params);
+
+                const evidence = try allocator.alloc(EvidenceIndex, info.evidence.len);
+                @memcpy(evidence, info.evidence);
+
+                return .{ .function = .{ .params = params, .term = info.term, .result = info.result, .evidence = evidence } };
+            },
+        }
+    }
 };
 
 pub const LayoutTable = struct {
@@ -413,12 +456,12 @@ pub fn readInstructionsImpl(reader: IO.Reader, encoderAllocator: std.mem.Allocat
 }
 
 
-
+// TODO: this should be a format method on Type
 pub fn printType(types: []const Bytecode.Type, ty: Bytecode.TypeIndex, writer: anytype) !void {
     switch (types[ty]) {
         .void => try writer.writeAll("void"),
         .bool => try writer.writeAll("bool"),
-        .int => |info| try writer.print("{u}{}", .{ if (info.is_signed) 's' else 'u', info.bit_width.toInt() }),
+        .int => |info| try writer.print("i{}", .{ info.bit_width.toInt() }),
         .float => |info| try writer.print("f{}", .{ info.bit_width.toInt() }),
         .pointer => |info| {
             try writer.writeAll("*");
@@ -470,6 +513,18 @@ pub fn printType(types: []const Bytecode.Type, ty: Bytecode.TypeIndex, writer: a
             }
             try writer.writeAll(" -> ");
             try printType(types, info.result, writer);
+            try writer.writeAll(" / ");
+            try printType(types, info.term, writer);
+            if (info.evidence.len > 0) {
+                try writer.writeAll("(in: ");
+                for (info.evidence, 0..) |e, i| {
+                    try writer.print("{}", .{e});
+                    if (i < info.evidence.len - 1) {
+                        try writer.writeAll(", ");
+                    }
+                }
+                try writer.writeAll(")");
+            }
             try writer.writeAll(")");
         },
     }
@@ -482,17 +537,10 @@ pub fn printValue(types: []const Bytecode.Type, ty: Bytecode.TypeIndex, bytes: [
         .int => |info| {
             if (info.is_signed) {
                 switch (info.bit_width) {
-                    .i8 => try writer.print("{}", .{ @as(*align(1) i8, @ptrCast(bytes)).* }),
-                    .i16 => try writer.print("{}", .{ @as(*align(1) i16, @ptrCast(bytes)).* }),
-                    .i32 => try writer.print("{}", .{ @as(*align(1) i32, @ptrCast(bytes)).* }),
-                    .i64 => try writer.print("{}", .{ @as(*align(1) i64, @ptrCast(bytes)).* }),
-                }
-            } else {
-                switch (info.bit_width) {
-                    .i8 => try writer.print("{}", .{ @as(*align(1) i8, @ptrCast(bytes)).* }),
-                    .i16 => try writer.print("{}", .{ @as(*align(1) i16, @ptrCast(bytes)).* }),
-                    .i32 => try writer.print("{}", .{ @as(*align(1) i32, @ptrCast(bytes)).* }),
-                    .i64 => try writer.print("{}", .{ @as(*align(1) i64, @ptrCast(bytes)).* }),
+                    .i8 => try writer.print("0x{x:0>2}", .{ @as(*align(1) i8, @ptrCast(bytes)).* }),
+                    .i16 => try writer.print("0x{x:0>4}", .{ @as(*align(1) i16, @ptrCast(bytes)).* }),
+                    .i32 => try writer.print("0x{x:0>8}", .{ @as(*align(1) i32, @ptrCast(bytes)).* }),
+                    .i64 => try writer.print("0x{x:0>16}", .{ @as(*align(1) i64, @ptrCast(bytes)).* }),
                 }
             }
         },
@@ -658,6 +706,103 @@ pub fn typeLayout(types: []const Bytecode.Type, ty: Bytecode.TypeIndex) ?Bytecod
     }
 }
 
+/// expects void to be TypeIndex 0
+pub fn offsetType(types: []const Bytecode.Type, ty: Bytecode.TypeIndex, offset: Bytecode.RegisterLocalOffset) ?Bytecode.TypeIndex {
+    if (offset == 0) return ty;
+
+    switch (types[ty]) {
+        .void => return ty,
+        .bool => return null,
+        .int => |info| {
+            if (offset < info.bit_width.byteSize()) {
+                return 0;
+            }
+
+            return null;
+        },
+        .float => |info| {
+            if (offset < info.bit_width.byteSize()) {
+                return 0;
+            }
+
+            return null;
+        },
+        .pointer => {
+            if (offset < 8) {
+                return 0;
+            }
+
+            return null;
+        },
+        .array => |info| {
+            const elemLayout = typeLayout(types, info.element) orelse return null;
+
+            if (offset < elemLayout.size * info.length) {
+                return offsetType(types, info.element, offset % elemLayout.size);
+            }
+
+            return null;
+        },
+        .product => |info| {
+            var fieldOffset: u16 = 0;
+
+            const prodLayout = typeLayout(types, ty) orelse return null;
+
+            if (offset < prodLayout.size) {
+                for (info.types) |field| {
+                    if (typeLayout(types, field)) |fieldLayout| {
+                        fieldOffset += Support.alignmentDelta(fieldOffset, fieldLayout.alignment);
+
+                        if (fieldOffset == offset) {
+                            return field;
+                        }
+
+                        if (offset < fieldOffset + fieldLayout.size) {
+                            return offsetType(types, field, offset - fieldOffset);
+                        }
+
+                        fieldOffset += fieldLayout.size;
+                    } else {
+                        return 0;
+                    }
+                }
+            }
+
+            return null;
+        },
+        .sum => |info| {
+            const sumLayout = typeLayout(types, ty) orelse return null;
+
+            if (offset < sumLayout.size) {
+                if (typeLayout(types, info.discriminator)) |discLayout| {
+                    if (offset < discLayout.size) {
+                        return offsetType(types, info.discriminator, offset);
+                    } else {
+                        return 0;
+                    }
+                }
+            }
+
+            return null;
+        },
+        .raw_sum => {
+            const sumLayout = typeLayout(types, ty) orelse return null;
+
+            if (offset < sumLayout.size) {
+                return 0;
+            }
+
+            return null;
+        },
+        .function => {
+            if (offset < 8) {
+                return 0;
+            }
+
+            return null;
+        },
+    }
+}
 
 
 test {

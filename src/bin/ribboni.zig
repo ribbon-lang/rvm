@@ -85,28 +85,20 @@ fn entry() Error!void {
 
 const void_t: Bytecode.TypeIndex = 0;
 const bool_t: Bytecode.TypeIndex = 1;
-const u8_t: Bytecode.TypeIndex   = 2;
-const u16_t: Bytecode.TypeIndex  = 3;
-const u32_t: Bytecode.TypeIndex  = 4;
-const u64_t: Bytecode.TypeIndex  = 5;
-const s8_t: Bytecode.TypeIndex   = 6;
-const s16_t: Bytecode.TypeIndex  = 7;
-const s32_t: Bytecode.TypeIndex  = 8;
-const s64_t: Bytecode.TypeIndex  = 9;
-const f32_t: Bytecode.TypeIndex  = 10;
-const f64_t: Bytecode.TypeIndex  = 11;
+const i8_t: Bytecode.TypeIndex   = 2;
+const i16_t: Bytecode.TypeIndex  = 3;
+const i32_t: Bytecode.TypeIndex  = 4;
+const i64_t: Bytecode.TypeIndex  = 5;
+const f32_t: Bytecode.TypeIndex  = 6;
+const f64_t: Bytecode.TypeIndex  = 7;
 
 const basic_types = [_]Bytecode.Type {
     .void,
     .bool,
-    .{ .int = Bytecode.Type.Int { .bit_width = .i8,  .is_signed = false } },
-    .{ .int = Bytecode.Type.Int { .bit_width = .i16, .is_signed = false } },
-    .{ .int = Bytecode.Type.Int { .bit_width = .i32, .is_signed = false } },
-    .{ .int = Bytecode.Type.Int { .bit_width = .i64, .is_signed = false } },
-    .{ .int = Bytecode.Type.Int { .bit_width = .i8,  .is_signed = true } },
-    .{ .int = Bytecode.Type.Int { .bit_width = .i16, .is_signed = true } },
-    .{ .int = Bytecode.Type.Int { .bit_width = .i32, .is_signed = true } },
-    .{ .int = Bytecode.Type.Int { .bit_width = .i64, .is_signed = true } },
+    .{ .int = Bytecode.Type.Int { .bit_width = .i8  } },
+    .{ .int = Bytecode.Type.Int { .bit_width = .i16 } },
+    .{ .int = Bytecode.Type.Int { .bit_width = .i32 } },
+    .{ .int = Bytecode.Type.Int { .bit_width = .i64 } },
     .{ .float = Bytecode.Type.Float { .bit_width = .f32 } },
     .{ .float = Bytecode.Type.Float { .bit_width = .f64 } },
 };
@@ -139,8 +131,8 @@ fn earlyTesting(gpa: std.mem.Allocator, output: std.fs.File.Writer, _: []const [
             .memory = &globalMemory,
             .values = &[_]Bytecode.Global {
                 .{
-                    .type = u8_t,
-                    .layout = Bytecode.typeLayout(&basic_types, u8_t).?,
+                    .type = i8_t,
+                    .layout = Bytecode.typeLayout(&basic_types, i8_t).?,
                     .offset = 0,
                 }
             },
@@ -153,11 +145,11 @@ fn earlyTesting(gpa: std.mem.Allocator, output: std.fs.File.Writer, _: []const [
                     .register_types = &[_] Bytecode.TypeIndex {},
 
                     .term_layout = null,
-                    .return_layout = Bytecode.typeLayout(&basic_types, u8_t).?,
+                    .return_layout = Bytecode.typeLayout(&basic_types, i8_t).?,
                     .register_layouts = &[_] Bytecode.Layout {
-                        Bytecode.typeLayout(&basic_types, u8_t).?,
-                        Bytecode.typeLayout(&basic_types, u8_t).?,
-                        Bytecode.typeLayout(&basic_types, u8_t).?,
+                        Bytecode.typeLayout(&basic_types, i8_t).?,
+                        Bytecode.typeLayout(&basic_types, i8_t).?,
+                        Bytecode.typeLayout(&basic_types, i8_t).?,
                     },
 
                     .register_offsets = &[_] Bytecode.RegisterBaseOffset {

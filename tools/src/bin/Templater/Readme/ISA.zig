@@ -475,7 +475,6 @@ fn longName(comptime name: [:0]const u8) []const u8 {
         else if (strCmp(name, "with")) "effect handler block"
         else if (strCmp(name, "if_z")) "two-way conditional block, based on the predicate being zero"
         else if (strCmp(name, "if_nz")) "two-way conditional block, based on the predicate being non-zero"
-        else if (strCmp(name, "case")) "jump table"
 
         else if (strCmp(name, "br")) "unconditional branch out of block"
         else if (strCmp(name, "br_z")) "conditional branch out of block, based on the predicate being zero"

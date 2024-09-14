@@ -102,9 +102,6 @@ pub fn stepBytecode(fiber: *Fiber, currentCallFrame: *Fiber.CallFrame, currentFu
         .if_z_v => |operands| try @"if"(fiber, currentFunction, registerData, operands.t, operands.e, operands.x, operands.y, .zero),
         .if_nz_v => |operands| try @"if"(fiber, currentFunction, registerData, operands.t, operands.e, operands.x, operands.y, .non_zero),
 
-        .case => |operands| try case(fiber, currentFunction, registerData, operands.bs, operands.x, null),
-        .case_v => |operands| try case(fiber, currentFunction, registerData, operands.bs, operands.x, operands.y),
-
         .addr => |operands| try addr(fiber, registerData, operands.x, operands.y),
 
         .load8 => |operands| try fiber.load(u8, registerData, operands.x, operands.y),
@@ -546,57 +543,6 @@ fn @"if"(fiber: *Fiber, currentFunction: *const Bytecode.Function, registerData:
             }
 
             break :newBlockFrame Fiber.BlockFrame.noOutput(destBlockIndex, null);
-        }
-    };
-
-    try fiber.stack.block.push(newBlockFrame);
-}
-
-fn case(fiber: *Fiber, currentFunction: *const Bytecode.Function, registerData: Fiber.RegisterDataSet, blockIndices: []const Bytecode.BlockIndex, x: Bytecode.Operand, y: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    const index = try fiber.read(u8, registerData, x);
-
-    if (index >= blockIndices.len) {
-        @branchHint(.cold);
-        return Fiber.Trap.OutOfBounds;
-    }
-
-    const caseBlockIndex = blockIndices[index];
-
-    const newBlockFrame = newBlockFrame: {
-        if (y) |yOp| {
-            // TODO: find a way to do this more efficiently
-            for (blockIndices) |blockIndex| {
-                if (blockIndex >= currentFunction.value.bytecode.blocks.len) {
-                    @branchHint(.cold);
-                    return Fiber.Trap.OutOfBounds;
-                }
-
-                const caseBlock = &currentFunction.value.bytecode.blocks[blockIndex];
-
-                if (!caseBlock.kind.hasOutput()) {
-                    @branchHint(.cold);
-                    return Fiber.Trap.OutValueMismatch;
-                }
-            }
-
-            break :newBlockFrame Fiber.BlockFrame.value(caseBlockIndex, yOp, null);
-        } else {
-            // TODO: find a way to do this more efficiently
-            for (blockIndices) |blockIndex| {
-                if (blockIndex >= currentFunction.value.bytecode.blocks.len) {
-                    @branchHint(.cold);
-                    return Fiber.Trap.OutOfBounds;
-                }
-
-                const caseBlock = &currentFunction.value.bytecode.blocks[blockIndex];
-
-                if (caseBlock.kind.hasOutput()) {
-                    @branchHint(.cold);
-                    return Fiber.Trap.OutValueMismatch;
-                }
-            }
-
-            break :newBlockFrame Fiber.BlockFrame.noOutput(caseBlockIndex, null);
         }
     };
 
