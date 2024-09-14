@@ -145,8 +145,8 @@ pub const StackSet = struct {
 
 
 pub const CALL_STACK_SIZE: usize = 4096;
-pub const BLOCK_STACK_SIZE: usize = CALL_STACK_SIZE * 256;
-pub const EVIDENCE_VECTOR_SIZE: usize = 1024;
+pub const BLOCK_STACK_SIZE: usize = CALL_STACK_SIZE * Bytecode.MAX_BLOCKS;
+pub const EVIDENCE_VECTOR_SIZE: usize = Bytecode.MAX_EVIDENCE;
 pub const EVIDENCE_STACK_SIZE: usize = std.math.maxInt(EvidenceStack.Ptr);
 pub const DATA_STACK_SIZE: usize
     = (1024 * 1024 * 8)
