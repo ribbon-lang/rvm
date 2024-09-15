@@ -2,6 +2,7 @@ const std = @import("std");
 
 const Support = @import("Support");
 const Bytecode = @import("Bytecode");
+const IO = @import("IO");
 
 const Builder = @import("root.zig");
 const Error = Builder.Error;
@@ -56,6 +57,80 @@ pub fn init(parent: *Builder, typeIndex: Bytecode.TypeIndex, index: Bytecode.Fun
     };
 
     return ptr;
+}
+
+pub fn assemble(self: *const FunctionBuilder, allocator: std.mem.Allocator) Error!Bytecode.Function {
+    const blocks = try allocator.alloc(Bytecode.Block, self.blocks.items.len);
+    errdefer allocator.free(blocks);
+
+    var encoder = IO.Encoder {};
+    defer encoder.deinit(allocator);
+
+    for (self.blocks.items, 0..) |builder, i| {
+        blocks[i] = try builder.assemble(&encoder, allocator);
+    }
+
+    const instructions = try encoder.finalize(allocator);
+
+    const layout_table = try self.generateLayoutTable(allocator);
+
+    return Bytecode.Function {
+        .layout_table = layout_table,
+        .value = .{
+            .bytecode = .{
+                .blocks = blocks,
+                .instructions = instructions,
+            },
+        },
+    };
+}
+
+pub fn generateLayoutTable(self: *const FunctionBuilder, allocator: std.mem.Allocator) Error!Bytecode.LayoutTable {
+    const typeInfo = (try self.parent.getType(self.type)).function;
+
+    const register_types = try allocator.alloc(Bytecode.TypeIndex, self.local_types.items.len);
+    errdefer allocator.free(register_types);
+
+    const register_layouts = try allocator.alloc(Bytecode.Layout, self.local_types.items.len);
+    errdefer allocator.free(register_layouts);
+
+    const register_offsets = try allocator.alloc(Bytecode.RegisterBaseOffset, self.local_types.items.len);
+    errdefer allocator.free(register_offsets);
+
+    var alignment: Bytecode.ValueAlignment = 0;
+
+    for (self.local_types.items, 0..) |typeIndex, i| {
+        register_types[i] = typeIndex;
+        const layout = try self.parent.getTypeLayout(typeIndex);
+        register_layouts[i] = layout;
+        alignment = @max(layout.alignment, alignment);
+    }
+
+    var size: Bytecode.LayoutTableSize = 0;
+
+    for (register_layouts, 0..) |layout, i| {
+        size += Support.alignmentDelta(size, layout.alignment);
+        register_offsets[i] = size;
+        size += layout.size;
+    }
+
+    return .{
+        .term_type = typeInfo.term,
+        .return_type = typeInfo.result,
+        .register_types = register_types.ptr,
+
+        .term_layout = try self.parent.getTypeLayout(typeInfo.term),
+        .return_layout = try self.parent.getTypeLayout(typeInfo.result),
+        .register_layouts = register_layouts.ptr,
+
+        .register_offsets = register_offsets.ptr,
+
+        .size = size,
+        .alignment = alignment,
+
+        .num_arguments = @intCast(typeInfo.params.len),
+        .num_registers = @intCast(self.local_types.items.len),
+    };
 }
 
 pub fn getBlock(self: *const FunctionBuilder, index: Bytecode.BlockIndex) Error!*BlockBuilder {

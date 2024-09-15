@@ -18,6 +18,7 @@ globals: GlobalList,
 functions: FunctionList,
 handler_sets: HandlerSetList,
 evidences: EvidenceMap(*EvidenceBuilder),
+main_function: ?Bytecode.FunctionIndex,
 
 
 pub const Error = std.mem.Allocator.Error || error {
@@ -28,18 +29,23 @@ pub const Error = std.mem.Allocator.Error || error {
     TooManyRegisters,
     TooManyHandlerSets,
     TooManyEvidences,
+    TooManyInstructions,
+    GlobalMemoryTooLarge,
     TypeError,
     LayoutFailed,
     TooManyArguments,
     EvidenceOverlap,
     MissingEvidence,
+    MissingHandler,
     NotEnoughArguments,
     InstructionsAfterExit,
     MultipleExits,
+    MultipleMains,
     InvalidIndex,
     InvalidOffset,
     InvalidOperand,
     UnregisteredOperand,
+    UnfinishedBlock,
 };
 
 pub const void_t: Bytecode.TypeIndex = 0;
@@ -90,7 +96,77 @@ pub const Function = union(enum) {
         type: Bytecode.TypeIndex,
         evidence: ?Bytecode.EvidenceIndex,
         index: Bytecode.FunctionIndex,
+
+        pub fn assemble(self: *const Foreign, foreignId: Bytecode.ForeignId, allocator: std.mem.Allocator) Error!Bytecode.Function {
+            return .{
+                .layout_table = try self.generateLayoutTable(allocator),
+                .value = .{ .foreign = foreignId },
+            };
+        }
+
+
+        pub fn generateLayoutTable(self: *const Foreign, allocator: std.mem.Allocator) Error!Bytecode.LayoutTable {
+            const typeInfo = (try self.parent.getType(self.type)).function;
+
+            const register_types = try allocator.alloc(Bytecode.TypeIndex, typeInfo.params.len);
+            errdefer allocator.free(register_types);
+
+            const register_layouts = try allocator.alloc(Bytecode.Layout, typeInfo.params.len);
+            errdefer allocator.free(register_layouts);
+
+            const register_offsets = try allocator.alloc(Bytecode.RegisterBaseOffset, typeInfo.params.len);
+            errdefer allocator.free(register_offsets);
+
+            var alignment: Bytecode.ValueAlignment = 0;
+
+            for (typeInfo.params, 0..) |typeIndex, i| {
+                register_types[i] = typeIndex;
+                const layout = try self.parent.getTypeLayout(typeIndex);
+                register_layouts[i] = layout;
+                alignment = @max(layout.alignment, alignment);
+            }
+
+            var size: Bytecode.LayoutTableSize = 0;
+
+            for (register_layouts, 0..) |layout, i| {
+                size += Support.alignmentDelta(size, layout.alignment);
+                register_offsets[i] = size;
+                size += layout.size;
+            }
+
+            return .{
+                .term_type = typeInfo.term,
+                .return_type = typeInfo.result,
+                .register_types = register_types.ptr,
+
+                .term_layout = try self.parent.getTypeLayout(typeInfo.term),
+                .return_layout = try self.parent.getTypeLayout(typeInfo.result),
+                .register_layouts = register_layouts.ptr,
+
+                .register_offsets = register_offsets.ptr,
+
+                .size = size,
+                .alignment = alignment,
+
+                .num_arguments = @intCast(typeInfo.params.len),
+                .num_registers = @intCast(typeInfo.params.len),
+            };
+        }
     };
+
+    pub fn assemble(self: Function, allocator: std.mem.Allocator) Error!Bytecode.Function {
+        // TODO: the builder should be handling this
+        var foreignId: Bytecode.ForeignId = 0;
+
+        switch (self) {
+            .bytecode => |builder| return builder.assemble(allocator),
+            .foreign => |forn| {
+                const out = forn.assemble(foreignId, allocator);
+                foreignId += 1;
+                return out;
+            },
+        }
+    }
 };
 
 
@@ -126,7 +202,125 @@ pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!Builder {
         .functions = functions,
         .handler_sets = handler_sets,
         .evidences = evidences,
+        .main_function = null,
     };
+}
+
+/// this does not have to be the same allocator as the one passed to `init`,
+/// a long-term allocator is preferred. In the event of an error, the builder
+/// will clean-up any allocations made by this function
+pub fn assemble(self: *const Builder, allocator: std.mem.Allocator) Error!Bytecode.Program {
+    const types = try self.generateTypeList(allocator);
+    errdefer {
+        for (types) |t| t.deinit(allocator);
+        allocator.free(types);
+    }
+
+    const globals = try self.generateGlobalSet(allocator);
+    errdefer globals.deinit(allocator);
+
+    const functions = try self.generateFunctionList(allocator);
+    errdefer {
+        for (functions) |f| f.deinit(allocator);
+        allocator.free(functions);
+    }
+
+    const handler_sets = try self.generateHandlerSetList(allocator);
+    errdefer {
+        for (handler_sets) |h| allocator.free(h);
+        allocator.free(handler_sets);
+    }
+
+    return .{
+        .types = types,
+        .globals = globals,
+        .functions = functions,
+        .handler_sets = handler_sets,
+        .main = self.main_function,
+    };
+}
+
+pub fn generateTypeList(self: *const Builder, allocator: std.mem.Allocator) Error![]const Bytecode.Type {
+    const types = try allocator.alloc(Bytecode.Type, self.types.count());
+
+    var i: usize = 0;
+    errdefer {
+        for (0..i) |j| types[j].deinit(allocator);
+        allocator.free(types);
+    }
+
+    const info = self.types.keys();
+
+    while (i < info.len) : (i += 1) {
+        types[i] = try info[i].clone(allocator);
+    }
+
+    return types;
+}
+
+pub fn generateGlobalSet(self: *const Builder, allocator: std.mem.Allocator) Error!Bytecode.GlobalSet {
+    const values = try allocator.alloc(Bytecode.Global, self.globals.items.len);
+    errdefer allocator.free(values);
+
+    var memory = std.ArrayListAlignedUnmanaged(u8, std.mem.page_size){};
+    defer memory.deinit(allocator);
+
+    for (self.globals.items, 0..) |global, i| {
+        const layout = try self.getTypeLayout(global.type);
+
+        const padding = Support.alignmentDelta(memory.items.len, layout.alignment);
+        try memory.appendNTimes(allocator, 0, padding);
+
+        const offset = memory.items.len;
+        try memory.appendSlice(allocator, global.initial);
+
+        if (offset + layout.size > std.math.maxInt(Bytecode.RegisterBaseOffset)) {
+            return Error.GlobalMemoryTooLarge;
+        }
+
+        values[i] = .{
+            .type = global.type,
+            .layout = layout,
+            .offset = @truncate(offset),
+        };
+    }
+
+    return .{
+        .memory = try memory.toOwnedSlice(allocator),
+        .values = values,
+    };
+}
+
+pub fn generateFunctionList(self: *const Builder, allocator: std.mem.Allocator) Error![]Bytecode.Function {
+    const functions = try allocator.alloc(Bytecode.Function, self.functions.items.len);
+
+    var i: usize = 0;
+    errdefer {
+        for (0..i) |j| functions[j].deinit(allocator);
+        allocator.free(functions);
+    }
+
+    while (i < self.functions.items.len) : (i += 1) {
+        functions[i] = try self.functions.items[i].assemble(allocator);
+    }
+
+    return functions;
+}
+
+pub fn generateHandlerSetList(self: *const Builder, allocator: std.mem.Allocator) Error![]Bytecode.HandlerSet {
+    const handlerSets = try allocator.alloc(Bytecode.HandlerSet, self.handler_sets.items.len);
+
+    var i: usize = 0;
+    errdefer {
+        for (0..i) |j| allocator.free(handlerSets[j]);
+        allocator.free(handlerSets);
+    }
+
+    while (i < self.handler_sets.items.len) : (i += 1) {
+        handlerSets[i] = try self.handler_sets.items[i].assemble(allocator);
+    }
+
+    return handlerSets;
 }
 
 pub fn getType(self: *const Builder, index: Bytecode.TypeIndex) Error!Bytecode.Type {
@@ -300,6 +494,20 @@ pub fn function(self: *Builder, t: Bytecode.TypeIndex) Error!*FunctionBuilder {
     try self.functions.append(self.allocator, func);
 
     return func.bytecode;
+}
+
+pub fn hasMain(self: *const Builder) bool {
+    return self.main_function != null;
+}
+
+pub fn main(self: *Builder, t: Bytecode.TypeIndex) Error!*FunctionBuilder {
+    if (self.hasMain()) return Error.MultipleMains;
+
+    const func = try self.function(t);
+
+    self.main_function = func.index;
+
+    return func;
 }
 
 pub fn foreign(self: *Builder, t: Bytecode.TypeIndex) Error!*Function.Foreign {

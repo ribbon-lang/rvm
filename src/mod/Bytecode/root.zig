@@ -41,8 +41,9 @@ pub const ForeignId = u48;
 
 pub const MAX_BLOCKS: BlockIndex = 256;
 pub const MAX_EVIDENCE: EvidenceIndex = 1024;
-
 pub const MAX_REGISTERS = std.math.maxInt(RegisterIndex);
+pub const MAX_INSTRUCTIONS: InstructionPointer = std.math.maxInt(InstructionPointer);
+pub const MAX_INSTRUCTION_OFFSET: InstructionPointerOffset = std.math.maxInt(InstructionPointerOffset);
 
 pub const TYPE_SENTINEL = std.math.maxInt(TypeIndex);
 pub const EVIDENCE_SENTINEL = std.math.maxInt(EvidenceIndex);
@@ -235,8 +236,24 @@ pub const Type = union(enum) {
         evidence: []const EvidenceIndex,
     };
 
-    /// The passed allocator should be an arena or a similar allocator that doesn't care about freeing individual allocations,
-    /// as this does not free anything on error and there is no Type.deinit
+    pub fn deinit(self: Type, allocator: std.mem.Allocator) void {
+        switch (self) {
+            .void => {},
+            .bool => {},
+            .int => {},
+            .float => {},
+            .pointer => {},
+            .array => {},
+            .product => |info| allocator.free(info.types),
+            .sum => |info| allocator.free(info.types),
+            .raw_sum => |info| allocator.free(info.types),
+            .function => |info| {
+                allocator.free(info.params);
+                allocator.free(info.evidence);
+            },
+        }
+    }
+
     pub fn clone(self: Type, allocator: std.mem.Allocator) std.mem.Allocator.Error!Type {
         switch (self) {
             .void => return self,
@@ -265,9 +282,12 @@ pub const Type = union(enum) {
             },
             .function => |info| {
                 const params = try allocator.alloc(TypeIndex, info.params.len);
-                @memcpy(params, info.params);
+                errdefer allocator.free(params);
 
                 const evidence = try allocator.alloc(EvidenceIndex, info.evidence.len);
+                errdefer allocator.free(evidence);
+
+                @memcpy(params, info.params);
                 @memcpy(evidence, info.evidence);
 
                 return .{ .function = .{ .params = params, .term = info.term, .result = info.result, .evidence = evidence } };
@@ -292,6 +312,12 @@ pub const LayoutTable = struct {
 
     num_arguments: RegisterIndex,
     num_registers: RegisterIndex,
+
+    pub fn deinit(self: *const LayoutTable, allocator: std.mem.Allocator) void {
+        allocator.free(self.register_types[0..self.num_registers]);
+        allocator.free(self.register_layouts[0..self.num_registers]);
+        allocator.free(self.register_offsets[0..self.num_registers]);
+    }
 
     pub inline fn getType(self: *const LayoutTable, register: Register) TypeIndex {
         return self.register_types[@as(RegisterIndex, @intFromEnum(register))];
@@ -319,6 +345,15 @@ pub const Function = struct {
         bytecode,
         foreign,
     };
+
+    pub fn deinit(self: Function, allocator: std.mem.Allocator) void {
+        self.layout_table.deinit(allocator);
+
+        switch (self.value) {
+            .bytecode => self.value.bytecode.deinit(allocator),
+            .foreign => {},
+        }
+    }
 };
 
 pub const HandlerSet = []const HandlerBinding;
@@ -360,6 +395,11 @@ pub const GlobalSet = struct {
     memory: []u8,
     values: []const Global,
 
+    pub fn deinit(self: GlobalSet, allocator: std.mem.Allocator) void {
+        allocator.free(self.memory);
+        allocator.free(self.values);
+    }
+
     pub fn read(reader: IO.Reader, context: anytype) !GlobalSet {
         var globalMemory = std.ArrayListUnmanaged(u8){};
         const globalCount: usize = try reader.read(GlobalIndex, context);
@@ -380,6 +420,28 @@ pub const Program = struct {
     functions: []const Function,
     handler_sets: []const HandlerSet,
     main: ?FunctionIndex,
+
+    pub fn deinit(self: Program, allocator: std.mem.Allocator) void {
+        for (self.types) |ty| {
+            ty.deinit(allocator);
+        }
+
+        allocator.free(self.types);
+
+        self.globals.deinit(allocator);
+
+        for (self.functions) |fun| {
+            fun.deinit(allocator);
+        }
+
+        allocator.free(self.functions);
+
+        for (self.handler_sets) |handlerSet| {
+            allocator.free(handlerSet);
+        }
+
+        allocator.free(self.handler_sets);
+    }
 };
 
 pub const Location = struct {
@@ -388,6 +450,11 @@ pub const Location = struct {
     offset: InstructionPointerOffset,
 };
 
+
+pub fn deinit(self: Bytecode, allocator: std.mem.Allocator) void {
+    allocator.free(self.blocks);
+    allocator.free(self.instructions);
+}
 
 pub fn write(self: *const Bytecode, writer: IO.Writer) !void {
     try writer.write(@as(BlockIndex, @intCast(self.blocks.len)));

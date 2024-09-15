@@ -2,6 +2,7 @@ const std = @import("std");
 
 const Support = @import("Support");
 const Bytecode = @import("Bytecode");
+const IO = @import("IO");
 
 const Builder = @import("root.zig");
 const Error = Builder.Error;
@@ -47,6 +48,22 @@ pub const Kind = union(enum) {
              .entry => null,              .entry_v => null,
         };
     }
+
+    pub fn bytecodeKind(self: BlockBuilder.Kind) Bytecode.Block.Kind {
+        return switch (self) {
+             .basic => .basic, .basic_v => .basic_v,
+              .with => .with,  .with_v => .with_v,
+             .entry => .entry, .entry_v => .entry_v,
+        };
+    }
+
+    pub fn assemble(self: BlockBuilder.Kind) struct {Bytecode.Block.Kind, ?Bytecode.TypeIndex, ?Bytecode.HandlerSetIndex} {
+        return .{
+            self.bytecodeKind(),
+            self.getType(),
+            self.getHandlerSet(),
+        };
+    }
 };
 
 /// for use by the FunctionBuilder only
@@ -70,6 +87,41 @@ pub fn init(func: *FunctionBuilder, parent: ?Bytecode.BlockIndex, index: Bytecod
 
 pub fn exited(self: *const BlockBuilder) bool {
     return self.exit != null;
+}
+
+
+
+pub fn assemble(self: *const BlockBuilder, encoder: *IO.Encoder, allocator: std.mem.Allocator) Error!Bytecode.Block {
+    const exit = self.exit orelse return Error.UnfinishedBlock;
+
+    const start = encoder.len();
+
+    if (start >= Bytecode.MAX_INSTRUCTIONS) return Error.TooManyInstructions;
+
+    for (self.ops.items) |x| {
+        try encoder.encode(allocator, x);
+    }
+
+    try encoder.encode(allocator, exit);
+
+    const end = encoder.len();
+    if (end > Bytecode.MAX_INSTRUCTIONS) return Error.TooManyInstructions;
+
+    const size = end - start;
+
+    if (size > Bytecode.MAX_INSTRUCTION_OFFSET) return Error.TooManyInstructions;
+
+    const kind, const typeIndex, const handlers = self.kind.assemble();
+
+    const layout = if (typeIndex) |t| try self.function.parent.getTypeLayout(t) else null;
+
+    return .{
+        .kind = kind,
+        .base = @truncate(start),
+        .size = @truncate(size),
+        .handlers = handlers orelse Bytecode.HANDLER_SET_SENTINEL,
+        .output_layout = layout,
+    };
 }
 
 pub fn op(self: *BlockBuilder, x: Bytecode.Op) Error!void {

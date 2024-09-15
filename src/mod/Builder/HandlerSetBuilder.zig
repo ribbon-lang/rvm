@@ -30,12 +30,28 @@ pub fn init(parent: *Builder, index: Bytecode.HandlerSetIndex) std.mem.Allocator
     return ptr;
 }
 
+pub fn assemble(self: *const HandlerSetBuilder, allocator: std.mem.Allocator) Error!Bytecode.HandlerSet {
+    const handlerSet = try allocator.alloc(Bytecode.HandlerBinding, self.handler_map.count());
+    errdefer allocator.free(handlerSet);
+
+    for (self.handler_map.keys(), 0..) |e, i| {
+        const funIndex = try self.getHandler(e);
+        handlerSet[i] = Bytecode.HandlerBinding { .id = e, .handler = funIndex };
+    }
+
+    return handlerSet;
+}
+
 pub fn getEvidence(self: *const HandlerSetBuilder) []const Bytecode.EvidenceIndex {
     return self.handler_map.keys();
 }
 
 pub fn containsEvidence(self: *const HandlerSetBuilder, e: Bytecode.EvidenceIndex) bool {
     return self.handler_map.contains(e);
+}
+
+pub fn getHandler(self: *const HandlerSetBuilder, e: Bytecode.EvidenceIndex) Error!Bytecode.FunctionIndex {
+    return self.handler_map.get(e) orelse Error.MissingHandler;
 }
 
 pub fn handler(self: *HandlerSetBuilder, e: Bytecode.EvidenceIndex) Error!*FunctionBuilder {
