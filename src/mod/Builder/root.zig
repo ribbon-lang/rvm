@@ -62,7 +62,7 @@ const basic_types = [_]Bytecode.Type {
     .{ .float = Bytecode.Type.Float { .bit_width = .f64 } },
 };
 
-pub const TypeMap = std.ArrayHashMapUnmanaged(Bytecode.Type, void, TypeMapContext, true);
+pub const TypeMap = std.ArrayHashMapUnmanaged(Bytecode.Type, void, Support.SimpleHashContext, true);
 pub const TypeList = std.ArrayListUnmanaged(Bytecode.TypeIndex);
 pub const GlobalList = std.ArrayListUnmanaged(Global);
 pub const FunctionList = std.ArrayListUnmanaged(*Function);
@@ -72,28 +72,9 @@ pub const HandlerMap = EvidenceMap(Bytecode.FunctionIndex);
 pub const OpList = std.ArrayListUnmanaged(Bytecode.Op);
 
 fn EvidenceMap(comptime T: type) type {
-    return std.ArrayHashMapUnmanaged(Bytecode.EvidenceIndex, T, EvidenceMapContext, false);
+    return std.ArrayHashMapUnmanaged(Bytecode.EvidenceIndex, T, Support.SimpleHashContext, false);
 }
 
-const TypeMapContext = struct {
-    pub fn hash(_: TypeMapContext, key: Bytecode.Type) u32 {
-        return Support.fnv1a_32(key);
-    }
-
-    pub fn eql(_: TypeMapContext, a: Bytecode.Type, b: Bytecode.Type, _: usize) bool {
-        return Support.equal(a, b);
-    }
-};
-
-const EvidenceMapContext = struct {
-    pub fn hash(_: EvidenceMapContext, key: Bytecode.EvidenceIndex) u32 {
-        return Support.fnv1a_32(key);
-    }
-
-    pub fn eql(_: EvidenceMapContext, a: Bytecode.EvidenceIndex, b: Bytecode.EvidenceIndex, _: usize) bool {
-        return a == b;
-    }
-};
 
 pub const Global = struct {
     type: Bytecode.TypeIndex,

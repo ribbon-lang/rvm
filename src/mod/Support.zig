@@ -202,6 +202,16 @@ pub fn findWith(comptime T: type, buf: []const T, pred: fn (*const T) bool) ?usi
     return null;
 }
 
+pub const SimpleHashContext = struct {
+    pub fn hash(_: SimpleHashContext, key: anytype) u32 {
+        return Support.fnv1a_32(key);
+    }
+
+    pub fn eql(_: SimpleHashContext, a: anytype, b: @TypeOf(a), _: usize) bool {
+        return Support.equal(a, b);
+    }
+};
+
 pub fn externHash(a: anytype) u32 {
     var hasher = Extern.Hasher.initFnv1a32();
     hashWith(&hasher, a);
