@@ -688,7 +688,7 @@ pub fn printValue(types: []const Bytecode.Type, ty: Bytecode.TypeIndex, bytes: [
 
 pub fn typeLayout(types: []const Bytecode.Type, ty: Bytecode.TypeIndex) ?Bytecode.Layout {
     switch (types[ty]) {
-        .void => return null,
+        .void => return .{ .size = 0, .alignment = 1 },
         .bool => return .{ .size = 1, .alignment = 1 },
         .int => |info| switch (info.bit_width) {
             .i8 => return .{ .size = 1, .alignment = 1 },

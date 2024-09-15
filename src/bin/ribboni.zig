@@ -10,11 +10,13 @@ const ANSI = @import("ANSI");
 const Core = @import("Core");
 const IO = @import("IO");
 const Bytecode = @import("Bytecode");
+const Builder = @import("Builder");
+const Disassembler = @import("Disassembler");
 const log = std.log.scoped(.ribboni);
 
 pub const std_options = @import("Log").std_options;
 
-const Error = Support.IOError || std.mem.Allocator.Error || CLIMetaData.CLIError || Core.Fiber.Trap || error {
+const Error = Support.IOError || std.mem.Allocator.Error || CLIMetaData.CLIError || Core.Fiber.Trap || Builder.Error || error {
     TestExpectedEqual,
 };
 
@@ -83,110 +85,41 @@ fn entry() Error!void {
 }
 
 
-const void_t: Bytecode.TypeIndex = 0;
-const bool_t: Bytecode.TypeIndex = 1;
-const i8_t: Bytecode.TypeIndex   = 2;
-const i16_t: Bytecode.TypeIndex  = 3;
-const i32_t: Bytecode.TypeIndex  = 4;
-const i64_t: Bytecode.TypeIndex  = 5;
-const f32_t: Bytecode.TypeIndex  = 6;
-const f64_t: Bytecode.TypeIndex  = 7;
-
-const basic_types = [_]Bytecode.Type {
-    .void,
-    .bool,
-    .{ .int = Bytecode.Type.Int { .bit_width = .i8  } },
-    .{ .int = Bytecode.Type.Int { .bit_width = .i16 } },
-    .{ .int = Bytecode.Type.Int { .bit_width = .i32 } },
-    .{ .int = Bytecode.Type.Int { .bit_width = .i64 } },
-    .{ .float = Bytecode.Type.Float { .bit_width = .f32 } },
-    .{ .float = Bytecode.Type.Float { .bit_width = .f64 } },
-};
 
 fn earlyTesting(gpa: std.mem.Allocator, output: std.fs.File.Writer, _: []const []const u8, _: []const []const u8) Error!void {
     const context = try Core.Context.init(gpa);
     defer context.deinit();
 
-    var encoder = IO.Encoder {};
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
 
-    try encoder.encode(gpa, Bytecode.Op {
-        .i_add8 = . {
-            .x = .local(.r0, 0),
-            .y = .local(.r1, 0),
-            .z = .local(.r2, 0),
-        },
-    });
+    var builder = try Builder.init(arena.allocator());
 
-    try encoder.encode(gpa, Bytecode.Op {
-        .ret_v = . {
-            .y = .local(.r2, 0),
-        },
-    });
+    const out_global = try builder.globalNative(@as(u8, 0));
 
-    var globalMemory = [1]u8 {undefined};
+    const main_t = try builder.typeId(.{.function = .{
+        .result = Builder.i8_t,
+        .term = Builder.void_t,
+        .evidence = &[0]Bytecode.EvidenceIndex {},
+        .params = &[_]Bytecode.TypeIndex {Builder.i8_t, Builder.i8_t},
+    }});
 
-    const program = Bytecode.Program {
-        .types = &basic_types,
-        .globals = Bytecode.GlobalSet {
-            .memory = &globalMemory,
-            .values = &[_]Bytecode.Global {
-                .{
-                    .type = i8_t,
-                    .layout = Bytecode.typeLayout(&basic_types, i8_t).?,
-                    .offset = 0,
-                }
-            },
-        },
-        .functions = &[_]Bytecode.Function {
-            .{
-                .layout_table = Bytecode.LayoutTable {
-                    .term_type = void_t,
-                    .return_type = void_t,
-                    .register_types = &[_] Bytecode.TypeIndex {},
+    const func = try builder.main(main_t);
 
-                    .term_layout = null,
-                    .return_layout = Bytecode.typeLayout(&basic_types, i8_t).?,
-                    .register_layouts = &[_] Bytecode.Layout {
-                        Bytecode.typeLayout(&basic_types, i8_t).?,
-                        Bytecode.typeLayout(&basic_types, i8_t).?,
-                        Bytecode.typeLayout(&basic_types, i8_t).?,
-                    },
+    const out = try func.local(Builder.i8_t);
 
-                    .register_offsets = &[_] Bytecode.RegisterBaseOffset {
-                        0, 1, 2,
-                    },
+    try func.entry.i_add8(.local(.r0, 0), .local(.r1, 0), .local(out, 0));
+    try func.entry.ret_v(.local(out, 0));
 
-                    .size = 3,
-                    .alignment = 1,
+    const program = try builder.assemble(gpa);
+    defer program.deinit(gpa);
 
-                    .num_arguments = 2,
-                    .num_registers = 3,
-                },
-                .value = .{ .bytecode = Bytecode {
-                    .blocks = &[_]Bytecode.Block {
-                        .{
-                            .kind = .entry_v,
-                            .base = 0,
-                            .size = @intCast(encoder.len()),
-                            .handlers = Bytecode.HANDLER_SET_SENTINEL,
-                            .output_layout = Bytecode.Layout {
-                                .size = 0,
-                                .alignment = 0,
-                            },
-                        }
-                    },
-                    .instructions = try encoder.finalize(gpa),
-                } }
-            }
-        },
-        .handler_sets = &[_]Bytecode.HandlerSet {},
-        .main = 0,
-    };
+    try Disassembler.bytecode(program.functions[0].value.bytecode, output);
 
     const fiber = try Core.Fiber.init(context, &program, &[0] Core.Fiber.ForeignFunction {});
     defer fiber.deinit();
 
-    try fiber.stack.data.pushUninit(program.functions[0].layout_table.size);
+    try fiber.stack.data.pushUninit(program.functions[program.main.?].layout_table.size);
     try fiber.stack.call.push(Core.Fiber.CallFrame {
         .function = 0,
         .evidence = null,
@@ -211,7 +144,7 @@ fn earlyTesting(gpa: std.mem.Allocator, output: std.fs.File.Writer, _: []const [
     try Core.Eval.step(fiber); // i_add8
     try Core.Eval.step(fiber); // ret_v
 
-    const result = try fiber.read(u8, registerData, .global(0, 0));
+    const result = try fiber.read(u8, registerData, .global(out_global, 0));
 
     try output.print("result: {}\n", .{result});
     try std.testing.expectEqual(result, 253);

@@ -7,8 +7,8 @@ const IO = @import("IO");
 
 const Builder = @This();
 pub const BlockBuilder = @import("./BlockBuilder.zig");
-pub const FunctionBuilder = @import("./FunctionBuilder.zig");
 pub const EvidenceBuilder = @import("./EvidenceBuilder.zig");
+pub const FunctionBuilder = @import("./FunctionBuilder.zig");
 pub const HandlerSetBuilder = @import("./HandlerSetBuilder.zig");
 
 
@@ -365,7 +365,6 @@ pub fn typeIdFromNative(self: *Builder, comptime T: type) Error!Bytecode.TypeInd
         .void => return self.typeId(.void),
         .bool => return self.typeId(.bool),
         .int => |info| {
-            const is_signed = info.signedness == .signed;
             const bit_width = switch (info.bits) {
                 8 => .i8,
                 16 => .i16,
@@ -373,7 +372,7 @@ pub fn typeIdFromNative(self: *Builder, comptime T: type) Error!Bytecode.TypeInd
                 64 => .i64,
                 else => return Error.TypeError,
             };
-            return self.typeId(.{ .int = .{ .bit_width = bit_width, .is_signed = is_signed } });
+            return self.typeId(.{ .int = .{ .bit_width = bit_width } });
         },
         .float => |info| {
             const bit_width = switch (info.bits) {
@@ -489,7 +488,7 @@ pub fn function(self: *Builder, t: Bytecode.TypeIndex) Error!*FunctionBuilder {
     }
 
     const func = try self.allocator.create(Function);
-    func.bytecode = try FunctionBuilder.init(self, t, @truncate(index));
+    func.* = .{.bytecode = try FunctionBuilder.init(self, t, @truncate(index))};
 
     try self.functions.append(self.allocator, func);
 
@@ -522,7 +521,7 @@ pub fn foreign(self: *Builder, t: Bytecode.TypeIndex) Error!*Function.Foreign {
     }
 
     const func = try self.allocator.create(Function);
-    func.foreign = .{ .parent = self, .type = t, .evidence = null, .index = @truncate(index) };
+    func.* = .{.foreign = .{ .parent = self, .type = t, .evidence = null, .index = @truncate(index) }};
 
     try self.functions.append(self.allocator, func);
 

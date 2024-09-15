@@ -32,9 +32,6 @@ pub fn init(parent: *Builder, typeIndex: Bytecode.TypeIndex, index: Bytecode.Fun
     var blocks = Builder.BlockList {};
     try blocks.ensureTotalCapacity(parent.allocator, Bytecode.MAX_BLOCKS);
 
-    const entry = try BlockBuilder.init(ptr, null, 0, if (ty.function.result != 0) .{ .entry_v = ty.function.result } else .entry);
-    blocks.appendAssumeCapacity(entry);
-
     var local_types = Builder.TypeList {};
     try local_types.ensureTotalCapacity(parent.allocator, Bytecode.MAX_REGISTERS);
 
@@ -43,18 +40,18 @@ pub fn init(parent: *Builder, typeIndex: Bytecode.TypeIndex, index: Bytecode.Fun
         local_types.appendAssumeCapacity(paramTypeIndex);
     }
 
-    var upvalue_types = Builder.TypeList {};
-    try upvalue_types.ensureTotalCapacity(parent.allocator, Bytecode.MAX_REGISTERS);
-
     ptr.* = FunctionBuilder {
         .parent = parent,
         .index = index,
         .type = typeIndex,
         .blocks = blocks,
-        .entry = entry,
+        .entry = undefined,
         .local_types = local_types,
         .evidence = null,
     };
+
+    ptr.entry = try BlockBuilder.init(ptr, null, 0, if (ty.function.result != 0) .{ .entry_v = ty.function.result } else .entry);
+    ptr.blocks.appendAssumeCapacity(ptr.entry);
 
     return ptr;
 }
