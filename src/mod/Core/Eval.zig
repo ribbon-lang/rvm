@@ -29,24 +29,23 @@ const CallStyle = union(enum) {
 
 pub fn step(fiber: *Fiber) Fiber.Trap!void {
     const currentCallFrame = try fiber.stack.call.topPtr();
-    const currentFunction = &fiber.program.functions[currentCallFrame.function];
 
-    const registerData = try fiber.getRegisterData(currentCallFrame, currentFunction);
+    const registerData = try fiber.getRegisterData(currentCallFrame);
 
-    switch (currentFunction.value) {
-        .bytecode => try @call(Config.INLINING_CALL_MOD, stepBytecode, .{fiber, currentCallFrame, currentFunction, registerData}),
-        .foreign => try @call(Config.INLINING_CALL_MOD, stepForeign, .{fiber, currentCallFrame, currentFunction, registerData}),
+    switch (currentCallFrame.function.value) {
+        .bytecode => try @call(Config.INLINING_CALL_MOD, stepBytecode, .{fiber, currentCallFrame, registerData}),
+        .foreign => try @call(Config.INLINING_CALL_MOD, stepForeign, .{fiber, currentCallFrame, registerData}),
     }
 }
 
-pub fn stepBytecode(fiber: *Fiber, currentCallFrame: *Fiber.CallFrame, currentFunction: *const Bytecode.Function, registerData: Fiber.RegisterDataSet) Fiber.Trap!void {
+pub fn stepBytecode(fiber: *Fiber, currentCallFrame: *Fiber.CallFrame, registerData: Fiber.RegisterDataSet) Fiber.Trap!void {
     @setEvalBranchQuota(Config.INLINING_BRANCH_QUOTA);
 
     const currentBlockFrame = try fiber.stack.block.topPtr();
-    const currentBlock = &currentFunction.value.bytecode.blocks[currentBlockFrame.index];
+    const currentBlock = &currentCallFrame.function.value.bytecode.blocks[currentBlockFrame.index];
 
     const decoder = IO.Decoder {
-        .memory = currentFunction.value.bytecode.instructions,
+        .memory = currentCallFrame.function.value.bytecode.instructions,
         .base = currentBlock.base,
         .offset = &currentBlockFrame.ip_offset,
     };
@@ -57,50 +56,50 @@ pub fn stepBytecode(fiber: *Fiber, currentCallFrame: *Fiber.CallFrame, currentFu
         .trap => return Fiber.Trap.Unreachable,
         .nop => {},
 
-        .tail_call => |operands| try call(fiber, currentCallFrame, currentFunction, registerData, operands.f, operands.as, .tail),
-        .tail_call_v => |operands| try call(fiber, currentCallFrame, currentFunction, registerData, operands.f, operands.as, .tail_v),
-        .dyn_tail_call => |operands| try dynCall(fiber, currentCallFrame, currentFunction, registerData, operands.f, operands.as, .tail),
-        .dyn_tail_call_v => |operands| try dynCall(fiber, currentCallFrame, currentFunction, registerData, operands.f, operands.as, .tail_v),
-        .tail_prompt => |operands| try prompt(fiber, currentCallFrame, currentFunction, registerData, operands.e, operands.as, .tail),
-        .tail_prompt_v => |operands| try prompt(fiber, currentCallFrame, currentFunction, registerData, operands.e, operands.as, .tail_v),
+        .tail_call => |operands| try call(fiber, currentCallFrame, registerData, operands.f, operands.as, .tail),
+        .tail_call_v => |operands| try call(fiber, currentCallFrame, registerData, operands.f, operands.as, .tail_v),
+        .dyn_tail_call => |operands| try dynCall(fiber, currentCallFrame, registerData, operands.f, operands.as, .tail),
+        .dyn_tail_call_v => |operands| try dynCall(fiber, currentCallFrame, registerData, operands.f, operands.as, .tail_v),
+        .tail_prompt => |operands| try prompt(fiber, currentCallFrame, registerData, operands.e, operands.as, .tail),
+        .tail_prompt_v => |operands| try prompt(fiber, currentCallFrame, registerData, operands.e, operands.as, .tail_v),
 
-        .call => |operands| try call(fiber, currentCallFrame, currentFunction, registerData, operands.f, operands.as, .no_tail),
-        .call_v => |operands| try call(fiber, currentCallFrame, currentFunction, registerData, operands.f, operands.as, .{ .no_tail_v = operands.y }),
-        .dyn_call => |operands| try dynCall(fiber, currentCallFrame, currentFunction, registerData, operands.f, operands.as, .no_tail),
-        .dyn_call_v => |operands| try dynCall(fiber, currentCallFrame, currentFunction, registerData, operands.f, operands.as, .{ .no_tail_v = operands.y }),
-        .prompt => |operands| try prompt(fiber, currentCallFrame, currentFunction, registerData, operands.e, operands.as, .no_tail),
-        .prompt_v => |operands| try prompt(fiber, currentCallFrame, currentFunction, registerData, operands.e, operands.as, .{ .no_tail_v = operands.y }),
+        .call => |operands| try call(fiber, currentCallFrame, registerData, operands.f, operands.as, .no_tail),
+        .call_v => |operands| try call(fiber, currentCallFrame, registerData, operands.f, operands.as, .{ .no_tail_v = operands.y }),
+        .dyn_call => |operands| try dynCall(fiber, currentCallFrame, registerData, operands.f, operands.as, .no_tail),
+        .dyn_call_v => |operands| try dynCall(fiber, currentCallFrame, registerData, operands.f, operands.as, .{ .no_tail_v = operands.y }),
+        .prompt => |operands| try prompt(fiber, currentCallFrame, registerData, operands.e, operands.as, .no_tail),
+        .prompt_v => |operands| try prompt(fiber, currentCallFrame, registerData, operands.e, operands.as, .{ .no_tail_v = operands.y }),
 
-        .ret => try ret(fiber, currentCallFrame, currentFunction, registerData, null),
-        .ret_v => |operands| try ret(fiber, currentCallFrame, currentFunction, registerData, operands.y),
-        .term => try term(fiber, currentCallFrame, currentFunction, registerData, null),
-        .term_v => |operands| try term(fiber, currentCallFrame, currentFunction, registerData, operands.y),
+        .ret => try ret(fiber, currentCallFrame, registerData, null),
+        .ret_v => |operands| try ret(fiber, currentCallFrame, registerData, operands.y),
+        .term => try term(fiber, currentCallFrame, registerData, null),
+        .term_v => |operands| try term(fiber, currentCallFrame, registerData, operands.y),
 
-        .when_z => |operands| try when(fiber, currentFunction, registerData, operands.b, operands.x, .zero),
-        .when_nz => |operands| try when(fiber, currentFunction, registerData, operands.b, operands.x, .non_zero),
+        .when_z => |operands| try when(fiber, currentCallFrame.function, registerData, operands.b, operands.x, .zero),
+        .when_nz => |operands| try when(fiber, currentCallFrame.function, registerData, operands.b, operands.x, .non_zero),
 
-        .re => |operands| try re(fiber, currentFunction, registerData, operands.b, null, null),
-        .re_z => |operands| try re(fiber, currentFunction, registerData, operands.b, operands.x, .zero),
-        .re_nz => |operands| try re(fiber, currentFunction, registerData, operands.b, operands.x, .non_zero),
+        .re => |operands| try re(fiber, currentCallFrame.function, registerData, operands.b, null, null),
+        .re_z => |operands| try re(fiber, currentCallFrame.function, registerData, operands.b, operands.x, .zero),
+        .re_nz => |operands| try re(fiber, currentCallFrame.function, registerData, operands.b, operands.x, .non_zero),
 
-        .br => |operands | try br(fiber, currentFunction, registerData, operands.b, null, null, null),
-        .br_z => |operands | try br(fiber, currentFunction, registerData, operands.b, operands.x, null, .zero),
-        .br_nz => |operands | try br(fiber, currentFunction, registerData, operands.b, operands.x, null, .non_zero),
+        .br => |operands | try br(fiber, currentCallFrame.function, registerData, operands.b, null, null, null),
+        .br_z => |operands | try br(fiber, currentCallFrame.function, registerData, operands.b, operands.x, null, .zero),
+        .br_nz => |operands | try br(fiber, currentCallFrame.function, registerData, operands.b, operands.x, null, .non_zero),
 
-        .br_v => |operands| try br(fiber, currentFunction, registerData, operands.b, null, operands.y, null),
-        .br_z_v => |operands| try br(fiber, currentFunction, registerData, operands.b, operands.x, operands.y, .zero),
-        .br_nz_v => |operands| try br(fiber, currentFunction, registerData, operands.b, operands.x, operands.y, .non_zero),
+        .br_v => |operands| try br(fiber, currentCallFrame.function, registerData, operands.b, null, operands.y, null),
+        .br_z_v => |operands| try br(fiber, currentCallFrame.function, registerData, operands.b, operands.x, operands.y, .zero),
+        .br_nz_v => |operands| try br(fiber, currentCallFrame.function, registerData, operands.b, operands.x, operands.y, .non_zero),
 
-        .block => |operands| try block(fiber, currentFunction, operands.b, null),
-        .block_v => |operands| try block(fiber, currentFunction, operands.b, operands.y),
+        .block => |operands| try block(fiber, currentCallFrame.function, operands.b, null),
+        .block_v => |operands| try block(fiber, currentCallFrame.function, operands.b, operands.y),
 
-        .with => |operands| try with(fiber, currentFunction, operands.b, operands.h, null),
-        .with_v => |operands| try with(fiber, currentFunction, operands.b, operands.h, operands.y),
+        .with => |operands| try with(fiber, currentCallFrame.function, operands.b, operands.h, null),
+        .with_v => |operands| try with(fiber, currentCallFrame.function, operands.b, operands.h, operands.y),
 
-        .if_z => |operands| try @"if"(fiber, currentFunction, registerData, operands.t, operands.e, operands.x, null, .zero),
-        .if_nz => |operands| try @"if"(fiber, currentFunction, registerData, operands.t, operands.e, operands.x, null, .non_zero),
-        .if_z_v => |operands| try @"if"(fiber, currentFunction, registerData, operands.t, operands.e, operands.x, operands.y, .zero),
-        .if_nz_v => |operands| try @"if"(fiber, currentFunction, registerData, operands.t, operands.e, operands.x, operands.y, .non_zero),
+        .if_z => |operands| try @"if"(fiber, currentCallFrame.function, registerData, operands.t, operands.e, operands.x, null, .zero),
+        .if_nz => |operands| try @"if"(fiber, currentCallFrame.function, registerData, operands.t, operands.e, operands.x, null, .non_zero),
+        .if_z_v => |operands| try @"if"(fiber, currentCallFrame.function, registerData, operands.t, operands.e, operands.x, operands.y, .zero),
+        .if_nz_v => |operands| try @"if"(fiber, currentCallFrame.function, registerData, operands.t, operands.e, operands.x, operands.y, .non_zero),
 
         .addr => |operands| try addr(fiber, registerData, operands.x, operands.y),
 
@@ -171,10 +170,10 @@ pub fn stepBytecode(fiber: *Fiber, currentCallFrame: *Fiber.CallFrame, currentFu
         .i_mul16 => |operands| try fiber.binary(u16, "mul", registerData, operands),
         .i_mul32 => |operands| try fiber.binary(u32, "mul", registerData, operands),
         .i_mul64 => |operands| try fiber.binary(u64, "mul", registerData, operands),
-        .s_div8 => |operands| try fiber.binary(i8, "divFloor", registerData, operands),
-        .s_div16 => |operands| try fiber.binary(i16, "divFloor", registerData, operands),
-        .s_div32 => |operands| try fiber.binary(i32, "divFloor", registerData, operands),
-        .s_div64 => |operands| try fiber.binary(i64, "divFloor", registerData, operands),
+        .s_div8 => |operands| try fiber.binary(i8, "div", registerData, operands),
+        .s_div16 => |operands| try fiber.binary(i16, "div", registerData, operands),
+        .s_div32 => |operands| try fiber.binary(i32, "div", registerData, operands),
+        .s_div64 => |operands| try fiber.binary(i64, "div", registerData, operands),
         .u_div8 => |operands| try fiber.binary(u8, "div", registerData, operands),
         .u_div16 => |operands| try fiber.binary(u16, "div", registerData, operands),
         .u_div32 => |operands| try fiber.binary(u32, "div", registerData, operands),
@@ -319,8 +318,8 @@ pub fn stepBytecode(fiber: *Fiber, currentCallFrame: *Fiber.CallFrame, currentFu
     }
 }
 
-pub fn stepForeign(fiber: *Fiber, currentCallFrame: *Fiber.CallFrame, currentFfunction: *const Bytecode.Function, registerData: Fiber.RegisterDataSet) Fiber.Trap!void {
-    const foreign = try fiber.getForeign(currentFfunction.value.foreign);
+pub fn stepForeign(fiber: *Fiber, currentCallFrame: *Fiber.CallFrame, registerData: Fiber.RegisterDataSet) Fiber.Trap!void {
+    const foreign = try fiber.getForeign(currentCallFrame.function.value.foreign);
 
     const currentBlockFrame = try fiber.stack.block.getPtr(currentCallFrame.root_block);
     const foreignRegisterData = Fiber.ForeignRegisterDataSet.fromNative(registerData);
@@ -331,7 +330,7 @@ pub fn stepForeign(fiber: *Fiber, currentCallFrame: *Fiber.CallFrame, currentFfu
     switch (control) {
         .trap => return Fiber.convertForeignError(out.trap),
         .step => currentBlockFrame.index = out.step,
-        .done => try ret(fiber, currentCallFrame, currentFfunction, registerData, out.done),
+        .done => try ret(fiber, currentCallFrame, registerData, out.done),
     }
 }
 
@@ -555,22 +554,22 @@ fn addr(fiber: *Fiber, registerData: Fiber.RegisterDataSet, x: Bytecode.Operand,
     try fiber.write(registerData, y, bytes);
 }
 
-fn dynCall(fiber: *Fiber, oldCallFrame: *Fiber.CallFrame, oldFunction: *const Bytecode.Function, registerData: Fiber.RegisterDataSet, func: Bytecode.Operand, args: []const Bytecode.Operand, style: CallStyle) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn dynCall(fiber: *Fiber, oldCallFrame: *Fiber.CallFrame, registerData: Fiber.RegisterDataSet, func: Bytecode.Operand, args: []const Bytecode.Operand, style: CallStyle) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const funcIndex = try fiber.read(Bytecode.FunctionIndex, registerData, func);
 
-    return call(fiber, oldCallFrame, oldFunction, registerData, funcIndex, args, style);
+    return call(fiber, oldCallFrame, registerData, funcIndex, args, style);
 }
 
-fn call(fiber: *Fiber, oldCallFrame: *Fiber.CallFrame, oldFunction: *const Bytecode.Function, registerData: Fiber.RegisterDataSet, funcIndex: Bytecode.FunctionIndex, args: []const Bytecode.Operand, style: CallStyle) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn call(fiber: *Fiber, oldCallFrame: *Fiber.CallFrame, registerData: Fiber.RegisterDataSet, funcIndex: Bytecode.FunctionIndex, args: []const Bytecode.Operand, style: CallStyle) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     if (funcIndex >= fiber.program.functions.len) {
         @branchHint(.cold);
         return Fiber.Trap.OutOfBounds;
     }
 
-    return callImpl(fiber, oldCallFrame, oldFunction, registerData, Bytecode.EVIDENCE_SENTINEL, funcIndex, args, style);
+    return callImpl(fiber, oldCallFrame, registerData, Bytecode.EVIDENCE_SENTINEL, funcIndex, args, style);
 }
 
-fn prompt(fiber: *Fiber, oldCallFrame: *Fiber.CallFrame, oldFunction: *const Bytecode.Function, registerData: Fiber.RegisterDataSet, evIndex: Bytecode.EvidenceIndex, args: []const Bytecode.Operand, style: CallStyle) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn prompt(fiber: *Fiber, oldCallFrame: *Fiber.CallFrame, registerData: Fiber.RegisterDataSet, evIndex: Bytecode.EvidenceIndex, args: []const Bytecode.Operand, style: CallStyle) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     if (evIndex >= fiber.evidence.len) {
         @branchHint(.cold);
         return Fiber.Trap.OutOfBounds;
@@ -578,10 +577,10 @@ fn prompt(fiber: *Fiber, oldCallFrame: *Fiber.CallFrame, oldFunction: *const Byt
 
     const evidence = try fiber.evidence[evIndex].topPtr();
 
-    return callImpl(fiber, oldCallFrame, oldFunction, registerData, evIndex, evidence.handler, args, style);
+    return callImpl(fiber, oldCallFrame, registerData, evIndex, evidence.handler, args, style);
 }
 
-fn callImpl(fiber: *Fiber, oldCallFrame: *Fiber.CallFrame, oldFunction: *const Bytecode.Function, registerData: Fiber.RegisterDataSet, evIndex: Bytecode.EvidenceIndex, funcIndex: Bytecode.FunctionIndex, args: []const Bytecode.Operand, style: CallStyle) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn callImpl(fiber: *Fiber, oldCallFrame: *Fiber.CallFrame, registerData: Fiber.RegisterDataSet, evIndex: Bytecode.EvidenceIndex, funcIndex: Bytecode.FunctionIndex, args: []const Bytecode.Operand, style: CallStyle) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const newFunction = &fiber.program.functions[funcIndex];
 
     if (args.len != newFunction.layout_table.num_arguments) {
@@ -610,7 +609,7 @@ fn callImpl(fiber: *Fiber, oldCallFrame: *Fiber.CallFrame, oldFunction: *const B
                 @branchHint(.cold);
                 return Fiber.Trap.OutValueMismatch;
             },
-            .tail => if (oldFunction.layout_table.return_layout != null) {
+            .tail => if (oldCallFrame.function.layout_table.return_layout != null) {
                 @branchHint(.cold);
                 return Fiber.Trap.OutValueMismatch;
             } else {
@@ -619,7 +618,7 @@ fn callImpl(fiber: *Fiber, oldCallFrame: *Fiber.CallFrame, oldFunction: *const B
                     true,
                 };
             },
-            .tail_v => if (oldFunction.layout_table.return_layout) |oldLayout| {
+            .tail_v => if (oldCallFrame.function.layout_table.return_layout) |oldLayout| {
                 if (newFunction.layout_table.return_layout) |newLayout| {
                     const sameSize = @intFromBool(oldLayout.size == newLayout.size);
                     const sameAlign = @intFromBool(oldLayout.alignment == newLayout.alignment);
@@ -664,7 +663,7 @@ fn callImpl(fiber: *Fiber, oldCallFrame: *Fiber.CallFrame, oldFunction: *const B
     }
 
     try fiber.stack.call.push(Fiber.CallFrame {
-        .function = funcIndex,
+        .function = newFunction,
         .evidence = if (evIndex != Bytecode.EVIDENCE_SENTINEL) ev: {
             if (evIndex >= fiber.evidence.len) {
                 @branchHint(.cold);
@@ -692,7 +691,7 @@ fn callImpl(fiber: *Fiber, oldCallFrame: *Fiber.CallFrame, oldFunction: *const B
 
 }
 
-fn term(fiber: *Fiber, currentCallFrame: *Fiber.CallFrame, currentFunction: *const Bytecode.Function, registerData: Fiber.RegisterDataSet, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn term(fiber: *Fiber, currentCallFrame: *Fiber.CallFrame, registerData: Fiber.RegisterDataSet, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const evRef = if (currentCallFrame.evidence) |e| e else {
         @branchHint(.cold);
         return Fiber.Trap.MissingEvidence;
@@ -700,17 +699,16 @@ fn term(fiber: *Fiber, currentCallFrame: *Fiber.CallFrame, currentFunction: *con
 
     const evidence = try fiber.evidence[evRef.index].getPtr(evRef.offset);
 
-    const rootFunction = &fiber.program.functions[evidence.handler];
     const rootCallFrame = try fiber.stack.call.getPtr(evidence.call);
     const rootBlockFrame = try fiber.stack.block.getPtr(evidence.block);
-    const rootBlock = &rootFunction.value.bytecode.blocks[rootBlockFrame.index];
+    const rootBlock = &rootCallFrame.function.value.bytecode.blocks[rootBlockFrame.index];
 
     if (out) |outOp| {
         if (rootBlock.kind.hasOutput()) {
-            const size = currentFunction.layout_table.term_layout.?.size;
+            const size = currentCallFrame.function.layout_table.term_layout.?.size;
             const src: [*]const u8 = try fiber.addr(registerData, outOp, size);
 
-            const rootRegisterData = try fiber.getRegisterData(rootCallFrame, rootFunction);
+            const rootRegisterData = try fiber.getRegisterData(rootCallFrame);
             const dest: [*]u8 = try fiber.addr(rootRegisterData, rootBlockFrame.out, size);
 
             @memcpy(dest[0..size], src);
@@ -725,19 +723,17 @@ fn term(fiber: *Fiber, currentCallFrame: *Fiber.CallFrame, currentFunction: *con
     fiber.stack.block.ptr = evidence.block - 1;
 }
 
-fn ret(fiber: *Fiber, currentCallFrame: *Fiber.CallFrame, currentFunction: *const Bytecode.Function, registerData: Fiber.RegisterDataSet, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn ret(fiber: *Fiber, currentCallFrame: *Fiber.CallFrame, registerData: Fiber.RegisterDataSet, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const rootBlockFrame = try fiber.stack.block.getPtr(currentCallFrame.root_block);
-    const rootBlock = &currentFunction.value.bytecode.blocks[rootBlockFrame.index];
+    const rootBlock = &currentCallFrame.function.value.bytecode.blocks[rootBlockFrame.index];
 
     const callerFrame = try fiber.stack.call.getPtr(fiber.stack.call.ptr -| 2);
-    const callerFunction = &fiber.program.functions[callerFrame.function];
-
     if (out) |outOp| {
         if (rootBlock.kind.hasOutput()) {
-            const size = currentFunction.layout_table.return_layout.?.size;
+            const size = currentCallFrame.function.layout_table.return_layout.?.size;
             const src: [*]const u8 = try fiber.addr(registerData, outOp, size);
 
-            const callerRegisterData = try fiber.getRegisterData(callerFrame, callerFunction);
+            const callerRegisterData = try fiber.getRegisterData(callerFrame);
             const dest: [*]u8 = try fiber.addr(callerRegisterData, rootBlockFrame.out, size);
 
             @memcpy(dest[0..size], src);
@@ -749,6 +745,6 @@ fn ret(fiber: *Fiber, currentCallFrame: *Fiber.CallFrame, currentFunction: *cons
 
     fiber.stack.data.ptr = currentCallFrame.stack.base;
     fiber.stack.call.ptr -= 1;
-    fiber.stack.block.ptr = currentCallFrame.root_block -| 1;
+    fiber.stack.block.ptr = currentCallFrame.root_block;
 }
 

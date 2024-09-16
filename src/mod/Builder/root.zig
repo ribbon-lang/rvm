@@ -48,25 +48,6 @@ pub const Error = std.mem.Allocator.Error || error {
     UnfinishedBlock,
 };
 
-pub const void_t: Bytecode.TypeIndex = 0;
-pub const bool_t: Bytecode.TypeIndex = 1;
-pub const i8_t: Bytecode.TypeIndex   = 2;
-pub const i16_t: Bytecode.TypeIndex  = 3;
-pub const i32_t: Bytecode.TypeIndex  = 4;
-pub const i64_t: Bytecode.TypeIndex  = 5;
-pub const f32_t: Bytecode.TypeIndex  = 6;
-pub const f64_t: Bytecode.TypeIndex  = 7;
-
-const basic_types = [_]Bytecode.Type {
-    .void,
-    .bool,
-    .{ .int = Bytecode.Type.Int { .bit_width = .i8  } },
-    .{ .int = Bytecode.Type.Int { .bit_width = .i16 } },
-    .{ .int = Bytecode.Type.Int { .bit_width = .i32 } },
-    .{ .int = Bytecode.Type.Int { .bit_width = .i64 } },
-    .{ .float = Bytecode.Type.Float { .bit_width = .f32 } },
-    .{ .float = Bytecode.Type.Float { .bit_width = .f64 } },
-};
 
 pub const TypeMap = std.ArrayHashMapUnmanaged(Bytecode.Type, void, Support.SimpleHashContext, true);
 pub const TypeList = std.ArrayListUnmanaged(Bytecode.TypeIndex);
@@ -99,6 +80,7 @@ pub const Function = union(enum) {
 
         pub fn assemble(self: *const Foreign, foreignId: Bytecode.ForeignId, allocator: std.mem.Allocator) Error!Bytecode.Function {
             return .{
+                .index = self.index,
                 .layout_table = try self.generateLayoutTable(allocator),
                 .value = .{ .foreign = foreignId },
             };
@@ -175,13 +157,13 @@ pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!Builder {
     var types = TypeMap {};
     try types.ensureTotalCapacity(allocator, 256);
 
-    for (basic_types) |t| {
+    for (Bytecode.Type.BASIC_TYPES) |t| {
         try types.put(allocator, t, {});
     }
 
-    std.debug.assert(Support.equal(types.keys()[void_t], basic_types[void_t]));
-    std.debug.assert(Support.equal(types.keys()[i8_t], basic_types[i8_t]));
-    std.debug.assert(Support.equal(types.keys()[f64_t], basic_types[f64_t]));
+    std.debug.assert(Support.equal(types.keys()[Bytecode.Type.void_t], Bytecode.Type.BASIC_TYPES[Bytecode.Type.void_t]));
+    std.debug.assert(Support.equal(types.keys()[Bytecode.Type.i8_t], Bytecode.Type.BASIC_TYPES[Bytecode.Type.i8_t]));
+    std.debug.assert(Support.equal(types.keys()[Bytecode.Type.f64_t], Bytecode.Type.BASIC_TYPES[Bytecode.Type.f64_t]));
 
     var globals = GlobalList {};
     try globals.ensureTotalCapacity(allocator, 256);

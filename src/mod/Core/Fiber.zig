@@ -216,7 +216,7 @@ pub const BlockFrame = packed struct {
 };
 
 pub const CallFrame = struct {
-    function: Bytecode.FunctionIndex,
+    function: *const Bytecode.Function,
     evidence: ?EvidenceRef,
     root_block: BlockStack.Ptr,
     stack: StackRef,
@@ -277,7 +277,7 @@ pub fn getLocation(self: *const Fiber) Trap!Bytecode.Location {
     const block = try self.stack.block.top();
 
     return .{
-        .function = call.function,
+        .function = call.function.index,
         .block = block.index,
         .offset = block.ip_offset,
     };
@@ -320,16 +320,16 @@ pub fn removeHandlerSet(fiber: *Fiber, handlerSet: Bytecode.HandlerSet) callconv
     }
 }
 
-pub fn getRegisterData(fiber: *Fiber, callFrame: *Fiber.CallFrame, function: *const Bytecode.Function) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!Fiber.RegisterDataSet {
+pub fn getRegisterData(fiber: *Fiber, callFrame: *Fiber.CallFrame) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!Fiber.RegisterDataSet {
     return .{
         .local = .{
             .call = callFrame,
-            .layout = &function.layout_table,
+            .layout = &callFrame.function.layout_table,
         },
         .upvalue = if (callFrame.evidence) |evRef| ev: {
             const evidence = try fiber.evidence[evRef.index].getPtr(evRef.offset);
             const evFrame = try fiber.stack.call.getPtr(evidence.call);
-            const evFunction = &fiber.program.functions[evFrame.function];
+            const evFunction = evFrame.function;
             break :ev .{
                 .call = evFrame,
                 .layout = &evFunction.layout_table
@@ -338,6 +338,106 @@ pub fn getRegisterData(fiber: *Fiber, callFrame: *Fiber.CallFrame, function: *co
     };
 }
 
+// TODO:
+// 1. handle type checking
+// 2. handle type conversion for structural types
+pub fn invoke(fiber: *Core.Fiber, comptime T: type, functionIndex: Bytecode.FunctionIndex, arguments: anytype) Trap!T {
+    const function = &fiber.program.functions[functionIndex];
+
+    const wrapper = Bytecode.Function {
+        .index = Bytecode.FUNCTION_SENTINEL,
+        .layout_table = Bytecode.LayoutTable {
+            .term_type = Bytecode.Type.void_t,
+            .return_type = Bytecode.Type.void_t,
+            .register_types = &[_]Bytecode.TypeIndex {function.layout_table.return_type},
+
+            .term_layout = null,
+            .return_layout = null,
+            .register_layouts = &[_]Bytecode.Layout {
+                .{
+                    .size = @sizeOf(T),
+                    .alignment = @alignOf(T),
+                },
+            },
+
+            .register_offsets = &[_]Bytecode.RegisterBaseOffset {0},
+
+            .size = @sizeOf(T),
+            .alignment = @alignOf(T),
+
+            .num_arguments = 0,
+            .num_registers = 1,
+        },
+        .value = undefined,
+    };
+
+    const dataReset = fiber.stack.data.ptr;
+    var dataOrigin = fiber.stack.data.ptr;
+    try fiber.stack.data.pushUninit(Support.alignmentDelta(fiber.stack.data.ptr, @alignOf(T)));
+
+    var dataBase = fiber.stack.data.ptr;
+    try fiber.stack.data.pushUninit(@sizeOf(T));
+
+    try fiber.stack.call.push(CallFrame {
+        .function = &wrapper,
+        .evidence = null,
+        .root_block = fiber.stack.block.ptr,
+        .stack = .{
+            .base = dataBase,
+            .origin = dataOrigin,
+        }
+    });
+    const callOrigin = fiber.stack.call.ptr;
+
+    dataOrigin = fiber.stack.data.ptr;
+    try fiber.stack.data.pushUninit(Support.alignmentDelta(fiber.stack.data.ptr, function.layout_table.alignment));
+    dataBase = fiber.stack.data.ptr;
+
+    try fiber.stack.block.push(BlockFrame {
+        .index = 0,
+        .ip_offset = 0,
+        .out = undefined,
+        .handler_set = Bytecode.HANDLER_SET_SENTINEL,
+    });
+
+    dataBase = fiber.stack.data.ptr;
+    try fiber.stack.data.pushUninit(function.layout_table.size);
+    try fiber.stack.call.push(CallFrame {
+        .function = function,
+        .evidence = null,
+        .root_block = fiber.stack.block.ptr,
+        .stack = .{
+            .base = dataBase,
+            .origin = dataOrigin,
+        },
+    });
+    try fiber.stack.block.push(BlockFrame {
+        .index = 0,
+        .ip_offset = 0,
+        .out = .local(.r0, 0),
+        .handler_set = Bytecode.HANDLER_SET_SENTINEL,
+    });
+
+    var registerData = try fiber.getRegisterData(try fiber.stack.call.topPtr());
+
+    inline for (0..arguments.len) |i| {
+        try fiber.write(registerData, .local(@enumFromInt(i), 0), arguments[i]);
+    }
+
+    while (fiber.stack.call.ptr > callOrigin) {
+        try Core.Eval.step(fiber);
+    }
+
+    registerData = try fiber.getRegisterData(try fiber.stack.call.topPtr());
+
+    const result = try fiber.read(T, registerData, .local(.r0, 0));
+
+    fiber.stack.data.ptr = dataReset;
+    _ = try fiber.stack.call.pop();
+    _ = try fiber.stack.block.pop();
+
+    return result;
+}
 
 pub fn load(fiber: *Fiber, comptime T: type, registerData: Fiber.RegisterDataSet, x: Bytecode.Operand, y: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const size = @sizeOf(T);
@@ -613,27 +713,38 @@ const ops = struct {
     }
 
     fn neg(a: anytype) @TypeOf(a) {
-        return -a;
+        switch (@typeInfo(@TypeOf(a))) {
+            .int => return -% a,
+            else => return -a,
+        }
     }
 
     fn add(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-        return a + b;
+        switch (@typeInfo(@TypeOf(a))) {
+            .int => return a +% b,
+            else => return a + b,
+        }
     }
 
     fn sub(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-        return a - b;
+        switch (@typeInfo(@TypeOf(a))) {
+            .int => return a -% b,
+            else => return a - b,
+        }
     }
 
     fn mul(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-        return a * b;
+        switch (@typeInfo(@TypeOf(a))) {
+            .int => return a *% b,
+            else => return a * b,
+        }
     }
 
     fn div(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-        return a / b;
-    }
-
-    fn divFloor(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-        return @divFloor(a, b);
+        switch (@typeInfo(@TypeOf(a))) {
+            .int => return @divTrunc(a, b),
+            else => return a / b,
+        }
     }
 
     fn rem(a: anytype, b: @TypeOf(a)) @TypeOf(a) {

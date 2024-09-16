@@ -95,20 +95,20 @@ fn earlyTesting(gpa: std.mem.Allocator, output: std.fs.File.Writer, _: []const [
 
     var builder = try Builder.init(arena.allocator());
 
-    const out_global = try builder.globalNative(@as(u8, 0));
+    // const out_global = try builder.globalNative(@as(i64, 0));
 
     const main_t = try builder.typeId(.{.function = .{
-        .result = Builder.i8_t,
-        .term = Builder.void_t,
+        .result = Bytecode.Type.i64_t,
+        .term = Bytecode.Type.void_t,
         .evidence = &[0]Bytecode.EvidenceIndex {},
-        .params = &[_]Bytecode.TypeIndex {Builder.i8_t, Builder.i8_t},
+        .params = &[_]Bytecode.TypeIndex {Bytecode.Type.i64_t, Bytecode.Type.i64_t},
     }});
 
     const func = try builder.main(main_t);
 
-    const out = try func.local(Builder.i8_t);
+    const out = try func.local(Bytecode.Type.i64_t);
 
-    try func.entry.i_add8(.local(.r0, 0), .local(.r1, 0), .local(out, 0));
+    try func.entry.s_div64(.local(.r0, 0), .local(.r1, 0), .local(out, 0));
     try func.entry.ret_v(.local(out, 0));
 
     const program = try builder.assemble(gpa);
@@ -119,35 +119,10 @@ fn earlyTesting(gpa: std.mem.Allocator, output: std.fs.File.Writer, _: []const [
     const fiber = try Core.Fiber.init(context, &program, &[0] Core.Fiber.ForeignFunction {});
     defer fiber.deinit();
 
-    try fiber.stack.data.pushUninit(program.functions[program.main.?].layout_table.size);
-    try fiber.stack.call.push(Core.Fiber.CallFrame {
-        .function = 0,
-        .evidence = null,
-        .root_block = 0,
-        .stack = .{
-            .base = 0,
-            .origin = 0,
-        },
-    });
-    try fiber.stack.block.push(Core.Fiber.BlockFrame {
-        .index = 0,
-        .ip_offset = 0,
-        .out = .global(0, 0),
-        .handler_set = Bytecode.HANDLER_SET_SENTINEL,
-    });
-
-    const registerData = try fiber.getRegisterData(try fiber.stack.call.getPtr(0), &program.functions[0]);
-
-    try fiber.write(registerData, .local(.r0, 0), @as(u8, 243));
-    try fiber.write(registerData, .local(.r1, 0), @as(u8, 10));
-
-    try Core.Eval.step(fiber); // i_add8
-    try Core.Eval.step(fiber); // ret_v
-
-    const result = try fiber.read(u8, registerData, .global(out_global, 0));
+    const result = try fiber.invoke(i64, program.main.?, .{ @as(i64, 10021), @as(i64, -3) });
 
     try output.print("result: {}\n", .{result});
-    try std.testing.expectEqual(result, 253);
+    try std.testing.expectEqual(@divTrunc(@as(i64, 10021), @as(i64, -3)), result);
 }
 
 

@@ -48,6 +48,7 @@ pub const MAX_INSTRUCTION_OFFSET: InstructionPointerOffset = std.math.maxInt(Ins
 pub const TYPE_SENTINEL = std.math.maxInt(TypeIndex);
 pub const EVIDENCE_SENTINEL = std.math.maxInt(EvidenceIndex);
 pub const HANDLER_SET_SENTINEL = std.math.maxInt(HandlerSetIndex);
+pub const FUNCTION_SENTINEL = std.math.maxInt(FunctionIndex);
 
 pub const Register = reg: {
     const TagType = RegisterIndex;
@@ -294,6 +295,26 @@ pub const Type = union(enum) {
             },
         }
     }
+
+    pub const void_t: Bytecode.TypeIndex = 0;
+    pub const bool_t: Bytecode.TypeIndex = 1;
+    pub const i8_t: Bytecode.TypeIndex   = 2;
+    pub const i16_t: Bytecode.TypeIndex  = 3;
+    pub const i32_t: Bytecode.TypeIndex  = 4;
+    pub const i64_t: Bytecode.TypeIndex  = 5;
+    pub const f32_t: Bytecode.TypeIndex  = 6;
+    pub const f64_t: Bytecode.TypeIndex  = 7;
+
+    pub const BASIC_TYPES = [_]Bytecode.Type {
+        .void,
+        .bool,
+        .{ .int = Bytecode.Type.Int { .bit_width = .i8  } },
+        .{ .int = Bytecode.Type.Int { .bit_width = .i16 } },
+        .{ .int = Bytecode.Type.Int { .bit_width = .i32 } },
+        .{ .int = Bytecode.Type.Int { .bit_width = .i64 } },
+        .{ .float = Bytecode.Type.Float { .bit_width = .f32 } },
+        .{ .float = Bytecode.Type.Float { .bit_width = .f64 } },
+    };
 };
 
 pub const LayoutTable = struct {
@@ -333,6 +354,7 @@ pub const LayoutTable = struct {
 };
 
 pub const Function = struct {
+    index: FunctionIndex,
     layout_table: LayoutTable,
     value: Value,
 

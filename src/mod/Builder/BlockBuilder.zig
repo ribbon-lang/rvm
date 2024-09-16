@@ -378,14 +378,14 @@ pub fn term_v(self: *BlockBuilder, y: Bytecode.Operand) Error!void {
 }
 
 pub fn when_z(self: *BlockBuilder, x: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.bool_t, x);
+    try self.function.typecheck(Bytecode.Type.bool_t, x);
 
     const newBlock = try self.function.newBlock(self.index, .basic);
 
     try self.op(.{.when_z = .{ .b = newBlock.index, .x = x }});
 }
 pub fn when_nz(self: *BlockBuilder, x: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.bool_t, x);
+    try self.function.typecheck(Bytecode.Type.bool_t, x);
 
     const newBlock = try self.function.newBlock(self.index, .basic);
 
@@ -405,12 +405,12 @@ pub fn re_z(self: *BlockBuilder, b: anytype, x: Bytecode.Operand) Error!void {
     const relativeBlockIndex = try self.findRelativeBlockIndex(absoluteBlockIndex);
 
     try self.typecheckBr(absoluteBlockIndex, null);
-    try self.function.typecheck(Builder.bool_t, x);
+    try self.function.typecheck(Bytecode.Type.bool_t, x);
 
     try self.exitOp(.{.re_z = .{ .b = relativeBlockIndex, .x = x }});
 }
 pub fn re_nz(self: *BlockBuilder, b: anytype, x: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.bool_t, x);
+    try self.function.typecheck(Bytecode.Type.bool_t, x);
 
     const absoluteBlockIndex = try self.extractBlockIndex(b);
     const relativeBlockIndex = try self.findRelativeBlockIndex(absoluteBlockIndex);
@@ -429,7 +429,7 @@ pub fn br(self: *BlockBuilder, b: anytype) Error!void {
     try self.exitOp(.{.br = .{ .b = relativeBlockIndex }});
 }
 pub fn br_z(self: *BlockBuilder, b: anytype, x: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.bool_t, x);
+    try self.function.typecheck(Bytecode.Type.bool_t, x);
 
     const absoluteBlockIndex = try self.extractBlockIndex(b);
     const relativeBlockIndex = try self.findRelativeBlockIndex(absoluteBlockIndex);
@@ -439,7 +439,7 @@ pub fn br_z(self: *BlockBuilder, b: anytype, x: Bytecode.Operand) Error!void {
     try self.exitOp(.{.br_z = .{ .b = relativeBlockIndex, .x = x }});
 }
 pub fn br_nz(self: *BlockBuilder, b: anytype, x: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.bool_t, x);
+    try self.function.typecheck(Bytecode.Type.bool_t, x);
 
     const absoluteBlockIndex = try self.extractBlockIndex(b);
     const relativeBlockIndex = try self.findRelativeBlockIndex(absoluteBlockIndex);
@@ -462,7 +462,7 @@ pub fn br_z_v(self: *BlockBuilder, b: anytype, x: Bytecode.Operand, y: Bytecode.
     const relativeBlockIndex = try self.findRelativeBlockIndex(absoluteBlockIndex);
 
     try self.typecheckBr(absoluteBlockIndex, null);
-    try self.function.typecheck(Builder.bool_t, x);
+    try self.function.typecheck(Bytecode.Type.bool_t, x);
 
     try self.exitOp(.{.br_z_v = .{ .b = relativeBlockIndex, .x = x, .y = y }});
 }
@@ -471,7 +471,7 @@ pub fn br_nz_v(self: *BlockBuilder, b: anytype, x: Bytecode.Operand, y: Bytecode
     const relativeBlockIndex = try self.findRelativeBlockIndex(absoluteBlockIndex);
 
     try self.typecheckBr(absoluteBlockIndex, null);
-    try self.function.typecheck(Builder.bool_t, x);
+    try self.function.typecheck(Bytecode.Type.bool_t, x);
 
     try self.exitOp(.{.br_nz_v = .{ .b = relativeBlockIndex, .x = x, .y = y }});
 }
@@ -507,7 +507,7 @@ pub fn with_v(self: *BlockBuilder, h: anytype, y: Bytecode.Operand) Error!void {
 }
 
 pub fn if_z(self: *BlockBuilder, x: Bytecode.Operand) Error!struct { *BlockBuilder, *BlockBuilder } {
-    try self.function.typecheck(Builder.bool_t, x);
+    try self.function.typecheck(Bytecode.Type.bool_t, x);
 
     const thenBlock = try self.function.newBlock(self.index, .basic);
     const elseBlock = try self.function.newBlock(self.index, .basic);
@@ -517,7 +517,7 @@ pub fn if_z(self: *BlockBuilder, x: Bytecode.Operand) Error!struct { *BlockBuild
     return .{ thenBlock, elseBlock };
 }
 pub fn if_nz(self: *BlockBuilder, x: Bytecode.Operand) Error!struct { *BlockBuilder, *BlockBuilder } {
-    try self.function.typecheck(Builder.bool_t, x);
+    try self.function.typecheck(Bytecode.Type.bool_t, x);
 
     const thenBlock = try self.function.newBlock(self.index, .basic);
     const elseBlock = try self.function.newBlock(self.index, .basic);
@@ -527,7 +527,7 @@ pub fn if_nz(self: *BlockBuilder, x: Bytecode.Operand) Error!struct { *BlockBuil
     return .{ thenBlock, elseBlock };
 }
 pub fn if_z_v(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!struct { *BlockBuilder, *BlockBuilder } {
-    try self.function.typecheck(Builder.bool_t, x);
+    try self.function.typecheck(Bytecode.Type.bool_t, x);
 
     const operandType = try self.function.getOperandType(y);
     const thenBlock = try self.function.newBlock(self.index, .{ .basic_v = operandType });
@@ -538,7 +538,7 @@ pub fn if_z_v(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Err
     return .{ thenBlock, elseBlock };
 }
 pub fn if_nz_v(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!struct { *BlockBuilder, *BlockBuilder } {
-    try self.function.typecheck(Builder.bool_t, x);
+    try self.function.typecheck(Bytecode.Type.bool_t, x);
 
     const operandType = try self.function.getOperandType(y);
     const thenBlock = try self.function.newBlock(self.index, .{ .basic_v = operandType });
@@ -688,26 +688,26 @@ pub fn copy32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Err
 pub fn copy64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void { try self.copy(.i64, x, y); }
 
 pub fn b_not(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.bool_t, x);
-    try self.function.typecheck(Builder.bool_t, y);
+    try self.function.typecheck(Bytecode.Type.bool_t, x);
+    try self.function.typecheck(Bytecode.Type.bool_t, y);
 
     try self.op(.{.b_not = .{ .x = x, .y = y }});
 }
 pub fn b_and(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.bool_t, x);
-    try self.function.typecheck(Builder.bool_t, y);
+    try self.function.typecheck(Bytecode.Type.bool_t, x);
+    try self.function.typecheck(Bytecode.Type.bool_t, y);
 
     try self.op(.{.b_and = .{ .x = x, .y = y, .z = z }});
 }
 pub fn b_or(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.bool_t, x);
-    try self.function.typecheck(Builder.bool_t, y);
+    try self.function.typecheck(Bytecode.Type.bool_t, x);
+    try self.function.typecheck(Bytecode.Type.bool_t, y);
 
     try self.op(.{.b_or = .{ .x = x, .y = y, .z = z }});
 }
 
 pub fn f_add(self: *BlockBuilder, bit_width: Bytecode.Type.Float.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.f32 => Builder.f32_t, .f64 => Builder.f64_t};
+    const expectedType = switch (bit_width) {.f32 => Bytecode.Type.f32_t, .f64 => Bytecode.Type.f64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -722,7 +722,7 @@ pub fn f_add32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z:
 pub fn f_add64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.f_add(.f64, x, y, z); }
 
 pub fn f_sub(self: *BlockBuilder, bit_width: Bytecode.Type.Float.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.f32 => Builder.f32_t, .f64 => Builder.f64_t};
+    const expectedType = switch (bit_width) {.f32 => Bytecode.Type.f32_t, .f64 => Bytecode.Type.f64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -737,7 +737,7 @@ pub fn f_sub32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z:
 pub fn f_sub64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.f_sub(.f64, x, y, z); }
 
 pub fn f_mul(self: *BlockBuilder, bit_width: Bytecode.Type.Float.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.f32 => Builder.f32_t, .f64 => Builder.f64_t};
+    const expectedType = switch (bit_width) {.f32 => Bytecode.Type.f32_t, .f64 => Bytecode.Type.f64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -752,7 +752,7 @@ pub fn f_mul32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z:
 pub fn f_mul64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.f_mul(.f64, x, y, z); }
 
 pub fn f_div(self: *BlockBuilder, bit_width: Bytecode.Type.Float.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.f32 => Builder.f32_t, .f64 => Builder.f64_t};
+    const expectedType = switch (bit_width) {.f32 => Bytecode.Type.f32_t, .f64 => Bytecode.Type.f64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -767,7 +767,7 @@ pub fn f_div32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z:
 pub fn f_div64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.f_div(.f64, x, y, z); }
 
 pub fn f_rem(self: *BlockBuilder, bit_width: Bytecode.Type.Float.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.f32 => Builder.f32_t, .f64 => Builder.f64_t};
+    const expectedType = switch (bit_width) {.f32 => Bytecode.Type.f32_t, .f64 => Bytecode.Type.f64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -782,7 +782,7 @@ pub fn f_rem32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z:
 pub fn f_rem64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.f_rem(.f64, x, y, z); }
 
 pub fn f_neg(self: *BlockBuilder, bit_width: Bytecode.Type.Float.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.f32 => Builder.f32_t, .f64 => Builder.f64_t};
+    const expectedType = switch (bit_width) {.f32 => Bytecode.Type.f32_t, .f64 => Bytecode.Type.f64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
 
@@ -796,10 +796,10 @@ pub fn f_neg32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Er
 pub fn f_neg64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void { try self.f_neg(.f64, x, y); }
 
 pub fn f_eq(self: *BlockBuilder, bit_width: Bytecode.Type.Float.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.f32 => Builder.f32_t, .f64 => Builder.f64_t};
+    const expectedType = switch (bit_width) {.f32 => Bytecode.Type.f32_t, .f64 => Bytecode.Type.f64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
-    try self.function.typecheck(Builder.bool_t, z);
+    try self.function.typecheck(Bytecode.Type.bool_t, z);
 
     switch (bit_width) {
         .f32 => try self.op(.{.f_eq32 = .{ .x = x, .y = y, .z = z }}),
@@ -811,10 +811,10 @@ pub fn f_eq32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: 
 pub fn f_eq64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.f_eq(.f64, x, y, z); }
 
 pub fn f_ne(self: *BlockBuilder, bit_width: Bytecode.Type.Float.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.f32 => Builder.f32_t, .f64 => Builder.f64_t};
+    const expectedType = switch (bit_width) {.f32 => Bytecode.Type.f32_t, .f64 => Bytecode.Type.f64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
-    try self.function.typecheck(Builder.bool_t, z);
+    try self.function.typecheck(Bytecode.Type.bool_t, z);
 
     switch (bit_width) {
         .f32 => try self.op(.{.f_ne32 = .{ .x = x, .y = y, .z = z }}),
@@ -826,10 +826,10 @@ pub fn f_ne32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: 
 pub fn f_ne64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.f_ne(.f64, x, y, z); }
 
 pub fn f_lt(self: *BlockBuilder, bit_width: Bytecode.Type.Float.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.f32 => Builder.f32_t, .f64 => Builder.f64_t};
+    const expectedType = switch (bit_width) {.f32 => Bytecode.Type.f32_t, .f64 => Bytecode.Type.f64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
-    try self.function.typecheck(Builder.bool_t, z);
+    try self.function.typecheck(Bytecode.Type.bool_t, z);
 
     switch (bit_width) {
         .f32 => try self.op(.{.f_lt32 = .{ .x = x, .y = y, .z = z }}),
@@ -841,10 +841,10 @@ pub fn f_lt32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: 
 pub fn f_lt64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.f_lt(.f64, x, y, z); }
 
 pub fn f_gt(self: *BlockBuilder, bit_width: Bytecode.Type.Float.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.f32 => Builder.f32_t, .f64 => Builder.f64_t};
+    const expectedType = switch (bit_width) {.f32 => Bytecode.Type.f32_t, .f64 => Bytecode.Type.f64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
-    try self.function.typecheck(Builder.bool_t, z);
+    try self.function.typecheck(Bytecode.Type.bool_t, z);
 
     switch (bit_width) {
         .f32 => try self.op(.{.f_gt32 = .{ .x = x, .y = y, .z = z }}),
@@ -856,10 +856,10 @@ pub fn f_gt32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: 
 pub fn f_gt64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.f_gt(.f64, x, y, z); }
 
 pub fn f_le(self: *BlockBuilder, bit_width: Bytecode.Type.Float.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.f32 => Builder.f32_t, .f64 => Builder.f64_t};
+    const expectedType = switch (bit_width) {.f32 => Bytecode.Type.f32_t, .f64 => Bytecode.Type.f64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
-    try self.function.typecheck(Builder.bool_t, z);
+    try self.function.typecheck(Bytecode.Type.bool_t, z);
 
     switch (bit_width) {
         .f32 => try self.op(.{.f_le32 = .{ .x = x, .y = y, .z = z }}),
@@ -871,10 +871,10 @@ pub fn f_le32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: 
 pub fn f_le64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.f_le(.f64, x, y, z); }
 
 pub fn f_ge(self: *BlockBuilder, bit_width: Bytecode.Type.Float.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.f32 => Builder.f32_t, .f64 => Builder.f64_t};
+    const expectedType = switch (bit_width) {.f32 => Bytecode.Type.f32_t, .f64 => Bytecode.Type.f64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
-    try self.function.typecheck(Builder.bool_t, z);
+    try self.function.typecheck(Bytecode.Type.bool_t, z);
 
     switch (bit_width) {
         .f32 => try self.op(.{.f_ge32 = .{ .x = x, .y = y, .z = z }}),
@@ -886,7 +886,7 @@ pub fn f_ge32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: 
 pub fn f_ge64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.f_ge(.f64, x, y, z); }
 
 pub fn i_add(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -905,7 +905,7 @@ pub fn i_add32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z:
 pub fn i_add64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.i_add(.i64, x, y, z); }
 
 pub fn i_sub(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -924,7 +924,7 @@ pub fn i_sub32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z:
 pub fn i_sub64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.i_sub(.i64, x, y, z); }
 
 pub fn i_mul(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -951,7 +951,7 @@ pub fn i_div(self: *BlockBuilder, is_signed: bool, bit_width: Bytecode.Type.Int.
 }
 
 pub fn s_div(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -970,7 +970,7 @@ pub fn s_div32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z:
 pub fn s_div64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.s_div(.i64, x, y, z); }
 
 pub fn u_div(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -997,7 +997,7 @@ pub fn i_rem(self: *BlockBuilder, is_signed: bool, bit_width: Bytecode.Type.Int.
 }
 
 pub fn s_rem(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -1016,7 +1016,7 @@ pub fn s_rem32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z:
 pub fn s_rem64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.s_rem(.i64, x, y, z); }
 
 pub fn u_rem(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -1035,7 +1035,7 @@ pub fn u_rem32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z:
 pub fn u_rem64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.u_rem(.i64, x, y, z); }
 
 pub fn s_neg(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
 
@@ -1053,7 +1053,7 @@ pub fn s_neg32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Er
 pub fn s_neg64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void { try self.s_neg(.i64, x, y); }
 
 pub fn i_bitnot(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
 
@@ -1071,7 +1071,7 @@ pub fn i_bitnot32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand)
 pub fn i_bitnot64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void { try self.i_bitnot(.i64, x, y); }
 
 pub fn i_bitand(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -1090,7 +1090,7 @@ pub fn i_bitand32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand,
 pub fn i_bitand64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.i_bitand(.i64, x, y, z); }
 
 pub fn i_bitor(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -1109,7 +1109,7 @@ pub fn i_bitor32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, 
 pub fn i_bitor64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.i_bitor(.i64, x, y, z); }
 
 pub fn i_bitxor(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -1128,7 +1128,7 @@ pub fn i_bitxor32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand,
 pub fn i_bitxor64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.i_bitxor(.i64, x, y, z); }
 
 pub fn i_shiftl(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -1155,7 +1155,7 @@ pub fn i_shiftr(self: *BlockBuilder, is_signed: bool, bit_width: Bytecode.Type.I
 }
 
 pub fn u_shiftr(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -1174,7 +1174,7 @@ pub fn u_shiftr32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand,
 pub fn u_shiftr64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.u_shiftr(.i64, x, y, z); }
 
 pub fn s_shiftr(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -1193,7 +1193,7 @@ pub fn s_shiftr32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand,
 pub fn s_shiftr64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.s_shiftr(.i64, x, y, z); }
 
 pub fn i_eq(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -1212,7 +1212,7 @@ pub fn i_eq32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: 
 pub fn i_eq64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.i_eq(.i64, x, y, z); }
 
 pub fn i_ne(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -1239,7 +1239,7 @@ pub fn i_lt(self: *BlockBuilder, is_signed: bool, bit_width: Bytecode.Type.Int.B
 }
 
 pub fn u_lt(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -1258,7 +1258,7 @@ pub fn u_lt32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: 
 pub fn u_lt64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.u_lt(.i64, x, y, z); }
 
 pub fn s_lt(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -1277,7 +1277,7 @@ pub fn s_lt32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: 
 pub fn s_lt64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.s_lt(.i64, x, y, z); }
 
 pub fn i_gt(self: *BlockBuilder, is_signed: bool, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -1290,7 +1290,7 @@ pub fn i_gt(self: *BlockBuilder, is_signed: bool, bit_width: Bytecode.Type.Int.B
 }
 
 pub fn u_gt(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -1309,7 +1309,7 @@ pub fn u_gt32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: 
 pub fn u_gt64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.u_gt(.i64, x, y, z); }
 
 pub fn s_gt(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -1336,7 +1336,7 @@ pub fn i_le(self: *BlockBuilder, is_signed: bool, bit_width: Bytecode.Type.Int.B
 }
 
 pub fn u_le(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -1355,7 +1355,7 @@ pub fn u_le32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: 
 pub fn u_le64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.u_le(.i64, x, y, z); }
 
 pub fn s_le(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -1382,7 +1382,7 @@ pub fn i_ge(self: *BlockBuilder, is_signed: bool, bit_width: Bytecode.Type.Int.B
 }
 
 pub fn u_ge(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -1401,7 +1401,7 @@ pub fn u_ge32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: 
 pub fn u_ge64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void { try self.u_ge(.i64, x, y, z); }
 
 pub fn s_ge(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytecode.Operand, y: Bytecode.Operand, z: Bytecode.Operand) Error!void {
-    const expectedType = switch (bit_width) {.i8 => Builder.i8_t, .i16 => Builder.i16_t, .i32 => Builder.i32_t, .i64 => Builder.i64_t};
+    const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
     try self.function.typecheck(expectedType, z);
@@ -1427,106 +1427,106 @@ pub fn i_ext16x64(self: *BlockBuilder, is_signed: bool, x: Bytecode.Operand, y: 
 pub fn i_ext32x64(self: *BlockBuilder, is_signed: bool, x: Bytecode.Operand, y: Bytecode.Operand) Error!void { if (is_signed) { try self.s_ext32x64(x, y); } else { try self.u_ext32x64(x, y); } }
 
 pub fn u_ext8x16(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i8_t, x);
-    try self.function.typecheck(Builder.i16_t, y);
+    try self.function.typecheck(Bytecode.Type.i8_t, x);
+    try self.function.typecheck(Bytecode.Type.i16_t, y);
     try self.op(.{.u_ext8x16 = .{ .x = x, .y = y }});
 }
 pub fn u_ext8x32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i8_t, x);
-    try self.function.typecheck(Builder.i32_t, y);
+    try self.function.typecheck(Bytecode.Type.i8_t, x);
+    try self.function.typecheck(Bytecode.Type.i32_t, y);
     try self.op(.{.u_ext8x32 = .{ .x = x, .y = y }});
 }
 pub fn u_ext8x64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i8_t, x);
-    try self.function.typecheck(Builder.i64_t, y);
+    try self.function.typecheck(Bytecode.Type.i8_t, x);
+    try self.function.typecheck(Bytecode.Type.i64_t, y);
     try self.op(.{.u_ext8x64 = .{ .x = x, .y = y }});
 }
 pub fn u_ext16x32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i16_t, x);
-    try self.function.typecheck(Builder.i32_t, y);
+    try self.function.typecheck(Bytecode.Type.i16_t, x);
+    try self.function.typecheck(Bytecode.Type.i32_t, y);
     try self.op(.{.u_ext16x32 = .{ .x = x, .y = y }});
 }
 pub fn u_ext16x64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i16_t, x);
-    try self.function.typecheck(Builder.i64_t, y);
+    try self.function.typecheck(Bytecode.Type.i16_t, x);
+    try self.function.typecheck(Bytecode.Type.i64_t, y);
     try self.op(.{.u_ext16x64 = .{ .x = x, .y = y }});
 }
 pub fn u_ext32x64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i32_t, x);
-    try self.function.typecheck(Builder.i64_t, y);
+    try self.function.typecheck(Bytecode.Type.i32_t, x);
+    try self.function.typecheck(Bytecode.Type.i64_t, y);
     try self.op(.{.u_ext32x64 = .{ .x = x, .y = y }});
 }
 pub fn s_ext8x16(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i8_t, x);
-    try self.function.typecheck(Builder.i16_t, y);
+    try self.function.typecheck(Bytecode.Type.i8_t, x);
+    try self.function.typecheck(Bytecode.Type.i16_t, y);
     try self.op(.{.s_ext8x16 = .{ .x = x, .y = y }});
 }
 pub fn s_ext8x32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i8_t, x);
-    try self.function.typecheck(Builder.i32_t, y);
+    try self.function.typecheck(Bytecode.Type.i8_t, x);
+    try self.function.typecheck(Bytecode.Type.i32_t, y);
     try self.op(.{.s_ext8x32 = .{ .x = x, .y = y }});
 }
 pub fn s_ext8x64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i8_t, x);
-    try self.function.typecheck(Builder.i64_t, y);
+    try self.function.typecheck(Bytecode.Type.i8_t, x);
+    try self.function.typecheck(Bytecode.Type.i64_t, y);
     try self.op(.{.s_ext8x64 = .{ .x = x, .y = y }});
 }
 pub fn s_ext16x32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i16_t, x);
-    try self.function.typecheck(Builder.i32_t, y);
+    try self.function.typecheck(Bytecode.Type.i16_t, x);
+    try self.function.typecheck(Bytecode.Type.i32_t, y);
     try self.op(.{.s_ext16x32 = .{ .x = x, .y = y }});
 }
 pub fn s_ext16x64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i16_t, x);
-    try self.function.typecheck(Builder.i64_t, y);
+    try self.function.typecheck(Bytecode.Type.i16_t, x);
+    try self.function.typecheck(Bytecode.Type.i64_t, y);
     try self.op(.{.s_ext16x64 = .{ .x = x, .y = y }});
 }
 pub fn s_ext32x64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i32_t, x);
-    try self.function.typecheck(Builder.i64_t, y);
+    try self.function.typecheck(Bytecode.Type.i32_t, x);
+    try self.function.typecheck(Bytecode.Type.i64_t, y);
     try self.op(.{.s_ext32x64 = .{ .x = x, .y = y }});
 }
 
 pub fn f_ext32x64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.f32_t, x);
-    try self.function.typecheck(Builder.f64_t, y);
+    try self.function.typecheck(Bytecode.Type.f32_t, x);
+    try self.function.typecheck(Bytecode.Type.f64_t, y);
     try self.op(.{.f_ext32x64 = .{ .x = x, .y = y }});
 }
 
 pub fn i_trunc64x32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i64_t, x);
-    try self.function.typecheck(Builder.i32_t, y);
+    try self.function.typecheck(Bytecode.Type.i64_t, x);
+    try self.function.typecheck(Bytecode.Type.i32_t, y);
     try self.op(.{.i_trunc64x32 = .{ .x = x, .y = y }});
 }
 pub fn i_trunc64x16(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i64_t, x);
-    try self.function.typecheck(Builder.i16_t, y);
+    try self.function.typecheck(Bytecode.Type.i64_t, x);
+    try self.function.typecheck(Bytecode.Type.i16_t, y);
     try self.op(.{.i_trunc64x16 = .{ .x = x, .y = y }});
 }
 pub fn i_trunc64x8(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i64_t, x);
-    try self.function.typecheck(Builder.i8_t, y);
+    try self.function.typecheck(Bytecode.Type.i64_t, x);
+    try self.function.typecheck(Bytecode.Type.i8_t, y);
     try self.op(.{.i_trunc64x8 = .{ .x = x, .y = y }});
 }
 pub fn i_trunc32x16(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i32_t, x);
-    try self.function.typecheck(Builder.i16_t, y);
+    try self.function.typecheck(Bytecode.Type.i32_t, x);
+    try self.function.typecheck(Bytecode.Type.i16_t, y);
     try self.op(.{.i_trunc32x16 = .{ .x = x, .y = y }});
 }
 pub fn i_trunc32x8(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i32_t, x);
-    try self.function.typecheck(Builder.i8_t, y);
+    try self.function.typecheck(Bytecode.Type.i32_t, x);
+    try self.function.typecheck(Bytecode.Type.i8_t, y);
     try self.op(.{.i_trunc32x8 = .{ .x = x, .y = y }});
 }
 pub fn i_trunc16x8(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i16_t, x);
-    try self.function.typecheck(Builder.i8_t, y);
+    try self.function.typecheck(Bytecode.Type.i16_t, x);
+    try self.function.typecheck(Bytecode.Type.i8_t, y);
     try self.op(.{.i_trunc16x8 = .{ .x = x, .y = y }});
 }
 
 pub fn f_trunc64x32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.f64_t, x);
-    try self.function.typecheck(Builder.f32_t, y);
+    try self.function.typecheck(Bytecode.Type.f64_t, x);
+    try self.function.typecheck(Bytecode.Type.f32_t, y);
     try self.op(.{.f_trunc64x32 = .{ .x = x, .y = y }});
 }
 
@@ -1649,83 +1649,83 @@ pub fn s64_to_f(self: *BlockBuilder, float_bit_width: Bytecode.Type.Float.BitWid
 }
 
 pub fn u8_to_f32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i8_t, x);
-    try self.function.typecheck(Builder.f32_t, y);
+    try self.function.typecheck(Bytecode.Type.i8_t, x);
+    try self.function.typecheck(Bytecode.Type.f32_t, y);
     try self.op(.{.u8_to_f32 = .{ .x = x, .y = y}});
 }
 pub fn u8_to_f64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i8_t, x);
-    try self.function.typecheck(Builder.f64_t, y);
+    try self.function.typecheck(Bytecode.Type.i8_t, x);
+    try self.function.typecheck(Bytecode.Type.f64_t, y);
     try self.op(.{.u8_to_f64 = .{ .x = x, .y = y}});
 }
 pub fn u16_to_f32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i16_t, x);
-    try self.function.typecheck(Builder.f32_t, y);
+    try self.function.typecheck(Bytecode.Type.i16_t, x);
+    try self.function.typecheck(Bytecode.Type.f32_t, y);
     try self.op(.{.u16_to_f32 = .{ .x = x, .y = y}});
 }
 pub fn u16_to_f64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i16_t, x);
-    try self.function.typecheck(Builder.f64_t, y);
+    try self.function.typecheck(Bytecode.Type.i16_t, x);
+    try self.function.typecheck(Bytecode.Type.f64_t, y);
     try self.op(.{.u16_to_f64 = .{ .x = x, .y = y}});
 }
 pub fn u32_to_f32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i32_t, x);
-    try self.function.typecheck(Builder.f32_t, y);
+    try self.function.typecheck(Bytecode.Type.i32_t, x);
+    try self.function.typecheck(Bytecode.Type.f32_t, y);
     try self.op(.{.u32_to_f32 = .{ .x = x, .y = y}});
 }
 pub fn u32_to_f64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i32_t, x);
-    try self.function.typecheck(Builder.f64_t, y);
+    try self.function.typecheck(Bytecode.Type.i32_t, x);
+    try self.function.typecheck(Bytecode.Type.f64_t, y);
     try self.op(.{.u32_to_f64 = .{ .x = x, .y = y}});
 }
 pub fn u64_to_f32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i64_t, x);
-    try self.function.typecheck(Builder.f32_t, y);
+    try self.function.typecheck(Bytecode.Type.i64_t, x);
+    try self.function.typecheck(Bytecode.Type.f32_t, y);
     try self.op(.{.u64_to_f32 = .{ .x = x, .y = y}});
 }
 pub fn u64_to_f64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i64_t, x);
-    try self.function.typecheck(Builder.f64_t, y);
+    try self.function.typecheck(Bytecode.Type.i64_t, x);
+    try self.function.typecheck(Bytecode.Type.f64_t, y);
     try self.op(.{.u64_to_f64 = .{ .x = x, .y = y}});
 }
 pub fn s8_to_f32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i8_t, x);
-    try self.function.typecheck(Builder.f32_t, y);
+    try self.function.typecheck(Bytecode.Type.i8_t, x);
+    try self.function.typecheck(Bytecode.Type.f32_t, y);
     try self.op(.{.s8_to_f32 = .{ .x = x, .y = y}});
 }
 pub fn s8_to_f64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i8_t, x);
-    try self.function.typecheck(Builder.f64_t, y);
+    try self.function.typecheck(Bytecode.Type.i8_t, x);
+    try self.function.typecheck(Bytecode.Type.f64_t, y);
     try self.op(.{.s8_to_f64 = .{ .x = x, .y = y}});
 }
 pub fn s16_to_f32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i16_t, x);
-    try self.function.typecheck(Builder.f32_t, y);
+    try self.function.typecheck(Bytecode.Type.i16_t, x);
+    try self.function.typecheck(Bytecode.Type.f32_t, y);
     try self.op(.{.s16_to_f32 = .{ .x = x, .y = y}});
 }
 pub fn s16_to_f64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i16_t, x);
-    try self.function.typecheck(Builder.f64_t, y);
+    try self.function.typecheck(Bytecode.Type.i16_t, x);
+    try self.function.typecheck(Bytecode.Type.f64_t, y);
     try self.op(.{.s16_to_f64 = .{ .x = x, .y = y}});
 }
 pub fn s32_to_f32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i32_t, x);
-    try self.function.typecheck(Builder.f32_t, y);
+    try self.function.typecheck(Bytecode.Type.i32_t, x);
+    try self.function.typecheck(Bytecode.Type.f32_t, y);
     try self.op(.{.s32_to_f32 = .{ .x = x, .y = y}});
 }
 pub fn s32_to_f64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i32_t, x);
-    try self.function.typecheck(Builder.f64_t, y);
+    try self.function.typecheck(Bytecode.Type.i32_t, x);
+    try self.function.typecheck(Bytecode.Type.f64_t, y);
     try self.op(.{.s32_to_f64 = .{ .x = x, .y = y}});
 }
 pub fn s64_to_f32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i64_t, x);
-    try self.function.typecheck(Builder.f32_t, y);
+    try self.function.typecheck(Bytecode.Type.i64_t, x);
+    try self.function.typecheck(Bytecode.Type.f32_t, y);
     try self.op(.{.s64_to_f32 = .{ .x = x, .y = y}});
 }
 pub fn s64_to_f64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.i64_t, x);
-    try self.function.typecheck(Builder.f64_t, y);
+    try self.function.typecheck(Bytecode.Type.i64_t, x);
+    try self.function.typecheck(Bytecode.Type.f64_t, y);
     try self.op(.{.s64_to_f64 = .{ .x = x, .y = y}});
 }
 
@@ -1869,83 +1869,83 @@ pub fn f64_to_i32(self: *BlockBuilder, is_signed: bool, x: Bytecode.Operand, y: 
 pub fn f64_to_i64(self: *BlockBuilder, is_signed: bool, x: Bytecode.Operand, y: Bytecode.Operand) Error!void { if (is_signed) { try self.f64_to_s64(x, y); } else { try self.f64_to_u64(x, y); } }
 
 pub fn f32_to_u8(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.f32_t, x);
-    try self.function.typecheck(Builder.i8_t, y);
+    try self.function.typecheck(Bytecode.Type.f32_t, x);
+    try self.function.typecheck(Bytecode.Type.i8_t, y);
     try self.op(.{.f32_to_u8 = .{ .x = x, .y = y}});
 }
 pub fn f32_to_u16(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.f32_t, x);
-    try self.function.typecheck(Builder.i16_t, y);
+    try self.function.typecheck(Bytecode.Type.f32_t, x);
+    try self.function.typecheck(Bytecode.Type.i16_t, y);
     try self.op(.{.f32_to_u16 = .{ .x = x, .y = y}});
 }
 pub fn f32_to_u32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.f32_t, x);
-    try self.function.typecheck(Builder.i32_t, y);
+    try self.function.typecheck(Bytecode.Type.f32_t, x);
+    try self.function.typecheck(Bytecode.Type.i32_t, y);
     try self.op(.{.f32_to_u32 = .{ .x = x, .y = y}});
 }
 pub fn f32_to_u64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.f32_t, x);
-    try self.function.typecheck(Builder.i64_t, y);
+    try self.function.typecheck(Bytecode.Type.f32_t, x);
+    try self.function.typecheck(Bytecode.Type.i64_t, y);
     try self.op(.{.f32_to_u64 = .{ .x = x, .y = y}});
 }
 pub fn f64_to_u8(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.f64_t, x);
-    try self.function.typecheck(Builder.i8_t, y);
+    try self.function.typecheck(Bytecode.Type.f64_t, x);
+    try self.function.typecheck(Bytecode.Type.i8_t, y);
     try self.op(.{.f64_to_u8 = .{ .x = x, .y = y}});
 }
 pub fn f64_to_u16(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.f64_t, x);
-    try self.function.typecheck(Builder.i16_t, y);
+    try self.function.typecheck(Bytecode.Type.f64_t, x);
+    try self.function.typecheck(Bytecode.Type.i16_t, y);
     try self.op(.{.f64_to_u16 = .{ .x = x, .y = y}});
 }
 pub fn f64_to_u32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.f64_t, x);
-    try self.function.typecheck(Builder.i32_t, y);
+    try self.function.typecheck(Bytecode.Type.f64_t, x);
+    try self.function.typecheck(Bytecode.Type.i32_t, y);
     try self.op(.{.f64_to_u32 = .{ .x = x, .y = y}});
 }
 pub fn f64_to_u64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.f64_t, x);
-    try self.function.typecheck(Builder.i64_t, y);
+    try self.function.typecheck(Bytecode.Type.f64_t, x);
+    try self.function.typecheck(Bytecode.Type.i64_t, y);
     try self.op(.{.f64_to_u64 = .{ .x = x, .y = y}});
 }
 pub fn f32_to_s8(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.f32_t, x);
-    try self.function.typecheck(Builder.i8_t, y);
+    try self.function.typecheck(Bytecode.Type.f32_t, x);
+    try self.function.typecheck(Bytecode.Type.i8_t, y);
     try self.op(.{.f32_to_s8 = .{ .x = x, .y = y}});
 }
 pub fn f32_to_s16(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.f32_t, x);
-    try self.function.typecheck(Builder.i16_t, y);
+    try self.function.typecheck(Bytecode.Type.f32_t, x);
+    try self.function.typecheck(Bytecode.Type.i16_t, y);
     try self.op(.{.f32_to_s16 = .{ .x = x, .y = y}});
 }
 pub fn f32_to_s32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.f32_t, x);
-    try self.function.typecheck(Builder.i32_t, y);
+    try self.function.typecheck(Bytecode.Type.f32_t, x);
+    try self.function.typecheck(Bytecode.Type.i32_t, y);
     try self.op(.{.f32_to_s32 = .{ .x = x, .y = y}});
 }
 pub fn f32_to_s64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.f32_t, x);
-    try self.function.typecheck(Builder.i64_t, y);
+    try self.function.typecheck(Bytecode.Type.f32_t, x);
+    try self.function.typecheck(Bytecode.Type.i64_t, y);
     try self.op(.{.f32_to_s64 = .{ .x = x, .y = y}});
 }
 pub fn f64_to_s8(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.f64_t, x);
-    try self.function.typecheck(Builder.i8_t, y);
+    try self.function.typecheck(Bytecode.Type.f64_t, x);
+    try self.function.typecheck(Bytecode.Type.i8_t, y);
     try self.op(.{.f64_to_s8 = .{ .x = x, .y = y}});
 }
 pub fn f64_to_s16(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.f64_t, x);
-    try self.function.typecheck(Builder.i16_t, y);
+    try self.function.typecheck(Bytecode.Type.f64_t, x);
+    try self.function.typecheck(Bytecode.Type.i16_t, y);
     try self.op(.{.f64_to_s16 = .{ .x = x, .y = y}});
 }
 pub fn f64_to_s32(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.f64_t, x);
-    try self.function.typecheck(Builder.i32_t, y);
+    try self.function.typecheck(Bytecode.Type.f64_t, x);
+    try self.function.typecheck(Bytecode.Type.i32_t, y);
     try self.op(.{.f64_to_s32 = .{ .x = x, .y = y}});
 }
 pub fn f64_to_s64(self: *BlockBuilder, x: Bytecode.Operand, y: Bytecode.Operand) Error!void {
-    try self.function.typecheck(Builder.f64_t, x);
-    try self.function.typecheck(Builder.i64_t, y);
+    try self.function.typecheck(Bytecode.Type.f64_t, x);
+    try self.function.typecheck(Bytecode.Type.i64_t, y);
     try self.op(.{.f64_to_s64 = .{ .x = x, .y = y}});
 }
 

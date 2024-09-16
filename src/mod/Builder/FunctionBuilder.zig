@@ -72,6 +72,7 @@ pub fn assemble(self: *const FunctionBuilder, allocator: std.mem.Allocator) Erro
     const layout_table = try self.generateLayoutTable(allocator);
 
     return Bytecode.Function {
+        .index = self.index,
         .layout_table = layout_table,
         .value = .{
             .bytecode = .{
@@ -241,7 +242,7 @@ pub fn typecheckRet(self: *const FunctionBuilder, operand: ?Bytecode.Operand) Er
     if (operand) |returnOperand| {
         try self.typecheck(ty.function.result, returnOperand);
     } else {
-        try self.parent.typecheck(ty.function.result, Builder.void_t);
+        try self.parent.typecheck(ty.function.result, Bytecode.Type.void_t);
     }
 }
 
@@ -251,7 +252,7 @@ pub fn typecheckTerm(self: *const FunctionBuilder, operand: ?Bytecode.Operand) E
     if (operand) |termOperand| {
         try self.typecheck(ty.function.term, termOperand);
     } else {
-        try self.parent.typecheck(ty.function.term, Builder.void_t);
+        try self.parent.typecheck(ty.function.term, Bytecode.Type.void_t);
     }
 
     return Error.TypeError;
