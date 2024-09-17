@@ -151,10 +151,14 @@ pub fn typecheckEvidence(self: *const BlockBuilder, e: Bytecode.EvidenceIndex) E
     return self.function.typecheckEvidence(e);
 }
 
+pub fn typecheckEvidenceSet(self: *const BlockBuilder, es: []const Bytecode.EvidenceIndex) Error!void {
+    for (es) |e| try self.typecheckEvidence(e);
+}
+
 pub fn typecheckCall(self: *const BlockBuilder, calleeTypeIndex: Bytecode.TypeIndex, r: ?Bytecode.Operand, as: anytype) Error!void {
     try self.function.typecheckCall(calleeTypeIndex, r, as);
     const calleeType = try self.function.parent.getType(calleeTypeIndex);
-    return self.function.typeCheckEvidenceSet(calleeType.function.evidence);
+    return self.typecheckEvidenceSet(calleeType.function.evidence);
 }
 
 pub fn typecheckBr(self: *const BlockBuilder, absoluteBlockIndex: Bytecode.BlockIndex, y: ?Bytecode.Operand) Error!void {
@@ -220,25 +224,25 @@ pub fn trap(self: *BlockBuilder) Error!void { try self.exitOp(.trap); }
 pub fn nop(self: *BlockBuilder) Error!void { try self.op(.nop); }
 
 pub fn tail_call(self: *BlockBuilder, f: anytype, as: anytype) Error!void {
-    const calleeIndex = try Builder.extractFunctionIndex(self.function, f);
+    const calleeIndex = try self.function.parent.extractFunctionIndex(f);
     const calleeType = try self.function.parent.getFunctionType(calleeIndex);
 
     try self.typecheckCall(calleeType, null, as);
 
     const asBuf = try self.parent.allocator.alloc(Bytecode.Op, as.len);
-    @memcpy(asBuf, as);
+    inline for (0..as.len) |i| asBuf[i] = as[i];
 
     try self.exitOp(.{.tail_call = .{ .f = calleeIndex, .as = asBuf }});
 }
 
 pub fn tail_call_v(self: *BlockBuilder, f: anytype, y: Bytecode.Operand, as: anytype) Error!void {
-    const calleeIndex = try Builder.extractFunctionIndex(self.function, f);
+    const calleeIndex = try self.function.parent.extractFunctionIndex(f);
     const calleeType = try self.function.parent.getFunctionType(calleeIndex);
 
     try self.typecheckCall(calleeType, y, as);
 
     const asBuf = try self.parent.allocator.alloc(Bytecode.Op, as.len);
-    @memcpy(asBuf, as);
+    inline for (0..as.len) |i| asBuf[i] = as[i];
 
     try self.exitOp(.{.tail_call = .{ .f = calleeIndex, .y = y, .as = asBuf }});
 }
@@ -249,7 +253,7 @@ pub fn dyn_tail_call(self: *BlockBuilder, f: Bytecode.Operand, as: anytype) Erro
     try self.typecheckCall(calleeType, null, as);
 
     const asBuf = try self.parent.allocator.alloc(Bytecode.Op, as.len);
-    @memcpy(asBuf, as);
+    inline for (0..as.len) |i| asBuf[i] = as[i];
 
     try self.exitOp(.{.tail_call = .{ .f = f, .as = asBuf }});
 }
@@ -259,8 +263,8 @@ pub fn dyn_tail_call_v(self: *BlockBuilder, f: Bytecode.Operand, y: Bytecode.Ope
 
     try self.typecheckCall(calleeType, y, as);
 
-    const asBuf = try self.function.parent.allocator.alloc(Bytecode.Op, as.len);
-    @memcpy(asBuf, as);
+    const asBuf = try self.function.parent.allocator.alloc(Bytecode.Operand, as.len);
+    inline for (0..as.len) |i| asBuf[i] = as[i];
 
     try self.exitOp(.{.tail_call = .{ .f = f, .y = y, .as = asBuf }});
 }
@@ -270,8 +274,8 @@ pub fn tail_prompt(self: *BlockBuilder, e: Bytecode.EvidenceIndex, as: anytype) 
 
     try self.typecheckCall(calleeType, null, as);
 
-    const asBuf = try self.function.parent.allocator.alloc(Bytecode.Op, as.len);
-    @memcpy(asBuf, as);
+    const asBuf = try self.function.parent.allocator.alloc(Bytecode.Operand, as.len);
+    inline for (0..as.len) |i| asBuf[i] = as[i];
 
     try self.exitOp(.{.tail_prompt = .{ .e = e, .as = asBuf }});
 }
@@ -281,34 +285,34 @@ pub fn tail_prompt_v(self: *BlockBuilder, e: Bytecode.EvidenceIndex, y: Bytecode
 
     try self.typecheckCall(calleeType, y, as);
 
-    const asBuf = try self.function.parent.allocator.alloc(Bytecode.Op, as.len);
-    @memcpy(asBuf, as);
+    const asBuf = try self.function.parent.allocator.alloc(Bytecode.Operand, as.len);
+    inline for (0..as.len) |i| asBuf[i] = as[i];
 
     try self.exitOp(.{.tail_prompt_v = .{ .e = e, .as = asBuf, .y = y }});
 }
 
 pub fn call(self: *BlockBuilder, f: anytype, as: anytype) Error!void {
-    const calleeIndex = try Builder.extractFunctionIndex(self.function, f);
+    const calleeIndex = try self.function.parent.extractFunctionIndex(f);
     const calleeType = try self.function.parent.getFunctionType(calleeIndex);
 
     try self.typecheckCall(calleeType, null, as);
 
-    const asBuf = try self.function.parent.allocator.alloc(Bytecode.Op, as.len);
-    @memcpy(asBuf, as);
+    const asBuf = try self.function.parent.allocator.alloc(Bytecode.Operand, as.len);
+    inline for (0..as.len) |i| asBuf[i] = as[i];
 
     try self.op(.{.call = .{ .f = calleeIndex, .as = asBuf }});
 }
 
 pub fn call_v(self: *BlockBuilder, f: anytype, y: Bytecode.Operand, as: anytype) Error!void {
-    const calleeIndex = try Builder.extractFunctionIndex(self.function, f);
+    const calleeIndex = try self.function.parent.extractFunctionIndex(f);
     const calleeType = try self.function.parent.getFunctionType(calleeIndex);
 
     try self.typecheckCall(calleeType, y, as);
 
-    const asBuf = try self.function.parent.allocator.alloc(Bytecode.Op, as.len);
-    @memcpy(asBuf, as);
+    const asBuf = try self.function.parent.allocator.alloc(Bytecode.Operand, as.len);
+    inline for (0..as.len) |i| asBuf[i] = as[i];
 
-    try self.op(.{.call_v = .{ .f = try Builder.extractFunctionIndex(f), .as = asBuf, .y = y }});
+    try self.op(.{.call_v = .{ .f = calleeIndex, .as = asBuf, .y = y }});
 }
 
 pub fn dyn_call(self: *BlockBuilder, f: Bytecode.Operand, as: anytype) Error!void {
@@ -316,8 +320,8 @@ pub fn dyn_call(self: *BlockBuilder, f: Bytecode.Operand, as: anytype) Error!voi
 
     try self.typecheckCall(calleeType, null, as);
 
-    const asBuf = try self.function.parent.allocator.alloc(Bytecode.Op, as.len);
-    @memcpy(asBuf, as);
+    const asBuf = try self.function.parent.allocator.alloc(Bytecode.Operand, as.len);
+    inline for (0..as.len) |i| asBuf[i] = as[i];
 
     try self.op(.{.dyn_call = .{ .f = f, .as = asBuf }});
 }
@@ -327,8 +331,8 @@ pub fn dyn_call_v(self: *BlockBuilder, f: Bytecode.Operand, y: Bytecode.Operand,
 
     try self.typecheckCall(calleeType, y, as);
 
-    const asBuf = try self.function.parent.allocator.alloc(Bytecode.Op, as.len);
-    @memcpy(asBuf, as);
+    const asBuf = try self.function.parent.allocator.alloc(Bytecode.Operand, as.len);
+    inline for (0..as.len) |i| asBuf[i] = as[i];
 
     try self.op(.{.dyn_call_v = .{ .f = f, .as = asBuf, .y = y }});
 }
@@ -338,8 +342,8 @@ pub fn prompt(self: *BlockBuilder, e: Bytecode.EvidenceIndex, as: anytype) Error
 
     try self.typecheckCall(calleeType, null, as);
 
-    const asBuf = try self.function.parent.allocator.alloc(Bytecode.Op, as.len);
-    @memcpy(asBuf, as);
+    const asBuf = try self.function.parent.allocator.alloc(Bytecode.Operand, as.len);
+    inline for (0..as.len) |i| asBuf[i] = as[i];
 
     try self.op(.{.prompt = .{ .e = e, .as = asBuf }});
 }
@@ -349,8 +353,8 @@ pub fn prompt_v(self: *BlockBuilder, e: Bytecode.EvidenceIndex, y: Bytecode.Oper
 
     try self.typecheckCall(calleeType, y, as);
 
-    const asBuf = try self.function.parent.allocator.alloc(Bytecode.Op, as.len);
-    @memcpy(asBuf, as);
+    const asBuf = try self.function.parent.allocator.alloc(Bytecode.Operand, as.len);
+    inline for (0..as.len) |i| asBuf[i] = as[i];
 
     try self.op(.{.prompt_v = .{ .e = e, .as = asBuf, .y = y }});
 }
@@ -1196,7 +1200,7 @@ pub fn i_eq(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytec
     const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
-    try self.function.typecheck(expectedType, z);
+    try self.function.typecheck(Bytecode.Type.bool_t, z);
 
     switch (bit_width) {
         .i8 => try self.op(.{.i_eq8 = .{ .x = x, .y = y, .z = z }}),
@@ -1215,7 +1219,7 @@ pub fn i_ne(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytec
     const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
-    try self.function.typecheck(expectedType, z);
+    try self.function.typecheck(Bytecode.Type.bool_t, z);
 
     switch (bit_width) {
         .i8 => try self.op(.{.i_ne8 = .{ .x = x, .y = y, .z = z }}),
@@ -1242,7 +1246,7 @@ pub fn u_lt(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytec
     const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
-    try self.function.typecheck(expectedType, z);
+    try self.function.typecheck(Bytecode.Type.bool_t, z);
 
     switch (bit_width) {
         .i8 => try self.op(.{.u_lt8 = .{ .x = x, .y = y, .z = z }}),
@@ -1261,7 +1265,7 @@ pub fn s_lt(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytec
     const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
-    try self.function.typecheck(expectedType, z);
+    try self.function.typecheck(Bytecode.Type.bool_t, z);
 
     switch (bit_width) {
         .i8 => try self.op(.{.s_lt8 = .{ .x = x, .y = y, .z = z }}),
@@ -1280,7 +1284,7 @@ pub fn i_gt(self: *BlockBuilder, is_signed: bool, bit_width: Bytecode.Type.Int.B
     const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
-    try self.function.typecheck(expectedType, z);
+    try self.function.typecheck(Bytecode.Type.bool_t, z);
 
     if (is_signed) {
         try self.s_gt(bit_width, x, y, z);
@@ -1293,7 +1297,7 @@ pub fn u_gt(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytec
     const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
-    try self.function.typecheck(expectedType, z);
+    try self.function.typecheck(Bytecode.Type.bool_t, z);
 
     switch (bit_width) {
         .i8 => try self.op(.{.u_gt8 = .{ .x = x, .y = y, .z = z }}),
@@ -1312,7 +1316,7 @@ pub fn s_gt(self: *BlockBuilder, bit_width: Bytecode.Type.Int.BitWidth, x: Bytec
     const expectedType = switch (bit_width) {.i8 => Bytecode.Type.i8_t, .i16 => Bytecode.Type.i16_t, .i32 => Bytecode.Type.i32_t, .i64 => Bytecode.Type.i64_t};
     try self.function.typecheck(expectedType, x);
     try self.function.typecheck(expectedType, y);
-    try self.function.typecheck(expectedType, z);
+    try self.function.typecheck(Bytecode.Type.bool_t, z);
 
     switch (bit_width) {
         .i8 => try self.op(.{.s_gt8 = .{ .x = x, .y = y, .z = z }}),

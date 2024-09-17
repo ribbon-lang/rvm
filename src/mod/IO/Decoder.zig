@@ -59,6 +59,10 @@ pub fn decode(self: *const Decoder, comptime T: type) Error!T {
     return @call(.always_inline, decodeInline, .{self, T});
 }
 
+pub fn decodeUnchecked(self: *const Decoder, comptime T: type) T {
+    return @call(.always_inline, decodeInlineUnchecked, .{self, T});
+}
+
 pub fn decodeByteInline(self: *const Decoder) callconv(Config.INLINING_CALL_CONV) Error!u8 {
     if (self.isEof()) {
         @branchHint(.cold);
@@ -76,6 +80,10 @@ pub fn decodeAllInline(self: *const Decoder, count: usize) callconv(Config.INLIN
         return Error.OutOfBounds;
     }
 
+    return self.decodeAllInlineUnchecked(count);
+}
+
+pub fn decodeAllInlineUnchecked(self: *const Decoder, count: usize) callconv(Config.INLINING_CALL_CONV) []const u8 {
     const start = self.ip();
     self.offset.* += @truncate(count);
     return self.memory[start..self.ip()];
@@ -83,6 +91,13 @@ pub fn decodeAllInline(self: *const Decoder, count: usize) callconv(Config.INLIN
 
 pub fn decodeRawInline(self: *const Decoder, comptime T: type) callconv(Config.INLINING_CALL_CONV) Error!T {
     const bytes = try self.decodeAllInline(@sizeOf(T));
+    var out: T = undefined;
+    @memcpy(@as([*]u8, @ptrCast(&out)), bytes);
+    return out;
+}
+
+pub fn decodeRawInlineUnchecked(self: *const Decoder, comptime T: type) callconv(Config.INLINING_CALL_CONV) T {
+    const bytes = self.decodeAllInlineUnchecked(@sizeOf(T));
     var out: T = undefined;
     @memcpy(@as([*]u8, @ptrCast(&out)), bytes);
     return out;
@@ -96,6 +111,13 @@ pub fn padInline(self: *const Decoder, alignment: usize) callconv(Config.INLININ
         @branchHint(.cold);
         return Error.OutOfBounds;
     }
+
+    self.offset.* += @truncate(padding);
+}
+
+pub fn padInlineUnchecked(self: *const Decoder, alignment: usize) callconv(Config.INLINING_CALL_CONV) void {
+    const addr = @intFromPtr(self.memory.ptr) + self.ip();
+    const padding = Support.alignmentDelta(addr, alignment);
 
     self.offset.* += @truncate(padding);
 }
@@ -114,6 +136,23 @@ pub fn decodeInline(self: *const Decoder, comptime T: type) callconv(Config.INLI
         return Endian.bitCastFrom(T, int);
     } else {
         return self.decodeStructure(T);
+    }
+}
+
+pub fn decodeInlineUnchecked(self: *const Decoder, comptime T: type) callconv(Config.INLINING_CALL_CONV) T {
+    @setEvalBranchQuota(Config.INLINING_BRANCH_QUOTA);
+
+    if (comptime T == void) return {};
+
+    if (comptime std.meta.hasFn(T, "decode")) {
+        return T.decodeUnchecked(self);
+    }
+
+    if (comptime Endian.IntType(T)) |I| {
+        const int = self.decodeRawInlineUnchecked(I);
+        return Endian.bitCastFrom(T, int);
+    } else {
+        return self.decodeStructureUnchecked(T);
     }
 }
 
@@ -243,6 +282,130 @@ fn decodeStructure(self: *const Decoder, comptime T: type) callconv(Config.INLIN
             const discrimValue = try self.decodeInline(bool);
             if (discrimValue) {
                 return try self.decodeInline(info.child);
+            } else {
+                return null;
+            }
+        },
+
+        else => {
+            @compileError("cannot decode type `" ++ @typeName(T) ++ "`");
+        },
+    }
+}
+
+
+
+fn decodeStructureUnchecked(self: *const Decoder, comptime T: type) callconv(Config.INLINING_CALL_CONV) T {
+    switch (@typeInfo(T)) {
+        .@"struct" => |info| {
+            var out: T = undefined;
+
+            inline for (info.fields) |field| {
+                @field(out, field.name) = self.decodeInlineUnchecked(field.type);
+            }
+
+            return out;
+        },
+
+        .@"union" => |info| if (info.tag_type) |TT| {
+            const tag = self.decodeInlineUnchecked(TT);
+
+            inline for (info.fields) |field| {
+                if (tag == @field(TT, field.name)) {
+                    const fieldValue = self.decodeInlineUnchecked(field.type);
+                    return @unionInit(T, field.name, fieldValue);
+                }
+            }
+
+            unreachable;
+        } else {
+            @compileError("cannot decode union `" ++ @typeName(T) ++ "` without tag or packed layout");
+        },
+
+        .array => |info| if (comptime info.sentinel) |sPtr| {
+            const sentinel = @as(*const info.child, @ptrCast(sPtr)).*;
+
+            var out: [info.len:sentinel]info.child = undefined;
+
+            for (0..info.len) |i| {
+                out[i] = self.decodeInlineUnchecked(info.child);
+            }
+
+            _ = self.decodeInlineUnchecked(info.child);
+
+            @as([*]info.child, &out)[info.len] = sentinel;
+
+            return out;
+        } else {
+            var out: [info.len]info.child = undefined;
+
+            for (0..info.len) |i| {
+                out[i] = self.decodeInlineUnchecked(info.child);
+            }
+
+            return out;
+        },
+
+        .pointer => |info| switch(info.size) {
+            .One => {
+                self.padInlineUnchecked(@alignOf(info.child));
+
+                const ptr: T = @alignCast(@ptrCast(&self.memory[self.ip()]));
+
+                self.offset.* += @sizeOf(info.child);
+
+                return ptr;
+            },
+            .Many => {
+                if (comptime info.sentinel) |sPtr| {
+                    const sentinel = @as(*const info.child, @ptrCast(sPtr)).*;
+
+                    self.padInlineUnchecked(@alignOf(info.child));
+
+                    const ptr: T = @alignCast(@ptrCast(&self.memory[self.ip()]));
+
+                    while (true) {
+                        const elemValue = self.decodeInlineUnchecked(info.child);
+                        if (elemValue == sentinel) break;
+                    }
+
+                    return ptr;
+                } else {
+                    @compileError("cannot decode many-pointer `" ++ @typeName(T) ++ "` without sentinel");
+                }
+            },
+            .Slice => {
+                const len = self.decodeInlineUnchecked(u8);
+
+                self.padInlineUnchecked(@alignOf(info.child));
+
+                const ptr: [*]const info.child = @alignCast(@ptrCast(&self.memory[self.ip()]));
+
+                const size = len * @as(usize, @sizeOf(info.child));
+                const slice = ptr[0..len];
+
+                self.offset.* += @truncate(size);
+
+                if (info.sentinel) |sPtr| {
+                    const sentinel = @as(*const info.child, @ptrCast(sPtr)).*;
+                    const elemValue = self.decodeInlineUnchecked(info.child);
+                    if (elemValue != sentinel) {
+                        @branchHint(.cold);
+                        return Error.BadEncoding;
+                    }
+                }
+
+                return slice;
+            },
+            else => {
+                @compileError("cannot decode type `" ++ @typeName(T) ++ "`");
+            },
+        },
+
+        .optional => |info| {
+            const discrimValue = self.decodeInlineUnchecked(bool);
+            if (discrimValue) {
+                return self.decodeInlineUnchecked(info.child);
             } else {
                 return null;
             }

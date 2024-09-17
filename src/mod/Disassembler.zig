@@ -32,6 +32,7 @@ pub fn operand(op: anytype, writer: anytype) !void {
                         try writer.writeAll(" ");
                     }
                 }
+                try writer.writeAll(")");
             } else unreachable,
             else => unreachable,
         }
@@ -72,8 +73,8 @@ pub fn bytecode(code: Bytecode, writer: anytype) !void {
 
         try writer.print("\t\t{}:\n", .{i});
         while (offset < block.size) {
+            try writer.print("\t\t\t{x:0>6}\t", .{decoder.ip()});
             const op = try decoder.decode(Bytecode.Op);
-            try writer.print("\t\t\t{x:0>6}\t", .{offset});
             try instruction(op, writer);
         }
     }

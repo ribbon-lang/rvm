@@ -187,20 +187,6 @@ pub fn local(self: *FunctionBuilder, t: Bytecode.TypeIndex) Error!Bytecode.Regis
     return @enumFromInt(index);
 }
 
-pub fn typecheckEvidenceSet(self: *const FunctionBuilder, evidence: []const Bytecode.EvidenceIndex) Error!void {
-    const ty = try self.parent.getType(self.type);
-
-    outer: for (evidence) |evidenceIndex| {
-        for (ty.function.evidence) |usableEvidenceIndex| {
-            if (evidenceIndex == usableEvidenceIndex) {
-                continue :outer;
-            }
-        }
-
-        return Error.MissingEvidence;
-    }
-}
-
 pub fn typecheckEvidence(self: *const FunctionBuilder, evidence: Bytecode.EvidenceIndex) Error!void {
     const ty = try self.parent.getType(self.type);
 
@@ -215,7 +201,7 @@ pub fn typecheckEvidence(self: *const FunctionBuilder, evidence: Bytecode.Eviden
 
 /// does not check evidence
 pub fn typecheckCall(self: *const FunctionBuilder, calleeTypeIndex: Bytecode.TypeIndex, operand: ?Bytecode.Operand, as: anytype) Error!void {
-    const calleeType = try self.function.parent.getType(calleeTypeIndex);
+    const calleeType = try self.parent.getType(calleeTypeIndex);
 
     if (calleeType != .function) {
         return Error.TypeError;
@@ -227,7 +213,7 @@ pub fn typecheckCall(self: *const FunctionBuilder, calleeTypeIndex: Bytecode.Typ
         return Error.TooManyArguments;
     }
 
-    for (0..as.len) |i| {
+    inline for (0..as.len) |i| {
         try self.typecheck(calleeType.function.params[i], as[i]);
     }
 

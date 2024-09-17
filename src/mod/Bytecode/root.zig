@@ -562,9 +562,9 @@ pub fn printType(types: []const Bytecode.Type, ty: Bytecode.TypeIndex, writer: a
         },
         .product => |info| {
             try writer.writeAll("(prod: ");
-            for (info.fields, 0..) |field, i| {
+            for (info.types, 0..) |field, i| {
                 try printType(types, field, writer);
-                if (i < info.fields.len - 1) {
+                if (i < info.types.len - 1) {
                     try writer.writeAll(" * ");
                 }
             }
@@ -574,9 +574,9 @@ pub fn printType(types: []const Bytecode.Type, ty: Bytecode.TypeIndex, writer: a
             try writer.writeAll("(sum ");
             try printType(types, info.discriminator, writer);
             try writer.writeAll(": ");
-            for (info.fields, 0..) |field, i| {
+            for (info.types, 0..) |field, i| {
                 try printType(types, field, writer);
-                if (i < info.fields.len - 1) {
+                if (i < info.types.len - 1) {
                     try writer.writeAll(" + ");
                 }
             }
@@ -584,9 +584,9 @@ pub fn printType(types: []const Bytecode.Type, ty: Bytecode.TypeIndex, writer: a
         },
         .raw_sum => |info| {
             try writer.writeAll("(raw_sum: ");
-            for (info.fields, 0..) |field, i| {
+            for (info.types, 0..) |field, i| {
                 try printType(types, field, writer);
-                if (i < info.fields.len - 1) {
+                if (i < info.types.len - 1) {
                     try writer.writeAll(" + ");
                 }
             }
@@ -622,23 +622,21 @@ pub fn printType(types: []const Bytecode.Type, ty: Bytecode.TypeIndex, writer: a
 pub fn printValue(types: []const Bytecode.Type, ty: Bytecode.TypeIndex, bytes: [*]const u8, len: ?usize, writer: anytype) !void {
     switch (types[ty]) {
         .void => if (len) |l| try writer.print("{any}", .{bytes[0..l]}) else try writer.writeAll("[cannot display]"),
-        .bool => try writer.print("{}", .{ @as(*align(1) bool, @ptrCast(bytes)).* }),
+        .bool => try writer.print("{}", .{ @as(*const align(1) bool, @ptrCast(bytes)).* }),
         .int => |info| {
-            if (info.is_signed) {
-                switch (info.bit_width) {
-                    .i8 => try writer.print("0x{x:0>2}", .{ @as(*align(1) i8, @ptrCast(bytes)).* }),
-                    .i16 => try writer.print("0x{x:0>4}", .{ @as(*align(1) i16, @ptrCast(bytes)).* }),
-                    .i32 => try writer.print("0x{x:0>8}", .{ @as(*align(1) i32, @ptrCast(bytes)).* }),
-                    .i64 => try writer.print("0x{x:0>16}", .{ @as(*align(1) i64, @ptrCast(bytes)).* }),
-                }
+            switch (info.bit_width) {
+                .i8 => try writer.print("0x{x:0>2}", .{ @as(*const align(1) u8, @ptrCast(bytes)).* }),
+                .i16 => try writer.print("0x{x:0>4}", .{ @as(*const align(1) u16, @ptrCast(bytes)).* }),
+                .i32 => try writer.print("0x{x:0>8}", .{ @as(*const align(1) u32, @ptrCast(bytes)).* }),
+                .i64 => try writer.print("0x{x:0>16}", .{ @as(*const align(1) u64, @ptrCast(bytes)).* }),
             }
         },
         .float => |info| switch (info.bit_width) {
-            .f32 => try writer.print("{}", .{ @as(*align(1) f32, @ptrCast(bytes)).* }),
-            .f64 => try writer.print("{}", .{ @as(*align(1) f64, @ptrCast(bytes)).* }),
+            .f32 => try writer.print("{}", .{ @as(*const align(1) f32, @ptrCast(bytes)).* }),
+            .f64 => try writer.print("{}", .{ @as(*const align(1) f64, @ptrCast(bytes)).* }),
         },
         .pointer => |info| {
-            const ptr = @as(*align(1) [*]const u8, @ptrCast(bytes)).*;
+            const ptr = @as(*const align(1) [*]const u8, @ptrCast(bytes)).*;
             try writer.print("@{x:0>16} => ", .{ @intFromPtr(ptr) });
             try printValue(types, info.target, ptr, null, writer);
         },
@@ -659,11 +657,11 @@ pub fn printValue(types: []const Bytecode.Type, ty: Bytecode.TypeIndex, bytes: [
         .product => |info| {
             var offset: usize = 0;
             try writer.writeAll("(");
-            for (info.fields, 0..) |field, i| {
+            for (info.types, 0..) |field, i| {
                 if (typeLayout(types, field)) |fieldLayout| {
                     offset += Support.alignmentDelta(offset, fieldLayout.alignment);
                     try printValue(types, field, bytes + offset, fieldLayout.size, writer);
-                    if (i < info.fields.len - 1) {
+                    if (i < info.types.len - 1) {
                         try writer.writeAll(" * ");
                     }
                     offset += fieldLayout.size;
@@ -678,10 +676,10 @@ pub fn printValue(types: []const Bytecode.Type, ty: Bytecode.TypeIndex, bytes: [
             var offset: usize, const disc = if (typeLayout(types, info.discriminator)) |discLayout| layout: {
                 try printValue(types, info.discriminator, bytes, discLayout.size, writer);
                 const discValue: usize = switch (discLayout.size) {
-                    1 => @as(*align(1) u8, @ptrCast(bytes)).*,
-                    2 => @as(*align(1) u16, @ptrCast(bytes)).*,
-                    4 => @as(*align(1) u32, @ptrCast(bytes)).*,
-                    8 => @as(*align(1) u64, @ptrCast(bytes)).*,
+                    1 => @as(*const align(1) u8, @ptrCast(bytes)).*,
+                    2 => @as(*const align(1) u16, @ptrCast(bytes)).*,
+                    4 => @as(*const align(1) u32, @ptrCast(bytes)).*,
+                    8 => @as(*const align(1) u64, @ptrCast(bytes)).*,
                     else => return writer.writeAll("[cannot display]"),
                 };
                 break :layout .{discLayout.size, discValue};
@@ -689,7 +687,7 @@ pub fn printValue(types: []const Bytecode.Type, ty: Bytecode.TypeIndex, bytes: [
                 return writer.writeAll("[cannot display]");
             };
 
-            const fieldType = info.types[disc.discValue];
+            const fieldType = info.types[disc];
 
             if (typeLayout(types, fieldType)) |fieldLayout| {
                 offset += Support.alignmentDelta(offset, fieldLayout.alignment);
@@ -703,7 +701,7 @@ pub fn printValue(types: []const Bytecode.Type, ty: Bytecode.TypeIndex, bytes: [
         } else {
             try writer.writeAll("[cannot display]");
         },
-        .function => try writer.print("(fn {})", .{ @as(*align(1) u64, @ptrCast(bytes)).* }),
+        .function => try writer.print("(fn {})", .{ @as(*const align(1) u64, @ptrCast(bytes)).* }),
     }
 }
 

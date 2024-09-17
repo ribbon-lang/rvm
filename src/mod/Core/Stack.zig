@@ -45,6 +45,10 @@ pub fn Stack(comptime T: type, comptime A: type, comptime alignment: ?u29) type 
             return &self.memory[self.ptr - 1];
         }
 
+        pub fn topPtrUnchecked(self: *const Self) callconv(Config.INLINING_CALL_CONV) *T {
+            return &self.memory[self.ptr - 1];
+        }
+
         pub fn topSlice(self: *const Self, n: Ptr) callconv(Config.INLINING_CALL_CONV) Error![]T {
             if (self.ptr < n) {
                 @branchHint(.cold);
@@ -69,6 +73,10 @@ pub fn Stack(comptime T: type, comptime A: type, comptime alignment: ?u29) type 
                 return Error.OutOfBounds;
             }
 
+            return &self.memory[i];
+        }
+
+        pub fn getPtrUnchecked(self: *const Self, i: Ptr) callconv(Config.INLINING_CALL_CONV) *T {
             return &self.memory[i];
         }
 
@@ -118,6 +126,16 @@ pub fn Stack(comptime T: type, comptime A: type, comptime alignment: ?u29) type 
             self.ptr += 1;
         }
 
+        pub fn pushUnchecked(self: *Self, value: T) callconv(Config.INLINING_CALL_CONV) void {
+            // if (self.ptr >= self.memory.len) {
+            //     @branchHint(.cold);
+            //     return Error.Overflow;
+            // }
+
+            self.memory[self.ptr] = value;
+            self.ptr += 1;
+        }
+
         pub fn pushSlice(self: *Self, slice: []const T) callconv(Config.INLINING_CALL_CONV) Error!void {
             if (self.ptr + slice.len > self.memory.len) {
                 @branchHint(.cold);
@@ -155,6 +173,16 @@ pub fn Stack(comptime T: type, comptime A: type, comptime alignment: ?u29) type 
                 @branchHint(.cold);
                 return Error.Underflow;
             }
+
+            self.ptr -= 1;
+            return self.memory[self.ptr];
+        }
+
+        pub fn popUnchecked(self: *Self) callconv(Config.INLINING_CALL_CONV) T {
+            // if (self.ptr == 0) {
+            //     @branchHint(.cold);
+            //     return Error.Underflow;
+            // }
 
             self.ptr -= 1;
             return self.memory[self.ptr];

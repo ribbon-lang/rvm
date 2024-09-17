@@ -101,29 +101,61 @@ fn earlyTesting(gpa: std.mem.Allocator, output: std.fs.File.Writer, _: []const [
         .result = Bytecode.Type.i64_t,
         .term = Bytecode.Type.void_t,
         .evidence = &[0]Bytecode.EvidenceIndex {},
-        .params = &[_]Bytecode.TypeIndex {Bytecode.Type.i64_t, Bytecode.Type.i64_t},
+        .params = &[_]Bytecode.TypeIndex {Bytecode.Type.i64_t},
     }});
+
+    const one = try builder.globalNative(@as(i64, 1));
+    const two = try builder.globalNative(@as(i64, 2));
 
     const func = try builder.main(main_t);
 
-    const out = try func.local(Bytecode.Type.i64_t);
 
-    try func.entry.s_div64(.local(.r0, 0), .local(.r1, 0), .local(out, 0));
-    try func.entry.ret_v(.local(out, 0));
+
+    const cond = try func.local(Bytecode.Type.bool_t);
+    try func.entry.s_lt64(.local(.r0, 0), .global(two, 0), .local(cond, 0));
+    const thenBlock, const elseBlock = try func.entry.if_nz(.local(cond, 0));
+
+    try func.entry.trap();
+
+    try thenBlock.ret_v(.local(.r0, 0));
+
+    const a = try func.local(Bytecode.Type.i64_t);
+    try elseBlock.i_sub64(.local(.r0, 0), .global(one, 0), .local(a, 0));
+    try elseBlock.call_v(func, .local(a, 0), .{Bytecode.Operand.local(a, 0)});
+
+    const b = try func.local(Bytecode.Type.i64_t);
+    try elseBlock.i_sub64(.local(.r0, 0), .global(two, 0), .local(b, 0));
+    try elseBlock.call_v(func, .local(b, 0), .{Bytecode.Operand.local(b, 0)});
+
+    try elseBlock.i_add64(.local(a, 0), .local(b, 0), .local(a, 0));
+    try elseBlock.ret_v(.local(a, 0));
 
     const program = try builder.assemble(gpa);
     defer program.deinit(gpa);
 
-    try Disassembler.bytecode(program.functions[0].value.bytecode, output);
+    // try Disassembler.bytecode(program.functions[0].value.bytecode, output);
 
     const fiber = try Core.Fiber.init(context, &program, &[0] Core.Fiber.ForeignFunction {});
     defer fiber.deinit();
 
-    const result = try fiber.invoke(i64, program.main.?, .{ @as(i64, 10021), @as(i64, -3) });
+    const n: i64 = 32;
 
-    try output.print("result: {}\n", .{result});
-    try std.testing.expectEqual(@divTrunc(@as(i64, 10021), @as(i64, -3)), result);
+    const start = std.time.nanoTimestamp();
+
+    const result = try fiber.invoke(i64, program.main.?, .{ n });
+
+    const end = std.time.nanoTimestamp();
+
+    const time = @as(f64, @floatFromInt(end - start)) / std.time.ns_per_s;
+
+
+    try output.print("result: {} (in {d:.3}s)\n", .{result, time});
+    try std.testing.expectEqual(2178309, result);
 }
+
+// fn fib(n: i64) i64 {
+//     return if (n < 2) n else fib(n - 1) + fib(n - 2);
+// }
 
 
 test {
