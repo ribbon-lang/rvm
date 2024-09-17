@@ -70,17 +70,19 @@ pub const RegisterDataSet = struct {
     }
 };
 
-pub const ForeignFunction = *const fn (*anyopaque, Bytecode.BlockIndex, *const ForeignRegisterDataSet, *ForeignOut) callconv(.C) ForeignControl;
+pub const ForeignFunction = *const fn (*anyopaque, Bytecode.BlockIndex, *ForeignOut) callconv(.C) ForeignControl;
 
 pub const ForeignControl = enum(u32) {
     step,
     done,
+    done_v,
     trap,
 };
 
 pub const ForeignOut = extern union {
     step: Bytecode.BlockIndex,
-    done: Bytecode.Operand,
+    done: void,
+    done_v: Bytecode.Operand,
     trap: Extern.Error,
 };
 
@@ -218,7 +220,7 @@ pub const BlockFrame = packed struct {
 
 pub const CallFrame = struct {
     function: *const Bytecode.Function,
-    evidence: ?EvidenceRef,
+    evidence: EvidenceRef,
     root_block: BlockStack.Ptr,
     stack: StackRef,
 
@@ -230,6 +232,12 @@ pub const CallFrame = struct {
     pub const EvidenceRef = packed struct {
         index: Bytecode.EvidenceIndex,
         offset: EvidenceStack.Ptr,
+        const INT_T: type = std.meta.Int(.unsigned, @bitSizeOf(EvidenceRef));
+        pub const SENTINEL: EvidenceRef = @bitCast(@as(INT_T, std.math.maxInt(INT_T)));
+
+        pub fn isSentinel(self: EvidenceRef) bool {
+            return @as(INT_T, @bitCast(self)) == @as(INT_T, @bitCast(SENTINEL));
+        }
     };
 };
 
@@ -325,27 +333,7 @@ pub fn removeHandlerSet(fiber: *Fiber, handlerSet: Bytecode.HandlerSet) callconv
     }
 }
 
-pub fn getRegisterDataSet(fiber: *Fiber, framePtr: CallStack.Ptr) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!Fiber.RegisterDataSet {
-    const callFrame = try fiber.stack.call.getPtr(framePtr);
-
-    return .{
-        .local = .{
-            .call = callFrame,
-            .layout = &callFrame.function.layout_table,
-        },
-        .upvalue = if (callFrame.evidence) |evRef| ev: {
-            const evidence = try fiber.evidence[evRef.index].getPtr(evRef.offset);
-            const evFrame = try fiber.stack.call.getPtr(evidence.call);
-            const evFunction = evFrame.function;
-            break :ev .{
-                .call = evFrame,
-                .layout = &evFunction.layout_table
-            };
-        } else null,
-    };
-}
-
-pub fn getRegisterDataSetUnchecked(fiber: *Fiber, framePtr: CallStack.Ptr) callconv(Config.INLINING_CALL_CONV) Fiber.RegisterDataSet {
+pub fn getRegisterDataSet(fiber: *Fiber, framePtr: CallStack.Ptr) callconv(Config.INLINING_CALL_CONV) Fiber.RegisterDataSet {
     const callFrame = fiber.stack.call.getPtrUnchecked(framePtr);
 
     return .{
@@ -353,16 +341,15 @@ pub fn getRegisterDataSetUnchecked(fiber: *Fiber, framePtr: CallStack.Ptr) callc
             .call = callFrame,
             .layout = &callFrame.function.layout_table,
         },
-        .upvalue = ev: {
-            const evRef = callFrame.evidence.?;
-            const evidence = fiber.evidence[evRef.index].getPtrUnchecked(evRef.offset);
+        .upvalue = if (!callFrame.evidence.isSentinel()) ev: {
+            const evidence = fiber.evidence[callFrame.evidence.index].getPtrUnchecked(callFrame.evidence.offset);
             const evFrame = fiber.stack.call.getPtrUnchecked(evidence.call);
             const evFunction = evFrame.function;
             break :ev .{
                 .call = evFrame,
                 .layout = &evFunction.layout_table
             };
-        },
+        } else null,
     };
 }
 
@@ -395,8 +382,7 @@ pub fn getRegisterDataUnchecked(fiber: *Fiber, comptime location: RegisterDataLo
 
     return switch (location) {
         .upvalue => ev: {
-            const evRef = callFrame.evidence.?;
-            const evidence = fiber.evidence[evRef.index].getPtrUnchecked(evRef.offset);
+            const evidence = fiber.evidence[callFrame.evidence.index].getPtrUnchecked(callFrame.evidence.offset);
             const evFrame = fiber.stack.call.getPtrUnchecked(evidence.call);
             const evFunction = evFrame.function;
             break :ev .{
@@ -482,7 +468,7 @@ pub fn invoke(fiber: *Core.Fiber, comptime T: type, functionIndex: Bytecode.Func
 
     try fiber.stack.call.push(CallFrame {
         .function = &wrapper,
-        .evidence = null,
+        .evidence = CallFrame.EvidenceRef.SENTINEL,
         .root_block = fiber.stack.block.ptr,
         .stack = .{
             .base = dataBase,
@@ -506,7 +492,7 @@ pub fn invoke(fiber: *Core.Fiber, comptime T: type, functionIndex: Bytecode.Func
     try fiber.stack.data.pushUninit(function.layout_table.size);
     try fiber.stack.call.push(CallFrame {
         .function = function,
-        .evidence = null,
+        .evidence = CallFrame.EvidenceRef.SENTINEL,
         .root_block = fiber.stack.block.ptr,
         .stack = .{
             .base = dataBase,

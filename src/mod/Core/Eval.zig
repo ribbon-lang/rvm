@@ -19,11 +19,21 @@ const ZeroCheck = enum {
     non_zero
 };
 
-const CallStyle = union(enum) {
-    tail: void,
-    tail_v: void,
-    no_tail: void,
-    no_tail_v: Bytecode.Operand,
+const CallStyle = enum {
+    tail,
+    tail_v,
+    no_tail,
+    no_tail_v,
+
+    ev_tail,
+    ev_tail_v,
+    ev_no_tail,
+    ev_no_tail_v,
+};
+
+const ReturnStyle = enum {
+    v,
+    no_v
 };
 
 
@@ -54,50 +64,50 @@ fn stepBytecode(fiber: *Fiber) Fiber.Trap!void {
         .trap => return Fiber.Trap.Unreachable,
         .nop => {},
 
-        .tail_call => |operands| try call(fiber, operands.f, operands.as, .tail),
-        .tail_call_v => |operands| try call(fiber, operands.f, operands.as, .tail_v),
-        .dyn_tail_call => |operands| try dynCall(fiber, operands.f, operands.as, .tail),
-        .dyn_tail_call_v => |operands| try dynCall(fiber, operands.f, operands.as, .tail_v),
-        .tail_prompt => |operands| try prompt(fiber, operands.e, operands.as, .tail),
-        .tail_prompt_v => |operands| try prompt(fiber, operands.e, operands.as, .tail_v),
+        .tail_call => |operands| try call(fiber, operands.f, operands.as, undefined, .tail),
+        .tail_call_v => |operands| try call(fiber, operands.f, operands.as, undefined, .tail_v),
+        .dyn_tail_call => |operands| try dynCall(fiber, operands.f, operands.as, undefined, .tail),
+        .dyn_tail_call_v => |operands| try dynCall(fiber, operands.f, operands.as, undefined, .tail_v),
+        .tail_prompt => |operands| try prompt(fiber, operands.e, operands.as, undefined, .tail),
+        .tail_prompt_v => |operands| try prompt(fiber, operands.e, operands.as, undefined, .tail_v),
 
-        .call => |operands| try call(fiber, operands.f, operands.as, .no_tail),
-        .call_v => |operands| try call(fiber, operands.f, operands.as, .{ .no_tail_v = operands.y }),
-        .dyn_call => |operands| try dynCall(fiber, operands.f, operands.as, .no_tail),
-        .dyn_call_v => |operands| try dynCall(fiber, operands.f, operands.as, .{ .no_tail_v = operands.y }),
-        .prompt => |operands| try prompt(fiber, operands.e, operands.as, .no_tail),
-        .prompt_v => |operands| try prompt(fiber, operands.e, operands.as, .{ .no_tail_v = operands.y }),
+        .call => |operands| try call(fiber, operands.f, operands.as, undefined, .no_tail),
+        .call_v => |operands| try call(fiber, operands.f, operands.as, operands.y, .no_tail_v),
+        .dyn_call => |operands| try dynCall(fiber, operands.f, operands.as, undefined, .no_tail),
+        .dyn_call_v => |operands| try dynCall(fiber, operands.f, operands.as, operands.y, .no_tail_v),
+        .prompt => |operands| try prompt(fiber, operands.e, operands.as, undefined, .no_tail),
+        .prompt_v => |operands| try prompt(fiber, operands.e, operands.as, operands.y, .no_tail_v),
 
-        .ret => ret(fiber, null),
-        .ret_v => |operands| ret(fiber, operands.y),
-        .term => term(fiber, null),
-        .term_v => |operands| term(fiber, operands.y),
+        .ret => ret(fiber, undefined, .no_v),
+        .ret_v => |operands| ret(fiber, operands.y, .v),
+        .term => term(fiber, undefined, .no_v),
+        .term_v => |operands| term(fiber, operands.y, .v),
 
         .when_z => |operands| when(fiber, operands.b, operands.x, .zero),
         .when_nz => |operands| when(fiber, operands.b, operands.x, .non_zero),
 
-        .re => |operands| re(fiber, operands.b, null, null),
+        .re => |operands| re(fiber, operands.b, undefined, null),
         .re_z => |operands| re(fiber, operands.b, operands.x, .zero),
         .re_nz => |operands| re(fiber, operands.b, operands.x, .non_zero),
 
-        .br => |operands | br(fiber, operands.b, null, null, null),
-        .br_z => |operands | br(fiber, operands.b, operands.x, null, .zero),
-        .br_nz => |operands | br(fiber, operands.b, operands.x, null, .non_zero),
+        .br => |operands | br(fiber, operands.b, undefined, undefined, .no_v, null),
+        .br_z => |operands | br(fiber, operands.b, operands.x, undefined, .no_v, .zero),
+        .br_nz => |operands | br(fiber, operands.b, operands.x, undefined, .no_v, .non_zero),
 
-        .br_v => |operands| br(fiber, operands.b, null, operands.y, null),
-        .br_z_v => |operands| br(fiber, operands.b, operands.x, operands.y, .zero),
-        .br_nz_v => |operands| br(fiber, operands.b, operands.x, operands.y, .non_zero),
+        .br_v => |operands| br(fiber, operands.b, undefined, operands.y, .v, null),
+        .br_z_v => |operands| br(fiber, operands.b, operands.x, operands.y, .v, .zero),
+        .br_nz_v => |operands| br(fiber, operands.b, operands.x, operands.y, .v, .non_zero),
 
-        .block => |operands| block(fiber, operands.b, null),
-        .block_v => |operands| block(fiber, operands.b, operands.y),
+        .block => |operands| block(fiber, operands.b, undefined, .no_v),
+        .block_v => |operands| block(fiber, operands.b, operands.y, .v),
 
-        .with => |operands| try with(fiber, operands.b, operands.h, null),
-        .with_v => |operands| try with(fiber, operands.b, operands.h, operands.y),
+        .with => |operands| try with(fiber, operands.b, operands.h, undefined, .no_v),
+        .with_v => |operands| try with(fiber, operands.b, operands.h, operands.y, .v),
 
-        .if_z => |operands| @"if"(fiber, operands.t, operands.e, operands.x, null, .zero),
-        .if_nz => |operands| @"if"(fiber, operands.t, operands.e, operands.x, null, .non_zero),
-        .if_z_v => |operands| @"if"(fiber, operands.t, operands.e, operands.x, operands.y, .zero),
-        .if_nz_v => |operands| @"if"(fiber, operands.t, operands.e, operands.x, operands.y, .non_zero),
+        .if_z => |operands| @"if"(fiber, operands.t, operands.e, operands.x, undefined, .no_v, .zero),
+        .if_nz => |operands| @"if"(fiber, operands.t, operands.e, operands.x, undefined, .no_v, .non_zero),
+        .if_z_v => |operands| @"if"(fiber, operands.t, operands.e, operands.x, operands.y, .v, .zero),
+        .if_nz_v => |operands| @"if"(fiber, operands.t, operands.e, operands.x, operands.y, .v, .non_zero),
 
         .addr => |operands| addr(fiber, operands.x, operands.y),
 
@@ -318,38 +328,24 @@ fn stepBytecode(fiber: *Fiber) Fiber.Trap!void {
 
 fn stepForeign(fiber: *Fiber) Fiber.Trap!void {
     const currentCallFrame = fiber.stack.call.topPtrUnchecked();
-    const registerData = fiber.getRegisterDataSetUnchecked(fiber.stack.call.ptr -| 1);
     const foreign = fiber.getForeignUnchecked(currentCallFrame.function.value.foreign);
 
     const currentBlockFrame = fiber.stack.block.getPtrUnchecked(currentCallFrame.root_block);
-    const foreignRegisterData = Fiber.ForeignRegisterDataSet.fromNative(registerData);
 
     var out: Fiber.ForeignOut = undefined;
-    const control = foreign(fiber, currentBlockFrame.index, &foreignRegisterData, &out);
+    const control = foreign(fiber, currentBlockFrame.index, &out);
 
     switch (control) {
         .trap => return Fiber.convertForeignError(out.trap),
         .step => currentBlockFrame.index = out.step,
-        .done => ret(fiber, out.done),
+        .done => ret(fiber, undefined, .no_v),
+        .done_v => ret(fiber, out.done_v, .v),
     }
 }
 
 
 fn when(fiber: *Fiber, newBlockIndex: Bytecode.BlockIndex, x: Bytecode.Operand, comptime zeroCheck: ZeroCheck) void {
-    // const currentCallFrame = try fiber.stack.call.topPtr();
     const cond = fiber.read(u8, x);
-
-    // if (newBlockIndex >= currentCallFrame.function.value.bytecode.blocks.len) {
-    //     @branchHint(.cold);
-    //     return Fiber.Trap.OutOfBounds;
-    // }
-
-    // const newBlock = &currentCallFrame.function.value.bytecode.blocks[newBlockIndex];
-
-    // if (newBlock.kind.hasOutput()) {
-    //     @branchHint(.cold);
-    //     return Fiber.Trap.OutValueMismatch;
-    // }
 
     switch (zeroCheck) {
         .zero => if (cond == 0) fiber.stack.block.pushUnchecked(.noOutput(newBlockIndex, null)),
@@ -357,27 +353,17 @@ fn when(fiber: *Fiber, newBlockIndex: Bytecode.BlockIndex, x: Bytecode.Operand, 
     }
 }
 
-fn br(fiber: *Fiber, terminatedBlockOffset: Bytecode.BlockIndex, x: ?Bytecode.Operand, y: ?Bytecode.Operand, comptime zeroCheck: ?ZeroCheck) void {
+fn br(fiber: *Fiber, terminatedBlockOffset: Bytecode.BlockIndex, x: Bytecode.Operand, y: Bytecode.Operand, comptime style: ReturnStyle, comptime zeroCheck: ?ZeroCheck) void {
     const currentCallFrame = fiber.stack.call.topPtrUnchecked();
 
     const blockPtr = fiber.stack.block.ptr;
-
-    // if (terminatedBlockOffset >= blockPtr) {
-    //     @branchHint(.cold);
-    //     return Fiber.Trap.OutOfBounds;
-    // }
 
     const terminatedBlockPtr = blockPtr - (terminatedBlockOffset + 1);
     const terminatedBlockFrame = fiber.stack.block.getPtrUnchecked(terminatedBlockPtr);
     const terminatedBlock = &currentCallFrame.function.value.bytecode.blocks[terminatedBlockFrame.index];
 
-    // if (!terminatedBlock.kind.hasOutput()) {
-    //     @branchHint(.cold);
-    //     return Fiber.Trap.OutValueMismatch;
-    // }
-
     if (zeroCheck) |zc| {
-        const cond = fiber.read(u8, x.?);
+        const cond = fiber.read(u8, x);
 
         switch (zc) {
             .zero => if (cond != 0) return,
@@ -385,9 +371,9 @@ fn br(fiber: *Fiber, terminatedBlockOffset: Bytecode.BlockIndex, x: ?Bytecode.Op
         }
     }
 
-    if (y) |yOp| {
+    if (style == .v) {
         const desiredSize = terminatedBlock.output_layout.?.size;
-        const src = fiber.addr(yOp);
+        const src = fiber.addr(y);
         const dest = fiber.addr(terminatedBlockFrame.out);
         @memcpy(dest[0..desiredSize], src);
     }
@@ -397,29 +383,15 @@ fn br(fiber: *Fiber, terminatedBlockOffset: Bytecode.BlockIndex, x: ?Bytecode.Op
     fiber.stack.block.ptr = terminatedBlockPtr;
 }
 
-fn re(fiber: *Fiber, restartedBlockOffset: Bytecode.BlockIndex, x: ?Bytecode.Operand, comptime zeroCheck: ?ZeroCheck) callconv(Config.INLINING_CALL_CONV) void {
-    // const currentCallFrame = fiber.stack.call.topPtrUnchecked();
-
+fn re(fiber: *Fiber, restartedBlockOffset: Bytecode.BlockIndex, x: Bytecode.Operand, comptime zeroCheck: ?ZeroCheck) callconv(Config.INLINING_CALL_CONV) void {
     const blockPtr = fiber.stack.block.ptr;
-
-    // if (restartedBlockOffset >= blockPtr) {
-    //     @branchHint(.cold);
-    //     return Fiber.Trap.OutOfBounds;
-    // }
 
     const restartedBlockPtr = blockPtr - (restartedBlockOffset + 1);
 
     const restartedBlockFrame = fiber.stack.block.getPtrUnchecked(restartedBlockPtr);
 
-    // const restartedBlock = &currentCallFrame.function.value.bytecode.blocks[restartedBlockFrame.index];
-
-    // if (restartedBlock.kind != .basic) {
-    //     @branchHint(.cold);
-    //     return Fiber.Trap.InvalidBlockRestart;
-    // }
-
     if (zeroCheck) |zc| {
-        const cond = fiber.read(u8, x.?);
+        const cond = fiber.read(u8, x);
 
         switch (zc) {
             .zero => if (cond != 0) return,
@@ -432,60 +404,18 @@ fn re(fiber: *Fiber, restartedBlockOffset: Bytecode.BlockIndex, x: ?Bytecode.Ope
     fiber.stack.block.ptr = restartedBlockPtr + 1;
 }
 
-fn block(fiber: *Fiber, newBlockIndex: Bytecode.BlockIndex, y: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) void {
-    // const currentCallFrame = try fiber.stack.call.topPtr();
-
-    // if (newBlockIndex >= currentCallFrame.function.value.bytecode.blocks.len) {
-    //     @branchHint(.cold);
-    //     return Fiber.Trap.OutOfBounds;
-    // }
-
-    // const newBlock = &currentCallFrame.function.value.bytecode.blocks[newBlockIndex];
-
-    const newBlockFrame = newBlockFrame: {
-        if (y) |yOp| {
-            // if (!newBlock.kind.hasOutput()) {
-            //     @branchHint(.cold);
-            //     return Fiber.Trap.OutValueMismatch;
-            // }
-
-            break :newBlockFrame Fiber.BlockFrame.value(newBlockIndex, yOp, null);
-        } else {
-            // if (newBlock.kind.hasOutput()) {
-            //     @branchHint(.cold);
-            //     return Fiber.Trap.OutValueMismatch;
-            // }
-
-            break :newBlockFrame Fiber.BlockFrame.noOutput(newBlockIndex, null);
-        }
-    };
+fn block(fiber: *Fiber, newBlockIndex: Bytecode.BlockIndex, y: Bytecode.Operand, comptime style: ReturnStyle) callconv(Config.INLINING_CALL_CONV) void {
+    const newBlockFrame =
+        if (comptime style == .v) Fiber.BlockFrame.value(newBlockIndex, y, null)
+        else Fiber.BlockFrame.noOutput(newBlockIndex, null);
 
     fiber.stack.block.pushUnchecked(newBlockFrame);
 }
 
-fn with(fiber: *Fiber, newBlockIndex: Bytecode.BlockIndex, handlerSetIndex: Bytecode.HandlerSetIndex, y: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    // const currentCallFrame = try fiber.stack.call.topPtr();
-
-    // if (newBlockIndex >= currentCallFrame.function.value.bytecode.blocks.len) {
-    //     @branchHint(.cold);
-    //     return Fiber.Trap.OutOfBounds;
-    // }
-
-    // const newBlock = &currentCallFrame.function.value.bytecode.blocks[newBlockIndex];
-
-    // if (handlerSetIndex >= fiber.program.handler_sets.len) {
-    //     @branchHint(.cold);
-    //     return Fiber.Trap.OutOfBounds;
-    // }
-
+fn with(fiber: *Fiber, newBlockIndex: Bytecode.BlockIndex, handlerSetIndex: Bytecode.HandlerSetIndex, y: Bytecode.Operand, comptime style: ReturnStyle) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const handlerSet = fiber.program.handler_sets[handlerSetIndex];
 
     for (handlerSet) |binding| {
-        // if (binding.id >= fiber.evidence.len) {
-        //     @branchHint(.cold);
-        //     return Fiber.Trap.OutOfBounds;
-        // }
-
         try fiber.evidence[binding.id].push(Fiber.Evidence {
             .handler = binding.handler,
             .data = fiber.stack.data.ptr,
@@ -494,67 +424,24 @@ fn with(fiber: *Fiber, newBlockIndex: Bytecode.BlockIndex, handlerSetIndex: Byte
         });
     }
 
-    const newBlockFrame = newBlockFrame: {
-        if (y) |yOp| {
-            // if (!newBlock.kind.hasOutput()) {
-            //     @branchHint(.cold);
-            //     return Fiber.Trap.OutValueMismatch;
-            // }
-
-            break :newBlockFrame Fiber.BlockFrame.value(newBlockIndex, yOp, handlerSetIndex);
-        } else {
-            // if (newBlock.kind.hasOutput()) {
-            //     @branchHint(.cold);
-            //     return Fiber.Trap.OutValueMismatch;
-            // }
-
-            break :newBlockFrame Fiber.BlockFrame.noOutput(newBlockIndex, handlerSetIndex);
-        }
-    };
+    const newBlockFrame =
+        if (comptime style == .v) Fiber.BlockFrame.value(newBlockIndex, y, handlerSetIndex)
+        else Fiber.BlockFrame.noOutput(newBlockIndex, handlerSetIndex);
 
     fiber.stack.block.pushUnchecked(newBlockFrame);
 }
 
-fn @"if"(fiber: *Fiber, thenBlockIndex: Bytecode.BlockIndex, elseBlockIndex: Bytecode.BlockIndex, x: Bytecode.Operand, y: ?Bytecode.Operand, comptime zeroCheck: ZeroCheck) callconv(Config.INLINING_CALL_CONV) void {
-    // const currentCallFrame = try fiber.stack.call.topPtr();
-
+fn @"if"(fiber: *Fiber, thenBlockIndex: Bytecode.BlockIndex, elseBlockIndex: Bytecode.BlockIndex, x: Bytecode.Operand, y: Bytecode.Operand, comptime style: ReturnStyle, comptime zeroCheck: ZeroCheck) callconv(Config.INLINING_CALL_CONV) void {
     const cond = fiber.read(u8, x);
-
-    // const thenBlockInBounds = @intFromBool(thenBlockIndex < currentCallFrame.function.value.bytecode.blocks.len);
-    // const elseBlockInBounds = @intFromBool(elseBlockIndex < currentCallFrame.function.value.bytecode.blocks.len);
-    // if (thenBlockInBounds & elseBlockInBounds != 1) {
-    //     @branchHint(.cold);
-    //     return Fiber.Trap.OutOfBounds;
-    // }
-
-    // const thenBlock = &currentCallFrame.function.value.bytecode.blocks[thenBlockIndex];
-    // const elseBlock = &currentCallFrame.function.value.bytecode.blocks[elseBlockIndex];
-
-    // const thenBlockHasOutput = @intFromBool(thenBlock.kind.hasOutput());
-    // const elseBlockHasOutput = @intFromBool(elseBlock.kind.hasOutput());
 
     const destBlockIndex = switch (zeroCheck) {
         .zero => if (cond == 0) thenBlockIndex else elseBlockIndex,
         .non_zero => if (cond != 0) thenBlockIndex else elseBlockIndex,
     };
 
-    const newBlockFrame = newBlockFrame: {
-        if (y) |yOp| {
-            // if (thenBlockHasOutput & elseBlockHasOutput != 1) {
-            //     @branchHint(.cold);
-            //     return Fiber.Trap.OutValueMismatch;
-            // }
-
-            break :newBlockFrame Fiber.BlockFrame.value(destBlockIndex, yOp, null);
-        } else {
-            // if (thenBlockHasOutput | elseBlockHasOutput != 0) {
-            //     @branchHint(.cold);
-            //     return Fiber.Trap.OutValueMismatch;
-            // }
-
-            break :newBlockFrame Fiber.BlockFrame.noOutput(destBlockIndex, null);
-        }
-    };
+    const newBlockFrame =
+        if (comptime style == .v) Fiber.BlockFrame.value(destBlockIndex, y, null)
+        else Fiber.BlockFrame.noOutput(destBlockIndex, null);
 
     fiber.stack.block.pushUnchecked(newBlockFrame);
 }
@@ -565,107 +452,71 @@ fn addr(fiber: *Fiber, x: Bytecode.Operand, y: Bytecode.Operand) void {
     fiber.write(y, bytes);
 }
 
-fn dynCall(fiber: *Fiber, func: Bytecode.Operand, args: []const Bytecode.Operand, style: CallStyle) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn dynCall(fiber: *Fiber, func: Bytecode.Operand, args: []const Bytecode.Operand, y: Bytecode.Operand, comptime style: CallStyle) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const funcIndex = fiber.read(Bytecode.FunctionIndex, func);
 
-    return call(fiber, funcIndex, args, style);
+    return call(fiber, funcIndex, args, y, style);
 }
 
-fn call(fiber: *Fiber, funcIndex: Bytecode.FunctionIndex, args: []const Bytecode.Operand, style: CallStyle) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    // if (funcIndex >= fiber.program.functions.len) {
-    //     @branchHint(.cold);
-    //     return Fiber.Trap.OutOfBounds;
-    // }
-
-    return callImpl(fiber, Bytecode.EVIDENCE_SENTINEL, funcIndex, args, style);
+fn call(fiber: *Fiber, funcIndex: Bytecode.FunctionIndex, args: []const Bytecode.Operand, y: Bytecode.Operand, comptime style: CallStyle) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    return callImpl(fiber, Bytecode.EVIDENCE_SENTINEL, funcIndex, args, y, style);
 }
 
-fn prompt(fiber: *Fiber, evIndex: Bytecode.EvidenceIndex, args: []const Bytecode.Operand, style: CallStyle) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    // if (evIndex >= fiber.evidence.len) {
-    //     @branchHint(.cold);
-    //     return Fiber.Trap.OutOfBounds;
-    // }
-
+fn prompt(fiber: *Fiber, evIndex: Bytecode.EvidenceIndex, args: []const Bytecode.Operand, y: Bytecode.Operand, comptime style: CallStyle) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const evidence = fiber.evidence[evIndex].topPtrUnchecked();
 
-    return callImpl(fiber, evIndex, evidence.handler, args, style);
+    return callImpl(fiber, evIndex, evidence.handler, args, y, style);
 }
 
-fn callImpl(fiber: *Fiber, evIndex: Bytecode.EvidenceIndex, funcIndex: Bytecode.FunctionIndex, args: []const Bytecode.Operand, style: CallStyle) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn callImpl(fiber: *Fiber, evIndex: Bytecode.EvidenceIndex, funcIndex: Bytecode.FunctionIndex, args: []const Bytecode.Operand, y: Bytecode.Operand, comptime style: CallStyle) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const oldCallFrame = fiber.stack.call.topPtrUnchecked();
     const newFunction = &fiber.program.functions[funcIndex];
 
-    // if (args.len != newFunction.layout_table.num_arguments) {
-    //     @branchHint(.cold);
-    //     return Fiber.Trap.ArgCountMismatch;
-    // }
-
-    const newBlockFrame, const isTail = callStyle: {
+    const newBlockFrame, const evidence =
         switch (style) {
-            .no_tail =>
-            // if (newFunction.layout_table.return_layout != null) {
-            //     @branchHint(.cold);
-            //     return Fiber.Trap.OutValueMismatch;
-            // } else
-            {
-                break :callStyle .{
-                    Fiber.BlockFrame.entryPoint(null),
-                    false,
-                };
-            },
-            .no_tail_v => |out|
-            if (newFunction.layout_table.return_layout != null) {// |returnLayout| {
-            //     _ = try fiber.addr(out, returnLayout.size);
-                break :callStyle .{
-                    Fiber.BlockFrame.entryPoint(out),
-                    false,
-                };
-            } else
-            {
-                // @branchHint(.cold);
-                // return Fiber.Trap.OutValueMismatch;
-            },
-            .tail =>
-            // if (oldCallFrame.function.layout_table.return_layout != null) {
-            //     @branchHint(.cold);
-            //     return Fiber.Trap.OutValueMismatch;
-            // } else
-            {
-                break :callStyle .{
-                    Fiber.BlockFrame.entryPoint(null),
-                    true,
-                };
-            },
-            .tail_v => {// if (oldCallFrame.function.layout_table.return_layout) |oldLayout| {
-                // if (newFunction.layout_table.return_layout) |newLayout| {
-                    // const sameSize = @intFromBool(oldLayout.size == newLayout.size);
-                    // const sameAlign = @intFromBool(oldLayout.alignment == newLayout.alignment);
-                    // if (sameSize & sameAlign != 1) {
-                    //     @branchHint(.cold);
-                    //     return Fiber.Trap.OutValueMismatch;
-                    // }
-                    const oldFunctionRootBlockFrame = fiber.stack.block.getPtrUnchecked(oldCallFrame.root_block);
-                    const oldFunctionOutput = oldFunctionRootBlockFrame.out;
-                    break :callStyle .{
-                        Fiber.BlockFrame.entryPoint(oldFunctionOutput),
-                        true,
-                    };
-            //     } else {
-            //         @branchHint(.cold);
-            //         return Fiber.Trap.OutValueMismatch;
-            //     }
-            // } else {
-            //     @branchHint(.cold);
-            //     return Fiber.Trap.OutValueMismatch;
-            },
-        }
-    };
+            .no_tail => .{ Fiber.BlockFrame.entryPoint(null), Fiber.CallFrame.EvidenceRef.SENTINEL },
+            .no_tail_v => .{ Fiber.BlockFrame.entryPoint(y), Fiber.CallFrame.EvidenceRef.SENTINEL },
+            .tail => tail: {
+                prepTail(fiber, oldCallFrame);
 
-    if (isTail) {
-        fiber.stack.data.ptr = oldCallFrame.stack.base;
-        fiber.stack.call.ptr -= 1;
-        fiber.stack.block.ptr = oldCallFrame.root_block - 1;
-    }
+                break :tail .{ Fiber.BlockFrame.entryPoint(null), Fiber.CallFrame.EvidenceRef.SENTINEL };
+            },
+            .tail_v => tail_v: {
+                const oldFunctionRootBlockFrame = fiber.stack.block.getPtrUnchecked(oldCallFrame.root_block);
+                const oldFunctionOutput = oldFunctionRootBlockFrame.out;
+
+                prepTail(fiber, oldCallFrame);
+
+                break :tail_v .{ Fiber.BlockFrame.entryPoint(oldFunctionOutput), Fiber.CallFrame.EvidenceRef.SENTINEL };
+            },
+            .ev_no_tail => .{ Fiber.BlockFrame.entryPoint(null), .{
+                .index = evIndex,
+                .offset = fiber.evidence[evIndex].ptr - 1,
+            } },
+            .ev_no_tail_v => .{ Fiber.BlockFrame.entryPoint(y), .{
+                .index = evIndex,
+                .offset = fiber.evidence[evIndex].ptr - 1,
+            } },
+            .ev_tail => tail: {
+                prepTail(fiber, oldCallFrame);
+
+                break :tail .{ Fiber.BlockFrame.entryPoint(null), .{
+                    .index = evIndex,
+                    .offset = fiber.evidence[evIndex].ptr - 1,
+                } };
+            },
+            .ev_tail_v => tail_v: {
+                const oldFunctionRootBlockFrame = fiber.stack.block.getPtrUnchecked(oldCallFrame.root_block);
+                const oldFunctionOutput = oldFunctionRootBlockFrame.out;
+
+                prepTail(fiber, oldCallFrame);
+
+                break :tail_v .{ Fiber.BlockFrame.entryPoint(oldFunctionOutput), .{
+                    .index = evIndex,
+                    .offset = fiber.evidence[evIndex].ptr - 1,
+                } };
+            },
+        };
 
     const origin = fiber.stack.data.ptr;
     const padding = Support.alignmentDelta(origin, newFunction.layout_table.alignment);
@@ -682,22 +533,7 @@ fn callImpl(fiber: *Fiber, evIndex: Bytecode.EvidenceIndex, funcIndex: Bytecode.
 
     try fiber.stack.call.push(Fiber.CallFrame {
         .function = newFunction,
-        .evidence = if (evIndex != Bytecode.EVIDENCE_SENTINEL) ev: {
-            // if (evIndex >= fiber.evidence.len) {
-            //     @branchHint(.cold);
-            //     return Fiber.Trap.OutOfBounds;
-            // }
-
-            // if (fiber.evidence[evIndex].ptr == 0) {
-            //     @branchHint(.cold);
-            //     return Fiber.Trap.MissingEvidence;
-            // }
-
-            break :ev .{
-                .index = evIndex,
-                .offset = fiber.evidence[evIndex].ptr - 1,
-            };
-        } else null,
+        .evidence = evidence,
         .root_block = fiber.stack.block.ptr,
         .stack = .{
             .base = base,
@@ -708,33 +544,28 @@ fn callImpl(fiber: *Fiber, evIndex: Bytecode.EvidenceIndex, funcIndex: Bytecode.
     fiber.stack.block.pushUnchecked(newBlockFrame);
 }
 
-fn term(fiber: *Fiber, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) void {
+fn prepTail(fiber: *Fiber, oldCallFrame: *const Fiber.CallFrame) callconv(Config.INLINING_CALL_CONV) void {
+    fiber.stack.data.ptr = oldCallFrame.stack.base;
+    fiber.stack.call.ptr -= 1;
+    fiber.stack.block.ptr = oldCallFrame.root_block - 1;
+}
+
+fn term(fiber: *Fiber, out: Bytecode.Operand, comptime style: ReturnStyle) callconv(Config.INLINING_CALL_CONV) void {
     const currentCallFrame = fiber.stack.call.topPtrUnchecked();
 
-    const evRef = currentCallFrame.evidence.?;
-    // if (currentCallFrame.evidence) |e| e else {
-    //     @branchHint(.cold);
-    //     return Fiber.Trap.MissingEvidence;
-    // };
+    const evRef = currentCallFrame.evidence;
 
     const evidence = fiber.evidence[evRef.index].getPtrUnchecked(evRef.offset);
 
-    // const rootCallFrame = fiber.stack.call.getPtrUnchecked(evidence.call);
     const rootBlockFrame = fiber.stack.block.getPtrUnchecked(evidence.block);
-    // const rootBlock = &rootCallFrame.function.value.bytecode.blocks[rootBlockFrame.index];
 
-    if (out) |outOp| {
-        // if (rootBlock.kind.hasOutput()) {
-            const size = currentCallFrame.function.layout_table.term_layout.?.size;
-            const src: [*]const u8 = fiber.addr(outOp);
+    if (style == .v) {
+        const size = currentCallFrame.function.layout_table.term_layout.?.size;
+        const src: [*]const u8 = fiber.addr(out);
 
-            const dest: [*]u8 = fiber.addrImpl(evidence.call, rootBlockFrame.out);
+        const dest: [*]u8 = fiber.addrImpl(evidence.call, rootBlockFrame.out);
 
-            @memcpy(dest[0..size], src);
-        // } else {
-        //     @branchHint(.cold);
-        //     return Fiber.Trap.OutValueMismatch;
-        // }
+        @memcpy(dest[0..size], src);
     }
 
     fiber.stack.data.ptr = evidence.data;
@@ -742,28 +573,21 @@ fn term(fiber: *Fiber, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CON
     fiber.stack.block.ptr = evidence.block - 1;
 }
 
-fn ret(fiber: *Fiber, out: ?Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) void {
+fn ret(fiber: *Fiber, out: Bytecode.Operand, comptime style: ReturnStyle) callconv(Config.INLINING_CALL_CONV) void {
     const currentCallFrame = fiber.stack.call.topPtrUnchecked();
 
     const rootBlockFrame = fiber.stack.block.getPtrUnchecked(currentCallFrame.root_block);
-    // const rootBlock = &currentCallFrame.function.value.bytecode.blocks[rootBlockFrame.index];
 
-    if (out) |outOp| {
-        // if (rootBlock.kind.hasOutput()) {
-            const size = currentCallFrame.function.layout_table.return_layout.?.size;
-            const src: [*]const u8 = fiber.addr(outOp);
+    if (style == .v) {
+        const size = currentCallFrame.function.layout_table.return_layout.?.size;
+        const src: [*]const u8 = fiber.addr(out);
 
-            const dest: [*]u8 = fiber.addrImpl(fiber.stack.call.ptr -| 2, rootBlockFrame.out);
+        const dest: [*]u8 = fiber.addrImpl(fiber.stack.call.ptr -| 2, rootBlockFrame.out);
 
-            @memcpy(dest[0..size], src);
-        // } else {
-        //     @branchHint(.cold);
-        //     return Fiber.Trap.OutValueMismatch;
-        // }
+        @memcpy(dest[0..size], src);
     }
 
     fiber.stack.data.ptr = currentCallFrame.stack.base;
     fiber.stack.call.ptr -= 1;
     fiber.stack.block.ptr = currentCallFrame.root_block;
 }
-
