@@ -23,47 +23,47 @@ pub const Error = error {
 };
 
 
-pub fn isEof(self: *const Decoder) callconv(Config.INLINING_CALL_CONV) bool {
+pub inline fn isEof(self: *const Decoder) bool {
     return self.ip() >= self.memory.len;
 }
 
-pub fn inbounds(self: *const Decoder, offset: usize) callconv(Config.INLINING_CALL_CONV) bool {
+pub inline fn inbounds(self: *const Decoder, offset: usize) bool {
     return self.relIp(offset) <= self.memory.len;
 }
 
-pub fn ip(self: *const Decoder) callconv(Config.INLINING_CALL_CONV) Bytecode.InstructionPointer {
+pub inline fn ip(self: *const Decoder) Bytecode.InstructionPointer {
     return self.base + self.offset.*;
 }
 
-pub fn relIp(self: *const Decoder, offset: usize) callconv(Config.INLINING_CALL_CONV) usize {
+pub inline fn relIp(self: *const Decoder, offset: usize) usize {
     return self.ip() + offset;
 }
 
 pub fn decodeByte(self: *const Decoder) Error!u8 {
-    return @call(.always_inline, decodeByteInline, .{self});
+    return self.decodeByteInline();
 }
 
 pub fn decodeAll(self: *const Decoder, count: usize) Error![]const u8 {
-    return @call(.always_inline, decodeAllInline, .{self, count});
+    return self.decodeAllInline(count);
 }
 
 pub fn decodeRaw(self: *const Decoder, comptime T: type) Error!T {
-    return @call(.always_inline, decodeRawInline, .{self, T});
+    return self.decodeRawInline(T);
 }
 
 pub fn pad(self: *const Decoder, alignment: usize) Error!void {
-    return @call(.always_inline, padInline, .{self, alignment});
+    return self.padInline(alignment);
 }
 
 pub fn decode(self: *const Decoder, comptime T: type) Error!T {
-    return @call(.always_inline, decodeInline, .{self, T});
+    return self.decodeInline(T);
 }
 
 pub fn decodeUnchecked(self: *const Decoder, comptime T: type) T {
-    return @call(.always_inline, decodeInlineUnchecked, .{self, T});
+    return self.decodeInlineUnchecked(T);
 }
 
-pub fn decodeByteInline(self: *const Decoder) callconv(Config.INLINING_CALL_CONV) Error!u8 {
+pub inline fn decodeByteInline(self: *const Decoder) Error!u8 {
     if (self.isEof()) {
         @branchHint(.cold);
         return Error.OutOfBounds;
@@ -74,7 +74,7 @@ pub fn decodeByteInline(self: *const Decoder) callconv(Config.INLINING_CALL_CONV
     return value;
 }
 
-pub fn decodeAllInline(self: *const Decoder, count: usize) callconv(Config.INLINING_CALL_CONV) Error![]const u8 {
+pub inline fn decodeAllInline(self: *const Decoder, count: usize) Error![]const u8 {
     if (!self.inbounds(count)) {
         @branchHint(.cold);
         return Error.OutOfBounds;
@@ -83,27 +83,27 @@ pub fn decodeAllInline(self: *const Decoder, count: usize) callconv(Config.INLIN
     return self.decodeAllInlineUnchecked(count);
 }
 
-pub fn decodeAllInlineUnchecked(self: *const Decoder, count: usize) callconv(Config.INLINING_CALL_CONV) []const u8 {
+pub inline fn decodeAllInlineUnchecked(self: *const Decoder, count: usize) []const u8 {
     const start = self.ip();
     self.offset.* += @truncate(count);
     return self.memory[start..self.ip()];
 }
 
-pub fn decodeRawInline(self: *const Decoder, comptime T: type) callconv(Config.INLINING_CALL_CONV) Error!T {
+pub inline fn decodeRawInline(self: *const Decoder, comptime T: type) Error!T {
     const bytes = try self.decodeAllInline(@sizeOf(T));
     var out: T = undefined;
     @memcpy(@as([*]u8, @ptrCast(&out)), bytes);
     return out;
 }
 
-pub fn decodeRawInlineUnchecked(self: *const Decoder, comptime T: type) callconv(Config.INLINING_CALL_CONV) T {
+pub inline fn decodeRawInlineUnchecked(self: *const Decoder, comptime T: type) T {
     const bytes = self.decodeAllInlineUnchecked(@sizeOf(T));
     var out: T = undefined;
     @memcpy(@as([*]u8, @ptrCast(&out)), bytes);
     return out;
 }
 
-pub fn padInline(self: *const Decoder, alignment: usize) callconv(Config.INLINING_CALL_CONV) Error!void {
+pub inline fn padInline(self: *const Decoder, alignment: usize) Error!void {
     const addr = @intFromPtr(self.memory.ptr) + self.ip();
     const padding = Support.alignmentDelta(addr, alignment);
 
@@ -115,15 +115,15 @@ pub fn padInline(self: *const Decoder, alignment: usize) callconv(Config.INLININ
     self.offset.* += @truncate(padding);
 }
 
-pub fn padInlineUnchecked(self: *const Decoder, alignment: usize) callconv(Config.INLINING_CALL_CONV) void {
+pub inline fn padInlineUnchecked(self: *const Decoder, alignment: usize) void {
     const addr = @intFromPtr(self.memory.ptr) + self.ip();
     const padding = Support.alignmentDelta(addr, alignment);
 
     self.offset.* += @truncate(padding);
 }
 
-pub fn decodeInline(self: *const Decoder, comptime T: type) callconv(Config.INLINING_CALL_CONV) Error!T {
-    @setEvalBranchQuota(Config.INLINING_BRANCH_QUOTA);
+pub inline fn decodeInline(self: *const Decoder, comptime T: type) Error!T {
+    @setEvalBranchQuota(10_000);
 
     if (comptime T == void) return {};
 
@@ -139,12 +139,12 @@ pub fn decodeInline(self: *const Decoder, comptime T: type) callconv(Config.INLI
     }
 }
 
-pub fn decodeInlineUnchecked(self: *const Decoder, comptime T: type) callconv(Config.INLINING_CALL_CONV) T {
-    @setEvalBranchQuota(Config.INLINING_BRANCH_QUOTA);
+pub inline fn decodeInlineUnchecked(self: *const Decoder, comptime T: type) T {
+    @setEvalBranchQuota(10_000);
 
     if (comptime T == void) return {};
 
-    if (comptime std.meta.hasFn(T, "decode")) {
+    if (comptime std.meta.hasFn(T, "decodeUnchecked")) {
         return T.decodeUnchecked(self);
     }
 
@@ -156,7 +156,7 @@ pub fn decodeInlineUnchecked(self: *const Decoder, comptime T: type) callconv(Co
     }
 }
 
-fn decodeStructure(self: *const Decoder, comptime T: type) callconv(Config.INLINING_CALL_CONV) Error!T {
+inline fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
     switch (@typeInfo(T)) {
         .@"struct" => |info| {
             var out: T = undefined;
@@ -295,7 +295,7 @@ fn decodeStructure(self: *const Decoder, comptime T: type) callconv(Config.INLIN
 
 
 
-fn decodeStructureUnchecked(self: *const Decoder, comptime T: type) callconv(Config.INLINING_CALL_CONV) T {
+inline fn decodeStructureUnchecked(self: *const Decoder, comptime T: type) T {
     switch (@typeInfo(T)) {
         .@"struct" => |info| {
             var out: T = undefined;
@@ -386,13 +386,8 @@ fn decodeStructureUnchecked(self: *const Decoder, comptime T: type) callconv(Con
 
                 self.offset.* += @truncate(size);
 
-                if (info.sentinel) |sPtr| {
-                    const sentinel = @as(*const info.child, @ptrCast(sPtr)).*;
-                    const elemValue = self.decodeInlineUnchecked(info.child);
-                    if (elemValue != sentinel) {
-                        @branchHint(.cold);
-                        return Error.BadEncoding;
-                    }
+                if (info.sentinel != null) {
+                    _ = self.decodeInlineUnchecked(info.child);
                 }
 
                 return slice;

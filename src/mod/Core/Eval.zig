@@ -525,9 +525,10 @@ fn callImpl(fiber: *Fiber, evIndex: Bytecode.EvidenceIndex, funcIndex: Bytecode.
     try fiber.stack.data.pushUninit(newFunction.layout_table.size + padding);
 
     for (0..args.len) |i| {
-        const desiredSize = newFunction.layout_table.register_layouts[i].size;
+        const info = newFunction.layout_table.registerInfo()[i];
+        const desiredSize = info.size;
         const arg = fiber.addr(args[i]);
-        const offset = base + newFunction.layout_table.register_offsets[i];
+        const offset = base + info.offset;
         @memcpy(fiber.stack.data.memory[offset..offset + desiredSize], arg);
     }
 
@@ -560,7 +561,7 @@ fn term(fiber: *Fiber, out: Bytecode.Operand, comptime style: ReturnStyle) callc
     const rootBlockFrame = fiber.stack.block.getPtrUnchecked(evidence.block);
 
     if (style == .v) {
-        const size = currentCallFrame.function.layout_table.term_layout.?.size;
+        const size = currentCallFrame.function.layout_table.term_size;
         const src: [*]const u8 = fiber.addr(out);
 
         const dest: [*]u8 = fiber.addrImpl(evidence.call, rootBlockFrame.out);
@@ -579,7 +580,7 @@ fn ret(fiber: *Fiber, out: Bytecode.Operand, comptime style: ReturnStyle) callco
     const rootBlockFrame = fiber.stack.block.getPtrUnchecked(currentCallFrame.root_block);
 
     if (style == .v) {
-        const size = currentCallFrame.function.layout_table.return_layout.?.size;
+        const size = currentCallFrame.function.layout_table.return_size;
         const src: [*]const u8 = fiber.addr(out);
 
         const dest: [*]u8 = fiber.addrImpl(fiber.stack.call.ptr -| 2, rootBlockFrame.out);

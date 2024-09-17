@@ -78,16 +78,22 @@ pub const Function = union(enum) {
         evidence: ?Bytecode.EvidenceIndex,
         index: Bytecode.FunctionIndex,
 
-        pub fn assemble(self: *const Foreign, foreignId: Bytecode.ForeignId, allocator: std.mem.Allocator) Error!Bytecode.Function {
+        pub fn assemble(self: *const Foreign, foreignId: Bytecode.ForeignId, allocator: std.mem.Allocator) Error!struct {Bytecode.Function, Bytecode.LayoutDetails} {
+            const layout_table, const layout_details = try self.generateLayouts(allocator);
+
             return .{
-                .index = self.index,
-                .layout_table = try self.generateLayoutTable(allocator),
-                .value = .{ .foreign = foreignId },
+                Bytecode.Function {
+                    .index = self.index,
+                    .layout_table = layout_table,
+                    .value = .{ .foreign = foreignId },
+                },
+
+                layout_details
             };
         }
 
 
-        pub fn generateLayoutTable(self: *const Foreign, allocator: std.mem.Allocator) Error!Bytecode.LayoutTable {
+        pub fn generateLayouts(self: *const Foreign, allocator: std.mem.Allocator) Error!struct {Bytecode.LayoutTable, Bytecode.LayoutDetails} {
             const typeInfo = (try self.parent.getType(self.type)).function;
 
             const register_types = try allocator.alloc(Bytecode.TypeIndex, typeInfo.params.len);
@@ -96,47 +102,60 @@ pub const Function = union(enum) {
             const register_layouts = try allocator.alloc(Bytecode.Layout, typeInfo.params.len);
             errdefer allocator.free(register_layouts);
 
-            const register_offsets = try allocator.alloc(Bytecode.RegisterBaseOffset, typeInfo.params.len);
-            errdefer allocator.free(register_offsets);
+            const register_info = try allocator.alloc(Bytecode.LayoutTable.RegisterInfo, typeInfo.params.len);
+            errdefer allocator.free(register_info);
 
+            var size: Bytecode.LayoutTableSize = 0;
             var alignment: Bytecode.ValueAlignment = 0;
 
             for (typeInfo.params, 0..) |typeIndex, i| {
-                register_types[i] = typeIndex;
                 const layout = try self.parent.getTypeLayout(typeIndex);
-                register_layouts[i] = layout;
-                alignment = @max(layout.alignment, alignment);
-            }
 
-            var size: Bytecode.LayoutTableSize = 0;
-
-            for (register_layouts, 0..) |layout, i| {
                 size += Support.alignmentDelta(size, layout.alignment);
-                register_offsets[i] = size;
+                alignment = @max(layout.alignment, alignment);
+
+                register_types[i] = typeIndex;
+                register_layouts[i] = layout;
+                register_info[i] = .{
+                    .offset = size,
+                    .size = layout.size,
+                };
+
                 size += layout.size;
             }
 
+            const term_layout = try self.parent.getTypeLayout(typeInfo.term);
+            const return_layout = try self.parent.getTypeLayout(typeInfo.result);
+
             return .{
-                .term_type = typeInfo.term,
-                .return_type = typeInfo.result,
-                .register_types = register_types.ptr,
+                Bytecode.LayoutTable {
+                    .register_info = @truncate(@intFromPtr(register_info.ptr)),
 
-                .term_layout = try self.parent.getTypeLayout(typeInfo.term),
-                .return_layout = try self.parent.getTypeLayout(typeInfo.result),
-                .register_layouts = register_layouts.ptr,
+                    .term_size = term_layout.size,
+                    .return_size = return_layout.size,
 
-                .register_offsets = register_offsets.ptr,
+                    .size = size,
+                    .alignment = alignment,
 
-                .size = size,
-                .alignment = alignment,
+                    .num_registers = @intCast(typeInfo.params.len),
+                },
+                Bytecode.LayoutDetails {
+                    .term_type = typeInfo.term,
+                    .return_type = typeInfo.result,
+                    .register_types = register_types.ptr,
 
-                .num_arguments = @intCast(typeInfo.params.len),
-                .num_registers = @intCast(typeInfo.params.len),
+                    .term_layout = term_layout,
+                    .return_layout = return_layout,
+                    .register_layouts = register_layouts.ptr,
+
+                    .num_arguments = @intCast(typeInfo.params.len),
+                    .num_registers = @intCast(typeInfo.params.len),
+                }
             };
         }
     };
 
-    pub fn assemble(self: Function, allocator: std.mem.Allocator) Error!Bytecode.Function {
+    pub fn assemble(self: Function, allocator: std.mem.Allocator) Error!struct { Bytecode.Function, Bytecode.LayoutDetails } {
         // TODO: the builder should be handling this
         var foreignId: Bytecode.ForeignId = 0;
 
@@ -283,7 +302,11 @@ pub fn generateFunctionList(self: *const Builder, allocator: std.mem.Allocator) 
     }
 
     while (i < self.functions.items.len) : (i += 1) {
-        functions[i] = try self.functions.items[i].assemble(allocator);
+        const func, const layout_details = try self.functions.items[i].assemble(allocator);
+        functions[i] = func;
+
+        // TODO: store this in the bytecode program
+        _ = layout_details;
     }
 
     return functions;

@@ -382,7 +382,7 @@ pub fn decodeNext(fiber: *Core.Fiber) callconv(Config.INLINING_CALL_CONV) Byteco
         .offset = &currentBlockFrame.ip_offset,
     };
 
-    return decoder.decodeInlineUnchecked(Bytecode.Op);
+    return @call(Config.INLINING_CALL_MOD, IO.Decoder.decodeUnchecked, .{&decoder, Bytecode.Op});
 }
 
 // TODO:
@@ -394,25 +394,16 @@ pub fn invoke(fiber: *Core.Fiber, comptime T: type, functionIndex: Bytecode.Func
     const wrapper = Bytecode.Function {
         .index = Bytecode.FUNCTION_SENTINEL,
         .layout_table = Bytecode.LayoutTable {
-            .term_type = Bytecode.Type.void_t,
-            .return_type = Bytecode.Type.void_t,
-            .register_types = &[_]Bytecode.TypeIndex {function.layout_table.return_type},
+            .register_info = @truncate(@intFromPtr(&[_]Bytecode.LayoutTable.RegisterInfo {
+                .{.offset = 0, .size = @sizeOf(T)},
+            })),
 
-            .term_layout = null,
-            .return_layout = null,
-            .register_layouts = &[_]Bytecode.Layout {
-                .{
-                    .size = @sizeOf(T),
-                    .alignment = @alignOf(T),
-                },
-            },
-
-            .register_offsets = &[_]Bytecode.RegisterBaseOffset {0},
+            .term_size = 0,
+            .return_size = 0,
 
             .size = @sizeOf(T),
             .alignment = @alignOf(T),
 
-            .num_arguments = 0,
             .num_registers = 1,
         },
         .value = undefined,
@@ -623,7 +614,7 @@ pub fn getRegisterOffset(regData: Fiber.RegisterData, register: Bytecode.Registe
     const regNumber: Bytecode.RegisterIndex = @intFromEnum(register);
 
     if (regNumber < regData.layout.num_registers) {
-        return regData.call.stack.base + regData.layout.register_offsets[regNumber];
+        return regData.call.stack.base + regData.layout.registerInfo()[regNumber].offset;
     } else {
         @branchHint(.cold);
         return Fiber.Trap.OutOfBounds;
@@ -632,7 +623,7 @@ pub fn getRegisterOffset(regData: Fiber.RegisterData, register: Bytecode.Registe
 
 pub fn getRegisterOffsetUnchecked(regData: Fiber.RegisterData, register: Bytecode.Register) callconv(Config.INLINING_CALL_CONV) Fiber.DataStack.Ptr {
     const regNumber: Bytecode.RegisterIndex = @intFromEnum(register);
-    return regData.call.stack.base + regData.layout.register_offsets[regNumber];
+    return regData.call.stack.base + regData.layout.registerInfo()[regNumber].offset;
 }
 
 pub fn cast(fiber: *Fiber, comptime X: type, comptime Y: type, operands: Bytecode.ISA.TwoOperand) callconv(Config.INLINING_CALL_CONV) void {

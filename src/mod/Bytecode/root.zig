@@ -317,39 +317,58 @@ pub const Type = union(enum) {
     };
 };
 
-pub const LayoutTable = struct {
+pub const LayoutDetails = struct {
     term_type: TypeIndex,
     return_type: TypeIndex,
     register_types: [*]const TypeIndex,
 
-    term_layout: ?Layout,
-    return_layout: ?Layout,
+    term_layout: Layout,
+    return_layout: Layout,
     register_layouts: [*]const Layout,
-
-    register_offsets: [*]const RegisterBaseOffset,
-
-    size: LayoutTableSize,
-    alignment: ValueAlignment,
 
     num_arguments: RegisterIndex,
     num_registers: RegisterIndex,
 
-    pub fn deinit(self: *const LayoutTable, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *const LayoutDetails, allocator: std.mem.Allocator) void {
         allocator.free(self.register_types[0..self.num_registers]);
         allocator.free(self.register_layouts[0..self.num_registers]);
-        allocator.free(self.register_offsets[0..self.num_registers]);
     }
 
-    pub inline fn getType(self: *const LayoutTable, register: Register) TypeIndex {
+    pub inline fn getType(self: *const LayoutDetails, register: Register) TypeIndex {
         return self.register_types[@as(RegisterIndex, @intFromEnum(register))];
     }
 
-    pub inline fn getLayout(self: *const LayoutTable, register: Register) Layout {
+    pub inline fn getLayout(self: *const LayoutDetails, register: Register) Layout {
         return self.register_layouts[@as(RegisterIndex, @intFromEnum(register))];
     }
 
-    pub inline fn inbounds(self: *const LayoutTable, operand: RegisterOperand, size: ValueSize) bool {
+    pub inline fn inbounds(self: *const LayoutDetails, operand: RegisterOperand, size: ValueSize) bool {
         return self.getLayout(operand.register).inbounds(operand.offset, size);
+    }
+};
+
+pub const LayoutTable = packed struct {
+    register_info: u48,
+
+    term_size: ValueSize,
+    return_size: ValueSize,
+
+    size: LayoutTableSize,
+    alignment: ValueAlignment,
+
+    num_registers: RegisterIndex,
+
+    pub const RegisterInfo = packed struct {
+        offset: RegisterBaseOffset,
+        size: ValueSize,
+    };
+
+    pub inline fn registerInfo(self: LayoutTable) [*]RegisterInfo {
+        return @ptrFromInt(self.register_info);
+    }
+
+    pub fn deinit(self: LayoutTable, allocator: std.mem.Allocator) void {
+        allocator.free(self.registerInfo()[0..self.num_registers]);
     }
 };
 
