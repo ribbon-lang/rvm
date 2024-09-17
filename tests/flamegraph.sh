@@ -1,5 +1,7 @@
 #!/bin/bash
 
+ zig build release -DmaximumInlining=false -- x86_64-linux-gnu
+
 sudo perf record -F 9000 -a -g -- ./zig-out/x86_64-linux-gnu-release-fast/ribboni
 sudo perf script > out.perf
 stackcollapse-perf out.perf > out.folded

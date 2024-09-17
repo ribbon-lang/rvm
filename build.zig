@@ -652,7 +652,7 @@ fn cTest(b: *Build, command: *Build.Step, cliOptions: *const CliOptions, manifes
     }
 
     const name = b.fmt("{s}-ctest", .{rel.comp.triple});
-    const dir = b.fmt("{s}/{s}-{s}/", .{ prefixPath, rel.comp.triple, optimizeModeName(.ReleaseSafe) });
+    const dir = b.fmt("{s}/{s}-{s}/", .{ prefixPath, rel.comp.triple, optimizeModeName(.ReleaseFast) });
 
     const compile = b.addSystemCommand(&[_][]const u8{ "zig", "cc", "-target", rel.comp.triple });
     compile.addFileInput(b.path("tests/test.c"));
