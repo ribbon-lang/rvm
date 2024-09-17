@@ -131,7 +131,7 @@ pub fn build(b: *Build) !void {
     {
         snapshotHelper.runWith(cliTestsCommand);
 
-        const releaseHost = try fullBuild(b, nativeCompSet, &cliOptions, &manifest, &buildOptions, .private, .ReleaseSafe, stripDebugInfo, nativeTarget.query);
+        const releaseHost = try fullBuild(b, nativeCompSet, &cliOptions, &manifest, &buildOptions, .private, .ReleaseFast, stripDebugInfo, nativeTarget.query);
 
         try cliTest(b, &buildOptions, &snapshotHelper, releaseHost.bin, cliTestsCommand, .Pass);
         try cliTest(b, &buildOptions, &snapshotHelper, releaseHost.bin, cliTestsCommand, .Fail);
@@ -639,7 +639,7 @@ fn cliTest(b: *Build, buildOptions: *const BuildOptions, snapshotHelper: *Snapsh
 }
 
 fn cTest(b: *Build, command: *Build.Step, cliOptions: *const CliOptions, manifest: *const Manifest, buildOptions: *const BuildOptions, snapshotHelper: *Snapshot.Helper, prefixPath: []const u8, nativeCompSet: *Compilation, stripDebugInfo: ?bool, t: std.Target.Query, runner: ?[]const u8) !void {
-    const rel = try fullBuild(b, nativeCompSet, cliOptions, manifest, buildOptions, .private, .ReleaseSafe, stripDebugInfo, t);
+    const rel = try fullBuild(b, nativeCompSet, cliOptions, manifest, buildOptions, .private, .ReleaseFast, stripDebugInfo, t);
 
     if (b.args) |args| {
         for (args) |arg| {

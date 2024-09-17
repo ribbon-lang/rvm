@@ -60,7 +60,7 @@ pub fn step(fiber: *Fiber) Fiber.Trap!void {
 fn stepBytecode(fiber: *Fiber) Fiber.Trap!void {
     @setEvalBranchQuota(Config.INLINING_BRANCH_QUOTA);
 
-    switch (fiber.decodeNextUnchecked()) {
+    switch (fiber.decodeNext()) {
         .trap => return Fiber.Trap.Unreachable,
         .nop => {},
 
@@ -328,7 +328,7 @@ fn stepBytecode(fiber: *Fiber) Fiber.Trap!void {
 
 fn stepForeign(fiber: *Fiber) Fiber.Trap!void {
     const currentCallFrame = fiber.stack.call.topPtrUnchecked();
-    const foreign = fiber.getForeignUnchecked(currentCallFrame.function.value.foreign);
+    const foreign = fiber.getForeign(currentCallFrame.function.value.foreign);
 
     const currentBlockFrame = fiber.stack.block.getPtrUnchecked(currentCallFrame.root_block);
 
