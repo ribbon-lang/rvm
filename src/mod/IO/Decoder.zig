@@ -97,10 +97,11 @@ pub inline fn decodeRawInline(self: *const Decoder, comptime T: type) Error!T {
 }
 
 pub inline fn decodeRawInlineUnchecked(self: *const Decoder, comptime T: type) T {
-    const bytes = self.decodeAllInlineUnchecked(@sizeOf(T));
-    var out: T = undefined;
-    @memcpy(@as([*]u8, @ptrCast(&out)), bytes);
-    return out;
+    const start = self.ip();
+
+    self.offset.* += @truncate(@sizeOf(T));
+
+    return @as(*const align(1) T, @ptrCast(&self.memory[start])).*;
 }
 
 pub inline fn padInline(self: *const Decoder, alignment: usize) Error!void {
@@ -211,9 +212,11 @@ inline fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
             return out;
         },
 
+
+        // FIXME: likely to be broken without padding
         .pointer => |info| switch(info.size) {
             .One => {
-                try self.padInline(@alignOf(info.child));
+                // try self.padInline(@alignOf(info.child));
 
                 if (!self.inbounds(@sizeOf(info.child))) {
                     @branchHint(.cold);
@@ -230,7 +233,7 @@ inline fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
                 if (comptime info.sentinel) |sPtr| {
                     const sentinel = @as(*const info.child, @ptrCast(sPtr)).*;
 
-                    try self.padInline(@alignOf(info.child));
+                    // try self.padInline(@alignOf(info.child));
 
                     const ptr: T = @alignCast(@ptrCast(&self.memory[self.ip()]));
 
@@ -247,7 +250,7 @@ inline fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
             .Slice => {
                 const len = try self.decodeInline(u8);
 
-                try self.padInline(@alignOf(info.child));
+                // try self.padInline(@alignOf(info.child));
 
                 const ptr: [*]const info.child = @alignCast(@ptrCast(&self.memory[self.ip()]));
 
@@ -346,56 +349,7 @@ inline fn decodeStructureUnchecked(self: *const Decoder, comptime T: type) T {
             return out;
         },
 
-        .pointer => |info| switch(info.size) {
-            .One => {
-                self.padInlineUnchecked(@alignOf(info.child));
-
-                const ptr: T = @alignCast(@ptrCast(&self.memory[self.ip()]));
-
-                self.offset.* += @sizeOf(info.child);
-
-                return ptr;
-            },
-            .Many => {
-                if (comptime info.sentinel) |sPtr| {
-                    const sentinel = @as(*const info.child, @ptrCast(sPtr)).*;
-
-                    self.padInlineUnchecked(@alignOf(info.child));
-
-                    const ptr: T = @alignCast(@ptrCast(&self.memory[self.ip()]));
-
-                    while (true) {
-                        const elemValue = self.decodeInlineUnchecked(info.child);
-                        if (elemValue == sentinel) break;
-                    }
-
-                    return ptr;
-                } else {
-                    @compileError("cannot decode many-pointer `" ++ @typeName(T) ++ "` without sentinel");
-                }
-            },
-            .Slice => {
-                const len = self.decodeInlineUnchecked(u8);
-
-                self.padInlineUnchecked(@alignOf(info.child));
-
-                const ptr: [*]const info.child = @alignCast(@ptrCast(&self.memory[self.ip()]));
-
-                const size = len * @as(usize, @sizeOf(info.child));
-                const slice = ptr[0..len];
-
-                self.offset.* += @truncate(size);
-
-                if (info.sentinel != null) {
-                    _ = self.decodeInlineUnchecked(info.child);
-                }
-
-                return slice;
-            },
-            else => {
-                @compileError("cannot decode type `" ++ @typeName(T) ++ "`");
-            },
-        },
+        .pointer => @compileError("cannot decode type `" ++ @typeName(T) ++ "`; decode pointers individually"),
 
         .optional => |info| {
             const discrimValue = self.decodeInlineUnchecked(bool);

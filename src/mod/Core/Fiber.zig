@@ -371,19 +371,6 @@ pub fn getRegisterData(fiber: *Fiber, comptime location: RegisterDataLocation, f
     };
 }
 
-pub fn decodeNext(fiber: *Core.Fiber) callconv(Config.INLINING_CALL_CONV) Bytecode.Op {
-    const currentCallFrame = fiber.stack.call.topPtrUnchecked();
-    const currentBlockFrame = fiber.stack.block.topPtrUnchecked();
-    const currentBlock = &currentCallFrame.function.value.bytecode.blocks[currentBlockFrame.index];
-
-    const decoder = IO.Decoder {
-        .memory = currentCallFrame.function.value.bytecode.instructions,
-        .base = currentBlock.base,
-        .offset = &currentBlockFrame.ip_offset,
-    };
-
-    return @call(Config.INLINING_CALL_MOD, IO.Decoder.decodeUnchecked, .{&decoder, Bytecode.Op});
-}
 
 // TODO:
 // 1. handle type checking
@@ -406,7 +393,20 @@ pub fn invoke(fiber: *Core.Fiber, comptime T: type, functionIndex: Bytecode.Func
 
             .num_registers = 1,
         },
-        .value = undefined,
+        .value = .{.bytecode = .{
+            .blocks = &[_]Bytecode.Block {
+                .{
+                    .kind = Bytecode.Block.Kind.entry, // Kind,
+                    .base = 0, // InstructionPointer,
+                    .size = 1, // InstructionPointerOffset,
+                    .handlers = Bytecode.HANDLER_SET_SENTINEL, // HandlerSetIndex,
+                    .output_layout = null, // ?Layout,
+                },
+            },
+            .instructions = &[_]u8 {
+                @intFromEnum(Bytecode.OpCode.halt),
+            },
+        }},
     };
 
     const dataReset = fiber.stack.data.ptr;
@@ -459,7 +459,7 @@ pub fn invoke(fiber: *Core.Fiber, comptime T: type, functionIndex: Bytecode.Func
         fiber.write(.local(@enumFromInt(i), 0), arguments[i]);
     }
 
-    try Core.Eval.stepCall(fiber);
+    try Core.Eval.run(fiber);
 
     const result = fiber.read(T, .local(.r0, 0));
 
@@ -626,8 +626,8 @@ pub fn getRegisterOffsetUnchecked(regData: Fiber.RegisterData, register: Bytecod
     return regData.call.stack.base + regData.layout.registerInfo()[regNumber].offset;
 }
 
-pub fn cast(fiber: *Fiber, comptime X: type, comptime Y: type, operands: Bytecode.ISA.TwoOperand) callconv(Config.INLINING_CALL_CONV) void {
-    const x = fiber.read(X, operands.x);
+pub fn cast(fiber: *Fiber, comptime X: type, comptime Y: type, xOp: Bytecode.Operand, yOp: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) void {
+    const x = fiber.read(X, xOp);
 
     const xKind = @as(std.builtin.TypeId, @typeInfo(X));
     const yKind = @as(std.builtin.TypeId, @typeInfo(Y));
@@ -638,24 +638,24 @@ pub fn cast(fiber: *Fiber, comptime X: type, comptime Y: type, operands: Bytecod
             else @call(Config.INLINING_CALL_MOD, ops.floatCast, .{Y, x})
         ) else @call(Config.INLINING_CALL_MOD, ops.typeCast, .{Y, x});
 
-    fiber.write(operands.y, y);
+    fiber.write(yOp, y);
 }
 
-pub fn unary(fiber: *Fiber, comptime T: type, comptime op: []const u8, operands: Bytecode.ISA.TwoOperand) callconv(Config.INLINING_CALL_CONV) void {
-    const x = fiber.read(T, operands.x);
+pub fn unary(fiber: *Fiber, comptime T: type, comptime op: []const u8, xOp: Bytecode.Operand, yOp: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) void {
+    const x = fiber.read(T, xOp);
 
     const y = @call(Config.INLINING_CALL_MOD, @field(ops, op), .{x});
 
-    fiber.write(operands.y, y);
+    fiber.write(yOp, y);
 }
 
-pub fn binary(fiber: *Fiber, comptime T: type, comptime op: []const u8, operands: Bytecode.ISA.ThreeOperand) callconv(Config.INLINING_CALL_CONV) void {
-    const x = fiber.read(T, operands.x);
-    const y = fiber.read(T, operands.y);
+pub fn binary(fiber: *Fiber, comptime T: type, comptime op: []const u8, xOp: Bytecode.Operand, yOp: Bytecode.Operand, zOp: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) void {
+    const x = fiber.read(T, xOp);
+    const y = fiber.read(T, yOp);
 
     const z = @call(Config.INLINING_CALL_MOD, @field(ops, op), .{x, y});
 
-    fiber.write(operands.z, z);
+    fiber.write(zOp, z);
 }
 
 const ops = struct {

@@ -222,6 +222,7 @@ pub fn extractBlockIndex(self: *const BlockBuilder, b: anytype) Bytecode.BlockIn
 
 pub fn trap(self: *BlockBuilder) Error!void { try self.exitOp(.trap); }
 pub fn nop(self: *BlockBuilder) Error!void { try self.op(.nop); }
+pub fn halt(self: *BlockBuilder) Error!void { try self.exitOp(.halt); }
 
 pub fn tail_call(self: *BlockBuilder, f: anytype, as: anytype) Error!void {
     const calleeIndex = try self.function.parent.extractFunctionIndex(f);

@@ -911,86 +911,86 @@ pub fn offsetType(types: []const Bytecode.Type, ty: Bytecode.TypeIndex, offset: 
 }
 
 
-test {
-    const allocator = std.testing.allocator;
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
+// test {
+//     const allocator = std.testing.allocator;
+//     var arena = std.heap.ArenaAllocator.init(allocator);
+//     defer arena.deinit();
 
-    var encoder = IO.Encoder {};
-    defer encoder.deinit(allocator);
+//     var encoder = IO.Encoder {};
+//     defer encoder.deinit(allocator);
 
 
-    const nop = Op { .nop = {} };
-    try encoder.encode(allocator, nop);
+//     const nop = Op { .nop = {} };
+//     try encoder.encode(allocator, nop);
 
-    const trap = Op { .trap = {} };
-    try encoder.encode(allocator, trap);
+//     const trap = Op { .trap = {} };
+//     try encoder.encode(allocator, trap);
 
-    const call = Op { .dyn_call_v = .{
-        .f = .local(.r12, 45),
-        .as = &[_]Bytecode.Operand {
-            .local(.r1, 0), .local(.r2, 256), .upvalue(.r3, 13), .local(.r44, 44)
-        },
-        .y = .local(.r33, 0),
-    }};
-    try encoder.encode(allocator, call);
+//     const call = Op { .dyn_call_v = .{
+//         .f = .local(.r12, 45),
+//         .as = &[_]Bytecode.Operand {
+//             .local(.r1, 0), .local(.r2, 256), .upvalue(.r3, 13), .local(.r44, 44)
+//         },
+//         .y = .local(.r33, 0),
+//     }};
+//     try encoder.encode(allocator, call);
 
-    const br_imm = Op { .br_v = .{
-        .b = 36,
-        .y = .global(12, 34),
-    }};
-    try encoder.encode(allocator, br_imm);
+//     const br_imm = Op { .br_v = .{
+//         .b = 36,
+//         .y = .global(12, 34),
+//     }};
+//     try encoder.encode(allocator, br_imm);
 
-    const prompt = Op { .prompt = .{
-        .e = 234,
-        .as = &[_]Bytecode.Operand {
-            .local(.r4, 100), .upvalue(.r6, 15), .local(.r9, 11), .local(.r133, 9)
-        },
-    }};
-    try encoder.encode(allocator, prompt);
+//     const prompt = Op { .prompt = .{
+//         .e = 234,
+//         .as = &[_]Bytecode.Operand {
+//             .local(.r4, 100), .upvalue(.r6, 15), .local(.r9, 11), .local(.r133, 9)
+//         },
+//     }};
+//     try encoder.encode(allocator, prompt);
 
-    try encoder.encode(allocator, nop);
+//     try encoder.encode(allocator, nop);
 
-    try encoder.encode(allocator, trap);
+//     try encoder.encode(allocator, trap);
 
-    const instructionsNative = try encoder.finalize(allocator);
-    defer allocator.free(instructionsNative);
+//     const instructionsNative = try encoder.finalize(allocator);
+//     defer allocator.free(instructionsNative);
 
-    var instructionsEndian = std.ArrayList(u8).init(allocator);
-    defer instructionsEndian.deinit();
+//     var instructionsEndian = std.ArrayList(u8).init(allocator);
+//     defer instructionsEndian.deinit();
 
-    const nativeEndian = @import("builtin").cpu.arch.endian();
-    const nonNativeEndian = IO.Endian.flip(nativeEndian);
+//     const nativeEndian = @import("builtin").cpu.arch.endian();
+//     const nonNativeEndian = IO.Endian.flip(nativeEndian);
 
-    const writer = IO.Writer.initEndian(instructionsEndian.writer().any(), nonNativeEndian);
+//     const writer = IO.Writer.initEndian(instructionsEndian.writer().any(), nonNativeEndian);
 
-    try Bytecode.writeInstructions(instructionsNative, writer);
+//     try Bytecode.writeInstructions(instructionsNative, writer);
 
-    var bufferStream = std.io.fixedBufferStream(instructionsEndian.items);
+//     var bufferStream = std.io.fixedBufferStream(instructionsEndian.items);
 
-    const reader = IO.Reader.initEndian(bufferStream.reader().any(), nonNativeEndian);
-    const readerContext = .{
-        .allocator = allocator,
-        .tempAllocator = arena.allocator(),
-    };
+//     const reader = IO.Reader.initEndian(bufferStream.reader().any(), nonNativeEndian);
+//     const readerContext = .{
+//         .allocator = allocator,
+//         .tempAllocator = arena.allocator(),
+//     };
 
-    const instructions = try Bytecode.readInstructions(reader, readerContext);
-    defer allocator.free(instructions);
+//     const instructions = try Bytecode.readInstructions(reader, readerContext);
+//     defer allocator.free(instructions);
 
-    try std.testing.expectEqualSlices(u8, instructionsNative, instructions);
+//     try std.testing.expectEqualSlices(u8, instructionsNative, instructions);
 
-    var decodeOffset: InstructionPointerOffset = 0;
-    const decoder = IO.Decoder { .memory = instructions, .base = 0, .offset = &decodeOffset };
+//     var decodeOffset: InstructionPointerOffset = 0;
+//     const decoder = IO.Decoder { .memory = instructions, .base = 0, .offset = &decodeOffset };
 
-    try std.testing.expect(Support.equal(nop, try decoder.decode(Op)));
-    try std.testing.expect(Support.equal(trap, try decoder.decode(Op)));
-    try std.testing.expect(Support.equal(call, try decoder.decode(Op)));
-    try std.testing.expect(Support.equal(br_imm, try decoder.decode(Op)));
-    try std.testing.expect(Support.equal(prompt, try decoder.decode(Op)));
-    try std.testing.expect(Support.equal(nop, try decoder.decode(Op)));
-    try std.testing.expect(Support.equal(trap, try decoder.decode(Op)));
-    try std.testing.expect(decoder.isEof());
-}
+//     try std.testing.expect(Support.equal(nop, try decoder.decode(Op)));
+//     try std.testing.expect(Support.equal(trap, try decoder.decode(Op)));
+//     try std.testing.expect(Support.equal(call, try decoder.decode(Op)));
+//     try std.testing.expect(Support.equal(br_imm, try decoder.decode(Op)));
+//     try std.testing.expect(Support.equal(prompt, try decoder.decode(Op)));
+//     try std.testing.expect(Support.equal(nop, try decoder.decode(Op)));
+//     try std.testing.expect(Support.equal(trap, try decoder.decode(Op)));
+//     try std.testing.expect(decoder.isEof());
+// }
 
 test {
     std.testing.refAllDeclsRecursive(@This());

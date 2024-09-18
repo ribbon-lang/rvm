@@ -26,6 +26,11 @@ pub const InstructionPrototypes = .{
          , \\no operation, does nothing
          , void
         },
+
+        .{ "halt"
+         , \\stop execution
+         , void
+        },
     },
 
     .@"Control Flow" = .{

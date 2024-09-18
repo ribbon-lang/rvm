@@ -129,14 +129,14 @@ fn encodeStructure(self: *Encoder, comptime T: type, allocator: std.mem.Allocato
 
         .pointer => |info| switch(info.size) {
             .One => {
-                try self.padInline(allocator, @alignOf(info.child));
+                // try self.padInline(allocator, @alignOf(info.child));
                 return self.encodeInline(info.child, allocator, value.*);
             },
             .Many => if (comptime info.sentinel) |sPtr| {
                 const sentinel = @as(*const info.child, @ptrCast(sPtr)).*;
                 var i: usize = 0;
 
-                try self.padInline(allocator, @alignOf(info.child));
+                // try self.padInline(allocator, @alignOf(info.child));
 
                 while (true) {
                     const item = value[i];
@@ -156,7 +156,7 @@ fn encodeStructure(self: *Encoder, comptime T: type, allocator: std.mem.Allocato
 
                 try self.encodeInline(u8, allocator, @truncate(value.len));
 
-                try self.padInline(allocator, @alignOf(info.child));
+                // try self.padInline(allocator, @alignOf(info.child));
 
                 for (value) |item| {
                     try self.encodeInline(info.child, allocator, item);

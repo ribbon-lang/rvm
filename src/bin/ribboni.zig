@@ -97,6 +97,7 @@ pub fn main() Error!void {
 
     // const out_global = try builder.globalNative(@as(i64, 0));
 
+
     const main_t = try builder.typeId(.{.function = .{
         .result = Bytecode.Type.i64_t,
         .term = Bytecode.Type.void_t,

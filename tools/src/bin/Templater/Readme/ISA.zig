@@ -459,6 +459,7 @@ fn longName(comptime name: [:0]const u8) []const u8 {
 
         else if (strCmp(name, "trap")) "trigger a trap"
         else if (strCmp(name, "nop")) "no operation"
+        else if (strCmp(name, "halt")) "stop execution"
 
         else if (strCmp(name, "dyn_call")) "dynamic function call"
         else if (strCmp(name, "dyn_tail_call")) "dynamic function tail call"
