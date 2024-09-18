@@ -87,7 +87,7 @@ inline fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (re
         .halt => if (comptime !reswitch) return false,
 
         .tail_call => {
-            try call(fiber, &decoder, decoder.decodeUnchecked(Bytecode.FunctionIndex), decoder.decodeUnchecked(u8), .tail);
+            try call(fiber, &decoder, decoder.decodeUnchecked(Bytecode.FunctionIndex), decoder.decodeUnchecked(IO.SizeT), .tail);
 
             if (comptime reswitch) {
                 updateDecoder(fiber, &decoder);
@@ -95,7 +95,7 @@ inline fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (re
             }
         },
         .tail_call_v => {
-            try call(fiber, &decoder, decoder.decodeUnchecked(Bytecode.FunctionIndex), decoder.decodeUnchecked(u8), .tail_v);
+            try call(fiber, &decoder, decoder.decodeUnchecked(Bytecode.FunctionIndex), decoder.decodeUnchecked(IO.SizeT), .tail_v);
 
             if (comptime reswitch) {
                 updateDecoder(fiber, &decoder);
@@ -103,7 +103,7 @@ inline fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (re
             }
         },
         .dyn_tail_call => {
-            try dynCall(fiber, &decoder, decoder.decodeUnchecked(Bytecode.Operand), decoder.decodeUnchecked(u8), .tail);
+            try dynCall(fiber, &decoder, decoder.decodeUnchecked(Bytecode.Operand), decoder.decodeUnchecked(IO.SizeT), .tail);
 
             if (comptime reswitch) {
                 updateDecoder(fiber, &decoder);
@@ -111,7 +111,7 @@ inline fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (re
             }
         },
         .dyn_tail_call_v => {
-            try dynCall(fiber, &decoder, decoder.decodeUnchecked(Bytecode.Operand), decoder.decodeUnchecked(u8), .tail_v);
+            try dynCall(fiber, &decoder, decoder.decodeUnchecked(Bytecode.Operand), decoder.decodeUnchecked(IO.SizeT), .tail_v);
 
             if (comptime reswitch) {
                 updateDecoder(fiber, &decoder);
@@ -119,7 +119,7 @@ inline fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (re
             }
         },
         .tail_prompt => {
-            try prompt(fiber, &decoder, decoder.decodeUnchecked(Bytecode.EvidenceIndex), decoder.decodeUnchecked(u8), .tail);
+            try prompt(fiber, &decoder, decoder.decodeUnchecked(Bytecode.EvidenceIndex), decoder.decodeUnchecked(IO.SizeT), .tail);
 
             if (comptime reswitch) {
                 updateDecoder(fiber, &decoder);
@@ -127,7 +127,7 @@ inline fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (re
             }
         },
         .tail_prompt_v => {
-            try prompt(fiber, &decoder, decoder.decodeUnchecked(Bytecode.EvidenceIndex), decoder.decodeUnchecked(u8), .tail_v);
+            try prompt(fiber, &decoder, decoder.decodeUnchecked(Bytecode.EvidenceIndex), decoder.decodeUnchecked(IO.SizeT), .tail_v);
 
             if (comptime reswitch) {
                 updateDecoder(fiber, &decoder);
@@ -136,7 +136,7 @@ inline fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (re
         },
 
         .call => {
-            try call(fiber, &decoder, decoder.decodeUnchecked(Bytecode.FunctionIndex), decoder.decodeUnchecked(u8), .no_tail);
+            try call(fiber, &decoder, decoder.decodeUnchecked(Bytecode.FunctionIndex), decoder.decodeUnchecked(IO.SizeT), .no_tail);
 
             if (comptime reswitch) {
                 updateDecoder(fiber, &decoder);
@@ -144,7 +144,7 @@ inline fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (re
             }
         },
         .call_v => {
-            try call(fiber, &decoder, decoder.decodeUnchecked(Bytecode.FunctionIndex), decoder.decodeUnchecked(u8), .no_tail_v);
+            try call(fiber, &decoder, decoder.decodeUnchecked(Bytecode.FunctionIndex), decoder.decodeUnchecked(IO.SizeT), .no_tail_v);
 
             if (comptime reswitch) {
                 updateDecoder(fiber, &decoder);
@@ -152,7 +152,7 @@ inline fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (re
             }
         },
         .dyn_call => {
-            try dynCall(fiber, &decoder, decoder.decodeUnchecked(Bytecode.Operand), decoder.decodeUnchecked(u8), .no_tail);
+            try dynCall(fiber, &decoder, decoder.decodeUnchecked(Bytecode.Operand), decoder.decodeUnchecked(IO.SizeT), .no_tail);
 
             if (comptime reswitch) {
                 updateDecoder(fiber, &decoder);
@@ -160,7 +160,7 @@ inline fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (re
             }
         },
         .dyn_call_v => {
-            try dynCall(fiber, &decoder, decoder.decodeUnchecked(Bytecode.Operand), decoder.decodeUnchecked(u8), .no_tail_v);
+            try dynCall(fiber, &decoder, decoder.decodeUnchecked(Bytecode.Operand), decoder.decodeUnchecked(IO.SizeT), .no_tail_v);
 
             if (comptime reswitch) {
                 updateDecoder(fiber, &decoder);
@@ -168,7 +168,7 @@ inline fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (re
             }
         },
         .prompt => {
-            try prompt(fiber, &decoder, decoder.decodeUnchecked(Bytecode.EvidenceIndex), decoder.decodeUnchecked(u8), .no_tail);
+            try prompt(fiber, &decoder, decoder.decodeUnchecked(Bytecode.EvidenceIndex), decoder.decodeUnchecked(IO.SizeT), .no_tail);
 
             if (comptime reswitch) {
                 updateDecoder(fiber, &decoder);
@@ -176,7 +176,7 @@ inline fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (re
             }
         },
         .prompt_v => {
-            try prompt(fiber, &decoder, decoder.decodeUnchecked(Bytecode.EvidenceIndex), decoder.decodeUnchecked(u8), .no_tail_v);
+            try prompt(fiber, &decoder, decoder.decodeUnchecked(Bytecode.EvidenceIndex), decoder.decodeUnchecked(IO.SizeT), .no_tail_v);
 
             if (comptime reswitch) {
                 updateDecoder(fiber, &decoder);
@@ -1538,22 +1538,22 @@ fn addr(fiber: *Fiber, x: Bytecode.Operand, y: Bytecode.Operand) callconv(Config
     fiber.write(y, bytes);
 }
 
-inline fn dynCall(fiber: *Fiber, decoder: *const IO.Decoder, func: Bytecode.Operand, argCount: u8, comptime style: CallStyle) Fiber.Trap!void {
+inline fn dynCall(fiber: *Fiber, decoder: *const IO.Decoder, func: Bytecode.Operand, argCount: u16, comptime style: CallStyle) Fiber.Trap!void {
     const funcIndex = fiber.read(Bytecode.FunctionIndex, func);
     return callImpl(fiber, decoder, undefined, funcIndex, argCount, style);
 }
 
-inline fn call(fiber: *Fiber, decoder: *const IO.Decoder, funcIndex: Bytecode.FunctionIndex, argCount: u8, comptime style: CallStyle) Fiber.Trap!void {
+inline fn call(fiber: *Fiber, decoder: *const IO.Decoder, funcIndex: Bytecode.FunctionIndex, argCount: u16, comptime style: CallStyle) Fiber.Trap!void {
     return callImpl(fiber, decoder, undefined, funcIndex, argCount, style);
 }
 
-inline fn prompt(fiber: *Fiber, decoder: *const IO.Decoder, evIndex: Bytecode.EvidenceIndex, argCount: u8, comptime style: CallStyle) Fiber.Trap!void {
+inline fn prompt(fiber: *Fiber, decoder: *const IO.Decoder, evIndex: Bytecode.EvidenceIndex, argCount: u16, comptime style: CallStyle) Fiber.Trap!void {
     const evidence = fiber.evidence[evIndex].topPtrUnchecked();
 
     return callImpl(fiber, decoder, evIndex, evidence.handler, argCount, style);
 }
 
-fn callImpl(fiber: *Fiber, decoder: *const IO.Decoder, evIndex: Bytecode.EvidenceIndex, funcIndex: Bytecode.FunctionIndex, argCount: u8, comptime style: CallStyle) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn callImpl(fiber: *Fiber, decoder: *const IO.Decoder, evIndex: Bytecode.EvidenceIndex, funcIndex: Bytecode.FunctionIndex, argCount: u16, comptime style: CallStyle) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const oldCallFrame = fiber.stack.call.topPtrUnchecked();
     const newFunction = &fiber.program.functions[funcIndex];
 
@@ -1565,10 +1565,17 @@ fn callImpl(fiber: *Fiber, decoder: *const IO.Decoder, evIndex: Bytecode.Evidenc
 
     for (0..argCount) |i| {
         const info = newFunction.layout_table.registerInfo()[i];
-        const desiredSize = info.size;
-        const arg = fiber.addr(decoder.decodeUnchecked(Bytecode.Operand));
+        const src = fiber.addr(decoder.decodeUnchecked(Bytecode.Operand));
         const offset = base + info.offset;
-        @memcpy(fiber.stack.data.memory[offset..offset + desiredSize], arg);
+        const dest = fiber.stack.data.memory.ptr + offset;
+
+        switch (info.size) {
+            1 => dest[0] = src[0],
+            2 => @as(*u16, @alignCast(@ptrCast(dest))).* = @as(*const u16, @alignCast(@ptrCast(src))).*,
+            4 => @as(*u32, @alignCast(@ptrCast(dest))).* = @as(*const u32, @alignCast(@ptrCast(src))).*,
+            8 => @as(*u64, @alignCast(@ptrCast(dest))).* = @as(*const u64, @alignCast(@ptrCast(src))).*,
+            else => @memcpy(dest[0..info.size], src),
+        }
     }
 
     const newBlockFrame, const evidence =
@@ -1651,7 +1658,13 @@ fn term(fiber: *Fiber, decoder: *const IO.Decoder, comptime style: ReturnStyle) 
 
         const dest: [*]u8 = fiber.addrImpl(evidence.call, rootBlockFrame.out);
 
-        @memcpy(dest[0..size], src);
+        switch (size) {
+            1 => dest[0] = src[0],
+            2 => @as(*u16, @alignCast(@ptrCast(dest))).* = @as(*const u16, @alignCast(@ptrCast(src))).*,
+            4 => @as(*u32, @alignCast(@ptrCast(dest))).* = @as(*const u32, @alignCast(@ptrCast(src))).*,
+            8 => @as(*u64, @alignCast(@ptrCast(dest))).* = @as(*const u64, @alignCast(@ptrCast(src))).*,
+            else => @memcpy(dest[0..size], src),
+        }
     }
 
     fiber.stack.data.ptr = evidence.data;
@@ -1670,7 +1683,13 @@ fn ret(fiber: *Fiber, decoder: *const IO.Decoder, comptime style: ReturnStyle) c
 
         const dest: [*]u8 = fiber.addrImpl(fiber.stack.call.ptr -| 2, rootBlockFrame.out);
 
-        @memcpy(dest[0..size], src);
+        switch (size) {
+            1 => dest[0] = src[0],
+            2 => @as(*u16, @alignCast(@ptrCast(dest))).* = @as(*const u16, @alignCast(@ptrCast(src))).*,
+            4 => @as(*u32, @alignCast(@ptrCast(dest))).* = @as(*const u32, @alignCast(@ptrCast(src))).*,
+            8 => @as(*u64, @alignCast(@ptrCast(dest))).* = @as(*const u64, @alignCast(@ptrCast(src))).*,
+            else => @memcpy(dest[0..size], src),
+        }
     }
 
     fiber.stack.data.ptr = currentCallFrame.stack.base;

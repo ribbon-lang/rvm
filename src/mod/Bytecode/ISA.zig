@@ -3,6 +3,8 @@ const std = @import("std");
 const TextUtils = @import("ZigTextUtils");
 const TypeUtils = @import("ZigTypeUtils");
 
+const IO = @import("IO");
+
 const Bytecode = @import("root.zig");
 const Operand = Bytecode.Operand;
 const Register = Bytecode.Register;
@@ -13,7 +15,7 @@ const ConstantIndex = Bytecode.ConstantIndex;
 const FunctionIndex = Bytecode.FunctionIndex;
 const HandlerSetIndex = Bytecode.HandlerSetIndex;
 
-const OpCodeIndex = u8;
+const OpCodeIndex = IO.SizeT;
 
 pub const InstructionPrototypes = .{
     .@"Basic" = .{
@@ -454,17 +456,6 @@ pub const YieldOperand = struct {
 };
 
 pub const TwoOperand = struct {
-    x: Operand,
-    y: Operand,
-};
-
-pub const MemOneOperand = struct {
-    m: RegisterLocalOffset,
-    x: Operand,
-};
-
-pub const MemTwoOperand = struct {
-    m: RegisterLocalOffset,
     x: Operand,
     y: Operand,
 };

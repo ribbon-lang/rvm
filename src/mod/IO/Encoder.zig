@@ -16,6 +16,7 @@ const Memory = std.ArrayListUnmanaged(u8);
 pub const Error = std.mem.Allocator.Error;
 
 
+
 pub fn deinit(self: *Encoder, allocator: std.mem.Allocator) void {
     return @call(.always_inline, Memory.deinit, .{&self.memory, allocator});
 }
@@ -81,6 +82,10 @@ pub fn encodeInline(self: *Encoder, comptime T: type, allocator: std.mem.Allocat
 
     if (comptime std.meta.hasFn(T, "encode")) {
         return @call(.always_inline, T.encode, .{value, allocator, self});
+    }
+
+    if (comptime @alignOf(T) < @alignOf(IO.SizeT)) {
+        @compileError("cannot encode types with an alignment less than @alignOf(SizeT)");
     }
 
     if (comptime Endian.IntType(T)) |_| {
@@ -150,11 +155,11 @@ fn encodeStructure(self: *Encoder, comptime T: type, allocator: std.mem.Allocato
                 @compileError("cannot encode many-pointer `" ++ @typeName(T) ++ "` without sentinel");
             },
             .Slice => {
-                if (value.len > std.math.maxInt(u8)) {
-                    @panic("cannot encode slice with length greater than u8");
+                if (value.len > std.math.maxInt(IO.SizeT)) {
+                    @panic("cannot encode slice with length greater than SizeT");
                 }
 
-                try self.encodeInline(u8, allocator, @truncate(value.len));
+                try self.encodeInline(IO.SizeT, allocator, @truncate(value.len));
 
                 // try self.padInline(allocator, @alignOf(info.child));
 

@@ -101,7 +101,7 @@ pub inline fn decodeRawInlineUnchecked(self: *const Decoder, comptime T: type) T
 
     self.offset.* += @truncate(@sizeOf(T));
 
-    return @as(*const align(1) T, @ptrCast(&self.memory[start])).*;
+    return @as(*const align(@alignOf(IO.SizeT)) T, @alignCast(@ptrCast(&self.memory[start]))).*;
 }
 
 pub inline fn padInline(self: *const Decoder, alignment: usize) Error!void {
@@ -248,7 +248,7 @@ inline fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
                 }
             },
             .Slice => {
-                const len = try self.decodeInline(u8);
+                const len = try self.decodeInline(IO.SizeT);
 
                 // try self.padInline(@alignOf(info.child));
 
