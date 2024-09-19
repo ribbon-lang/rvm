@@ -23,25 +23,29 @@ pub const OpCode = @typeInfo(Op).@"union".tag_type.?;
 
 pub const InstructionPointer = u24;
 pub const InstructionPointerOffset = u16;
-pub const BlockIndex = u16;
+pub const RegisterIndex = u16;
 pub const RegisterLocalOffset = u16;
-pub const RegisterBaseOffset = u24;
+pub const RegisterBaseOffset = u32;
+pub const UpvalueIndex = u16;
+pub const UpvalueLocalOffset = u16;
+pub const UpvalueBaseOffset = u32;
+pub const GlobalIndex = u16;
+pub const GlobalLocalOffset = u16;
+pub const GlobalBaseOffset = u32;
+pub const BlockIndex = u16;
 pub const LayoutTableSize = RegisterBaseOffset;
 pub const ValueSize = u16;
 pub const ValueAlignment = u16;
 pub const FunctionIndex = u16;
 pub const HandlerSetIndex = u16;
 pub const TypeIndex = u16;
-pub const RegisterIndex = u8;
-pub const GlobalIndex = u14;
-pub const GlobalOffset = u32;
 pub const EvidenceIndex = u16;
 pub const MemorySize = u48;
 pub const ForeignId = u48;
 
 pub const MAX_BLOCKS: BlockIndex = 256;
 pub const MAX_EVIDENCE: EvidenceIndex = 1024;
-pub const MAX_REGISTERS = std.math.maxInt(RegisterIndex);
+pub const MAX_REGISTERS: RegisterIndex = 256;
 pub const MAX_INSTRUCTIONS: InstructionPointer = std.math.maxInt(InstructionPointer);
 pub const MAX_INSTRUCTION_OFFSET: InstructionPointerOffset = std.math.maxInt(InstructionPointerOffset);
 
@@ -50,103 +54,11 @@ pub const EVIDENCE_SENTINEL = std.math.maxInt(EvidenceIndex);
 pub const HANDLER_SET_SENTINEL = std.math.maxInt(HandlerSetIndex);
 pub const FUNCTION_SENTINEL = std.math.maxInt(FunctionIndex);
 
-pub const Register = reg: {
-    const TagType = RegisterIndex;
-    const max = std.math.maxInt(TagType);
-    var fields = [1]std.builtin.Type.EnumField {undefined} ** max;
 
-    for(0..max) |i| {
-        fields[i] = .{
-           .name = std.fmt.comptimePrint("r{}", .{i}),
-           .value = i,
-        };
-    }
-
-    break :reg @Type(.{ .@"enum" = .{
-        .tag_type = TagType,
-        .fields = &fields,
-        .decls = &[0]std.builtin.Type.Declaration{},
-        .is_exhaustive = true,
-    }});
-};
-
-pub const Operand = packed struct {
-    kind: Kind,
-    data: OperandData,
-
-    pub const Kind = enum(u2) {
-        global,
-        upvalue,
-        local,
-    };
-
-    pub fn global(index: GlobalIndex, offset: RegisterLocalOffset) Operand {
-        return .{ .kind = .global, .data = .{ .global = .{ .index = index, .offset = offset } } };
-    }
-
-    pub fn upvalue(reg: Register, offset: RegisterLocalOffset) Operand {
-        return .{ .kind = .upvalue, .data = .{ .register = .{ .register = reg, .offset = offset } } };
-    }
-
-    pub fn local(reg: Register, offset: RegisterLocalOffset) Operand {
-        return .{ .kind = .local, .data = .{ .register = .{ .register = reg, .offset = offset } } };
-    }
-};
-
-comptime {
-    std.testing.expectEqual(32, @bitSizeOf(Operand)) catch unreachable;
-    std.testing.expectEqual(4, @sizeOf(Operand)) catch unreachable;
-    // @compileError(std.fmt.comptimePrint(
-    //     \\sizeOf(Operand) = {}, bitSizeOf(Operand) = {}
-    //     \\sizeOf(OperandData) = {}, bitSizeOf(OperandData) = {}
-    //     \\sizeOf(RegisterOperand) = {}, bitSizeOf(RegisterOperand) = {}
-    //     \\sizeOf(ImmediateOperand) = {}, bitSizeOf(ImmediateOperand) = {}
-    //     , .{
-    //         @sizeOf(Operand), @bitSizeOf(Operand),
-    //         @sizeOf(OperandData), @bitSizeOf(OperandData),
-    //         @sizeOf(RegisterOperand), @bitSizeOf(RegisterOperand),
-    //         @sizeOf(ImmediateOperand), @bitSizeOf(ImmediateOperand),
-    //     }
-    // ));
-}
-
-
-pub const OperandData = packed union {
-    register: RegisterOperand,
-    global: GlobalOperand,
-};
-
-pub const RegisterOperand = packed struct {
-    register: Register,
-    offset: RegisterLocalOffset,
-};
-
-pub const GlobalOperand = packed struct {
-    index: GlobalIndex,
-    offset: RegisterLocalOffset,
-};
 
 pub const Block = struct {
-    kind: Kind,
     base: InstructionPointer,
     size: InstructionPointerOffset,
-    handlers: HandlerSetIndex,
-    output_layout: ?Layout,
-
-    pub const Kind = enum(u8) {
-          basic = 0x00, basic_v = 0x10,
-           with = 0x04,  with_v = 0x14,
-          entry = 0x05, entry_v = 0x15,
-
-        pub inline fn hasOutput(self: Kind) bool {
-            return switch (self) {
-                inline
-                    .basic_v, .with_v, .entry_v
-                => true,
-                inline else => false,
-            };
-        }
-    };
 };
 
 pub const Layout = struct {
@@ -321,29 +233,21 @@ pub const LayoutDetails = struct {
     term_type: TypeIndex,
     return_type: TypeIndex,
     register_types: [*]const TypeIndex,
+    block_types: [*]const TypeIndex,
 
     term_layout: Layout,
     return_layout: Layout,
     register_layouts: [*]const Layout,
+    block_layouts: [*]const Layout,
 
     num_arguments: RegisterIndex,
     num_registers: RegisterIndex,
+    num_blocks: BlockIndex,
 
     pub fn deinit(self: *const LayoutDetails, allocator: std.mem.Allocator) void {
         allocator.free(self.register_types[0..self.num_registers]);
         allocator.free(self.register_layouts[0..self.num_registers]);
-    }
-
-    pub inline fn getType(self: *const LayoutDetails, register: Register) TypeIndex {
-        return self.register_types[@as(RegisterIndex, @intFromEnum(register))];
-    }
-
-    pub inline fn getLayout(self: *const LayoutDetails, register: Register) Layout {
-        return self.register_layouts[@as(RegisterIndex, @intFromEnum(register))];
-    }
-
-    pub inline fn inbounds(self: *const LayoutDetails, operand: RegisterOperand, size: ValueSize) bool {
-        return self.getLayout(operand.register).inbounds(operand.offset, size);
+        allocator.free(self.block_types[0..self.num_blocks]);
     }
 };
 
@@ -374,7 +278,7 @@ pub const LayoutTable = packed struct {
 
 pub const Function = struct {
     index: FunctionIndex,
-    layout_table: LayoutTable,
+    num_registers: RegisterIndex,
     value: Value,
 
     pub const Value = union(Kind) {
@@ -388,8 +292,6 @@ pub const Function = struct {
     };
 
     pub fn deinit(self: Function, allocator: std.mem.Allocator) void {
-        self.layout_table.deinit(allocator);
-
         switch (self.value) {
             .bytecode => self.value.bytecode.deinit(allocator),
             .foreign => {},
@@ -407,20 +309,20 @@ pub const HandlerBinding = struct {
 pub const Global = struct {
     type: TypeIndex,
     layout: Layout,
-    offset: GlobalOffset,
+    offset: GlobalBaseOffset,
 
     pub fn read(reader: IO.Reader, context: anytype) !Global {
         const typeIndex = try reader.read(TypeIndex, context);
         const layout = try reader.read(Layout, context);
 
-        const offset: GlobalOffset = @truncate(context.globalMemory.len);
+        const offset: GlobalBaseOffset = @truncate(context.globalMemory.len);
 
         for (0..layout.size) |_| {
             const byte = try reader.read(u8, context);
             try context.globalMemory.append(byte, context.allocator);
         }
 
-        if (context.globalMemory.items.len > std.math.maxInt(GlobalOffset)) {
+        if (context.globalMemory.items.len > std.math.maxInt(GlobalBaseOffset)) {
             return error.OutOfMemory;
         }
 
@@ -459,6 +361,7 @@ pub const Program = struct {
     types: []const Type,
     globals: GlobalSet,
     functions: []const Function,
+    layout_details: []const LayoutDetails,
     handler_sets: []const HandlerSet,
     main: ?FunctionIndex,
 

@@ -51,24 +51,6 @@ pub const Trap = error {
     InvalidBlockRestart,
 };
 
-pub const RegisterData = extern struct {
-    call: *Fiber.CallFrame,
-    layout: *const Bytecode.LayoutTable,
-};
-
-pub const RegisterDataSet = struct {
-    local: RegisterData,
-    upvalue: ?RegisterData,
-
-    pub fn extractUp(self: Fiber.RegisterDataSet) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!Fiber.RegisterData {
-        if (self.upvalue) |ud| {
-            return ud;
-        } else {
-            @branchHint(.cold);
-            return Fiber.Trap.MissingEvidence;
-        }
-    }
-};
 
 pub const ForeignFunction = *const fn (*anyopaque, Bytecode.BlockIndex, *ForeignOut) callconv(.C) ForeignControl;
 
@@ -82,27 +64,8 @@ pub const ForeignControl = enum(u32) {
 pub const ForeignOut = extern union {
     step: Bytecode.BlockIndex,
     done: void,
-    done_v: Bytecode.Operand,
+    done_v: Bytecode.RegisterIndex,
     trap: Extern.Error,
-};
-
-pub const ForeignRegisterDataSet = extern struct {
-    local: RegisterData,
-    upvalue: Extern.Option(RegisterData),
-
-    pub fn fromNative(data: RegisterDataSet) ForeignRegisterDataSet {
-        return .{
-            .local = data.local,
-            .upvalue = .fromNative(data.upvalue),
-        };
-    }
-
-    pub fn toNative(self: ForeignRegisterDataSet) RegisterDataSet {
-        return .{
-            .local = self.local,
-            .upvalue = self.upvalue.toNative(),
-        };
-    }
 };
 
 pub fn convertForeignError(e: Extern.Error) Trap {
@@ -200,21 +163,21 @@ pub const Evidence = packed struct {
 pub const BlockFrame = packed struct {
     index: Bytecode.BlockIndex,
     ip_offset: Bytecode.InstructionPointerOffset,
-    out: Bytecode.Operand,
+    out: Bytecode.RegisterIndex,
     handler_set: Bytecode.HandlerSetIndex,
 
     pub inline fn noOutput(index: Bytecode.BlockIndex, handler_set: ?Bytecode.HandlerSetIndex) BlockFrame {
         return .{ .index = index, .ip_offset = 0, .out = undefined, .handler_set = handler_set orelse Bytecode.HANDLER_SET_SENTINEL };
     }
 
-    pub inline fn entryPoint(operand: ?Bytecode.Operand) BlockFrame {
+    pub inline fn entryPoint(operand: ?Bytecode.RegisterIndex) BlockFrame {
         return
             if (operand) |op| .{ .index = 0, .ip_offset = 0, .out = op, .handler_set = Bytecode.HANDLER_SET_SENTINEL }
             else .{ .index = 0, .ip_offset = 0, .out = undefined, .handler_set = Bytecode.HANDLER_SET_SENTINEL };
     }
 
-    pub inline fn value(index: Bytecode.BlockIndex, operand: Bytecode.Operand, handler_set: ?Bytecode.HandlerSetIndex) BlockFrame {
-        return .{ .index = index, .ip_offset = 0, .out = operand, .handler_set = handler_set orelse Bytecode.HANDLER_SET_SENTINEL };
+    pub inline fn value(index: Bytecode.BlockIndex, r: Bytecode.RegisterIndex, handler_set: ?Bytecode.HandlerSetIndex) BlockFrame {
+        return .{ .index = index, .ip_offset = 0, .out = r, .handler_set = handler_set orelse Bytecode.HANDLER_SET_SENTINEL };
     }
 };
 
@@ -222,12 +185,7 @@ pub const CallFrame = struct {
     function: *const Bytecode.Function,
     evidence: EvidenceRef,
     root_block: BlockStack.Ptr,
-    stack: StackRef,
-
-    pub const StackRef = packed struct {
-        base: DataStack.Ptr,
-        origin: DataStack.Ptr,
-    };
+    stack: DataStack.Ptr,
 
     pub const EvidenceRef = packed struct {
         index: Bytecode.EvidenceIndex,
@@ -327,49 +285,7 @@ pub fn removeHandlerSet(fiber: *Fiber, handlerSet: Bytecode.HandlerSet) callconv
     }
 }
 
-pub fn getRegisterDataSet(fiber: *Fiber, framePtr: CallStack.Ptr) callconv(Config.INLINING_CALL_CONV) Fiber.RegisterDataSet {
-    const callFrame = fiber.stack.call.getPtrUnchecked(framePtr);
 
-    return .{
-        .local = .{
-            .call = callFrame,
-            .layout = &callFrame.function.layout_table,
-        },
-        .upvalue = if (!callFrame.evidence.isSentinel()) ev: {
-            const evidence = fiber.evidence[callFrame.evidence.index].getPtrUnchecked(callFrame.evidence.offset);
-            const evFrame = fiber.stack.call.getPtrUnchecked(evidence.call);
-            const evFunction = evFrame.function;
-            break :ev .{
-                .call = evFrame,
-                .layout = &evFunction.layout_table
-            };
-        } else null,
-    };
-}
-
-
-pub const RegisterDataLocation = enum {upvalue, local};
-
-pub fn getRegisterData(fiber: *Fiber, comptime location: RegisterDataLocation, framePtr: CallStack.Ptr) callconv(Config.INLINING_CALL_CONV) Fiber.RegisterData {
-    const callFrame = fiber.stack.call.getPtrUnchecked(framePtr);
-
-    return switch (location) {
-        .upvalue => ev: {
-            const evidence = fiber.evidence[callFrame.evidence.index].getPtrUnchecked(callFrame.evidence.offset);
-            const evFrame = fiber.stack.call.getPtrUnchecked(evidence.call);
-            const evFunction = evFrame.function;
-            break :ev .{
-                .call = evFrame,
-                .layout = &evFunction.layout_table
-            };
-        },
-
-        .local => .{
-            .call = callFrame,
-            .layout = &callFrame.function.layout_table,
-        },
-    };
-}
 
 
 // TODO:
@@ -380,28 +296,10 @@ pub fn invoke(fiber: *Core.Fiber, comptime T: type, functionIndex: Bytecode.Func
 
     const wrapper = Bytecode.Function {
         .index = Bytecode.FUNCTION_SENTINEL,
-        .layout_table = Bytecode.LayoutTable {
-            .register_info = @truncate(@intFromPtr(&[_]Bytecode.LayoutTable.RegisterInfo {
-                .{.offset = 0, .size = @sizeOf(T)},
-            })),
-
-            .term_size = 0,
-            .return_size = 0,
-
-            .size = @sizeOf(T),
-            .alignment = @alignOf(T),
-
-            .num_registers = 1,
-        },
+        .num_registers = 1,
         .value = .{.bytecode = .{
             .blocks = &[_]Bytecode.Block {
-                .{
-                    .kind = Bytecode.Block.Kind.entry, // Kind,
-                    .base = 0, // InstructionPointer,
-                    .size = 1, // InstructionPointerOffset,
-                    .handlers = Bytecode.HANDLER_SET_SENTINEL, // HandlerSetIndex,
-                    .output_layout = null, // ?Layout,
-                },
+                .{ .base = 0, .size = 1 },
             },
             .instructions = &[_]u8 {
                 @intFromEnum(Bytecode.OpCode.halt),
@@ -410,26 +308,15 @@ pub fn invoke(fiber: *Core.Fiber, comptime T: type, functionIndex: Bytecode.Func
     };
 
     const dataReset = fiber.stack.data.ptr;
-    var dataOrigin = fiber.stack.data.ptr;
-    try fiber.stack.data.pushUninit(Support.alignmentDelta(fiber.stack.data.ptr, @alignOf(T)));
 
     var dataBase = fiber.stack.data.ptr;
-    try fiber.stack.data.pushUninit(@sizeOf(T));
-
+    try fiber.stack.data.pushUninit(8);
     try fiber.stack.call.push(CallFrame {
         .function = &wrapper,
         .evidence = CallFrame.EvidenceRef.SENTINEL,
         .root_block = fiber.stack.block.ptr,
-        .stack = .{
-            .base = dataBase,
-            .origin = dataOrigin,
-        }
+        .stack = dataBase,
     });
-
-    dataOrigin = fiber.stack.data.ptr;
-    try fiber.stack.data.pushUninit(Support.alignmentDelta(fiber.stack.data.ptr, function.layout_table.alignment));
-    dataBase = fiber.stack.data.ptr;
-
     try fiber.stack.block.push(BlockFrame {
         .index = 0,
         .ip_offset = 0,
@@ -438,30 +325,27 @@ pub fn invoke(fiber: *Core.Fiber, comptime T: type, functionIndex: Bytecode.Func
     });
 
     dataBase = fiber.stack.data.ptr;
-    try fiber.stack.data.pushUninit(function.layout_table.size);
+    try fiber.stack.data.pushUninit(function.num_registers * 8);
     try fiber.stack.call.push(CallFrame {
         .function = function,
         .evidence = CallFrame.EvidenceRef.SENTINEL,
         .root_block = fiber.stack.block.ptr,
-        .stack = .{
-            .base = dataBase,
-            .origin = dataOrigin,
-        },
+        .stack = dataBase,
     });
     try fiber.stack.block.push(BlockFrame {
         .index = 0,
         .ip_offset = 0,
-        .out = .local(.r0, 0),
+        .out = 0,
         .handler_set = Bytecode.HANDLER_SET_SENTINEL,
     });
 
     inline for (0..arguments.len) |i| {
-        fiber.write(.local(@enumFromInt(i), 0), arguments[i]);
+        fiber.writeLocal(i, arguments[i]);
     }
 
     try Core.Eval.run(fiber);
 
-    const result = fiber.read(T, .local(.r0, 0));
+    const result = fiber.readLocal(T, 0);
 
     fiber.stack.data.ptr = dataReset;
     _ = try fiber.stack.call.pop();
@@ -470,333 +354,90 @@ pub fn invoke(fiber: *Core.Fiber, comptime T: type, functionIndex: Bytecode.Func
     return result;
 }
 
-pub fn load(fiber: *Fiber, comptime T: type, x: Bytecode.Operand, y: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    const size = @sizeOf(T);
-    const alignment = @alignOf(T);
 
-    const inAddr: [*]const u8 = fiber.read([*]const u8, x);
-    const outAddr: [*]u8 = fiber.addr(y);
-
-    try fiber.boundsCheck(inAddr, size);
-
-    const inAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(inAddr), alignment) == 0);
-    const outAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(outAddr), alignment) == 0);
-    if (inAligned & outAligned != 1) {
-        @branchHint(.cold);
-        return Fiber.Trap.BadAlignment;
-    }
-
-    @as(*T, @ptrCast(@alignCast(outAddr))).* = @as(*const T, @ptrCast(@alignCast(inAddr))).*;
+pub inline fn readLocal(fiber: *Fiber, comptime T: type, r: Bytecode.RegisterIndex) T {
+    return fiber.readReg(T, fiber.stack.call.ptr - 1, r);
 }
 
-pub fn store(fiber: *Fiber, comptime T: type, x: Bytecode.Operand, y: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    const size = @sizeOf(T);
-    const alignment = @alignOf(T);
-
-    const inAddr: [*]const u8 = fiber.addr(x);
-    const outAddr: [*]u8 = fiber.read([*]u8, y);
-
-    try fiber.boundsCheck(outAddr, size);
-
-    const inAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(inAddr), alignment) == 0);
-    const outAligned = @intFromBool(Support.alignmentDelta(@intFromPtr(outAddr), alignment) == 0);
-    if (inAligned & outAligned != 1) {
-        @branchHint(.cold);
-        return Fiber.Trap.BadAlignment;
-    }
-
-    @as(*T, @ptrCast(@alignCast(outAddr))).* = @as(*const T, @ptrCast(@alignCast(inAddr))).*;
+pub inline fn writeLocal(fiber: *Fiber, r: Bytecode.RegisterIndex, value: anytype) void {
+    return fiber.writeReg(fiber.stack.call.ptr - 1, r, value);
 }
 
-pub fn clear(fiber: *Fiber, comptime T: type, x: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) void {
-    const bytes: [*]u8 = fiber.addr(x);
-
-    @as(*T, @ptrCast(@alignCast(bytes))).* = 0;
+pub inline fn addrLocal(fiber: *Fiber, r: Bytecode.RegisterIndex) [*]u8 {
+    return fiber.addrReg(fiber.stack.call.ptr - 1, r);
 }
 
-pub fn swap(fiber: *Fiber, comptime T: type, x: Bytecode.Operand, y: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) void {
-    const xBytes: [*]u8 = fiber.addr(x);
-    const yBytes: [*]u8 = fiber.addr(y);
 
-    const temp: T = @as(*T, @ptrCast(@alignCast(xBytes))).*;
-
-    @as(*T, @ptrCast(@alignCast(xBytes))).* = @as(*T, @ptrCast(@alignCast(yBytes))).*;
-    @as(*T, @ptrCast(@alignCast(yBytes))).* = temp;
+pub inline fn readUpvalue(fiber: *Fiber, comptime T: type, u: Bytecode.UpvalueIndex) T {
+    const evidence = fiber.getEvidence(fiber.stack.call.ptr - 1);
+    return fiber.readReg(T, evidence.call, u);
 }
 
-pub fn copy(fiber: *Fiber, comptime T: type, x: Bytecode.Operand, y: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) void {
-    const xBytes: [*]const u8 = fiber.addr(x);
-    const yBytes: [*]u8 = fiber.addr(y);
-
-    @as(*T, @ptrCast(@alignCast(yBytes))).* = @as(*const T, @ptrCast(@alignCast(xBytes))).*;
+pub inline fn writeUpvalue(fiber: *Fiber, u: Bytecode.UpvalueIndex, value: anytype) void {
+    const evidence = fiber.getEvidence(fiber.stack.call.ptr - 1);
+    return fiber.writeReg(evidence.call, u, value);
 }
 
-pub inline fn read(fiber: *Fiber, comptime T: type, operand: Bytecode.Operand) T {
-    return fiber.readImpl(T, fiber.stack.call.ptr -| 1, operand);
+pub inline fn addrUpvalue(fiber: *Fiber, u: Bytecode.UpvalueIndex) [*]u8 {
+    const evidence = fiber.getEvidence(fiber.stack.call.ptr - 1);
+    return fiber.addrReg(evidence.call, u);
 }
 
-pub inline fn write(fiber: *Fiber, operand: Bytecode.Operand, value: anytype) void {
-    return fiber.writeImpl(fiber.stack.call.ptr -| 1, operand, value);
+
+pub fn addrGlobal(fiber: *Fiber, g: Bytecode.GlobalIndex) callconv(Config.INLINING_CALL_CONV) [*]u8 {
+    const global = &fiber.program.globals.values[g];
+
+    return @ptrCast(&fiber.program.globals.memory[global.offset]);
 }
 
-pub inline fn addr(fiber: *Fiber, operand: Bytecode.Operand) [*]u8 {
-    return fiber.addrImpl(fiber.stack.call.ptr -| 1, operand);
-}
-
-pub inline fn readImpl(fiber: *Fiber, comptime T: type, framePtr: CallStack.Ptr, operand: Bytecode.Operand) T {
-    switch (operand.kind) {
-        .global => return fiber.readGlobal(T, operand.data.global),
-        .upvalue => return fiber.readReg(T, fiber.getRegisterData(.upvalue, framePtr), operand.data.register),
-        .local => return fiber.readReg(T, fiber.getRegisterData(.local, framePtr), operand.data.register),
-    }
-}
-
-pub inline fn writeImpl(fiber: *Fiber, framePtr: CallStack.Ptr, operand: Bytecode.Operand, value: anytype) void {
-    switch (operand.kind) {
-        .global => return fiber.writeGlobal(operand.data.global, value),
-        .upvalue => return fiber.writeReg(fiber.getRegisterData(.upvalue, framePtr), operand.data.register, value),
-        .local => return fiber.writeReg(fiber.getRegisterData(.local, framePtr), operand.data.register, value),
-    }
-}
-
-pub inline fn addrImpl(fiber: *Fiber, framePtr: CallStack.Ptr, operand: Bytecode.Operand) [*]u8 {
-    switch (operand.kind) {
-        .global => return fiber.addrGlobal(operand.data.global),
-        .upvalue => return fiber.addrReg(fiber.getRegisterData(.upvalue, framePtr), operand.data.register),
-        .local => return fiber.addrReg(fiber.getRegisterData(.local, framePtr), operand.data.register),
-    }
-}
-
-pub fn addrReg(fiber: *Fiber, regData: RegisterData, operand: Bytecode.RegisterOperand) callconv(Config.INLINING_CALL_CONV) [*]u8 {
-    const base = getRegisterOffsetUnchecked(regData, operand.register);
-
-    return @ptrCast(fiber.stack.data.getPtrUnchecked(base + operand.offset));
-}
-
-pub fn readGlobal(fiber: *Fiber, comptime T: type, operand: Bytecode.GlobalOperand) callconv(Config.INLINING_CALL_CONV) T {
-    const bytes = addrGlobal(fiber, operand);
+pub fn readGlobal(fiber: *Fiber, comptime T: type, g: Bytecode.GlobalIndex) callconv(Config.INLINING_CALL_CONV) T {
+    const bytes = fiber.addrGlobal(g);
 
     return @as(*T, @ptrCast(@alignCast(bytes))).*;
 }
 
-pub fn readReg(fiber: *Fiber, comptime T: type, regData: Fiber.RegisterData, operand: Bytecode.RegisterOperand) callconv(Config.INLINING_CALL_CONV) T {
-    const base = getRegisterOffsetUnchecked(regData, operand.register);
-
-    const bytes = fiber.stack.data.getPtrUnchecked(base + operand.offset);
-
-    return @as(*T, @ptrCast(@alignCast(bytes))).*;
-}
-
-pub fn writeGlobal(fiber: *Fiber, operand: Bytecode.GlobalOperand, value: anytype) callconv(Config.INLINING_CALL_CONV) void {
+pub fn writeGlobal(fiber: *Fiber, g: Bytecode.GlobalIndex, value: anytype) callconv(Config.INLINING_CALL_CONV) void {
     const T = @TypeOf(value);
-    const mem = addrGlobal(fiber, operand);
-
-    @as(*T, @ptrCast(@alignCast(mem))).* = value;
-}
-
-pub fn writeReg(fiber: *Fiber, regData: Fiber.RegisterData, operand: Bytecode.RegisterOperand, value: anytype) callconv(Config.INLINING_CALL_CONV) void {
-    const T = @TypeOf(value);
-
-    const base = getRegisterOffsetUnchecked(regData, operand.register);
-
-    const bytes = fiber.stack.data.getPtrUnchecked(base + operand.offset);
+    const bytes = fiber.addrGlobal(g);
 
     @as(*T, @ptrCast(@alignCast(bytes))).* = value;
 }
 
-pub fn addrGlobal(fiber: *Fiber, operand: Bytecode.GlobalOperand) callconv(Config.INLINING_CALL_CONV) [*]u8 {
-    const global = &fiber.program.globals.values[operand.index];
 
-    return @ptrCast(&fiber.program.globals.memory[global.offset + operand.offset]);
+pub fn addrReg(fiber: *Fiber, framePtr: CallStack.Ptr, r: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) [*]u8 {
+    const offset = fiber.getRegisterOffset(framePtr, r);
+
+    return @ptrCast(fiber.stack.data.getPtrUnchecked(offset));
 }
 
-pub fn getRegisterOffset(regData: Fiber.RegisterData, register: Bytecode.Register) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!Fiber.DataStack.Ptr {
-    const regNumber: Bytecode.RegisterIndex = @intFromEnum(register);
+pub fn readReg(fiber: *Fiber, comptime T: type, framePtr: CallStack.Ptr, r: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) T {
+    const offset = fiber.getRegisterOffset(framePtr, r);
 
-    if (regNumber < regData.layout.num_registers) {
-        return regData.call.stack.base + regData.layout.registerInfo()[regNumber].offset;
-    } else {
-        @branchHint(.cold);
-        return Fiber.Trap.OutOfBounds;
-    }
+    const bytes = fiber.stack.data.getPtrUnchecked(offset);
+
+    return @as(*T, @ptrCast(@alignCast(bytes))).*;
 }
 
-pub fn getRegisterOffsetUnchecked(regData: Fiber.RegisterData, register: Bytecode.Register) callconv(Config.INLINING_CALL_CONV) Fiber.DataStack.Ptr {
-    const regNumber: Bytecode.RegisterIndex = @intFromEnum(register);
-    return regData.call.stack.base + regData.layout.registerInfo()[regNumber].offset;
+pub fn writeReg(fiber: *Fiber, framePtr: CallStack.Ptr, r: Bytecode.RegisterIndex, value: anytype) callconv(Config.INLINING_CALL_CONV) void {
+    const T = @TypeOf(value);
+
+    const offset = fiber.getRegisterOffset(framePtr, r);
+
+    const bytes = fiber.stack.data.getPtrUnchecked(offset);
+
+    @as(*T, @ptrCast(@alignCast(bytes))).* = value;
 }
 
-pub fn cast(fiber: *Fiber, comptime X: type, comptime Y: type, xOp: Bytecode.Operand, yOp: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) void {
-    const x = fiber.read(X, xOp);
 
-    const xKind = @as(std.builtin.TypeId, @typeInfo(X));
-    const yKind = @as(std.builtin.TypeId, @typeInfo(Y));
-
-    const y =
-        if (comptime xKind == yKind) (
-            if (comptime xKind == .int) @call(Config.INLINING_CALL_MOD, ops.intCast, .{Y, x})
-            else @call(Config.INLINING_CALL_MOD, ops.floatCast, .{Y, x})
-        ) else @call(Config.INLINING_CALL_MOD, ops.typeCast, .{Y, x});
-
-    fiber.write(yOp, y);
+pub inline fn getRegisterOffset(fiber: *Fiber, framePtr: CallStack.Ptr, register: Bytecode.RegisterIndex) Fiber.DataStack.Ptr {
+    const callFrame = fiber.stack.call.getPtrUnchecked(framePtr);
+    return callFrame.stack + (register * 8);
 }
 
-pub fn unary(fiber: *Fiber, comptime T: type, comptime op: []const u8, xOp: Bytecode.Operand, yOp: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) void {
-    const x = fiber.read(T, xOp);
-
-    const y = @call(Config.INLINING_CALL_MOD, @field(ops, op), .{x});
-
-    fiber.write(yOp, y);
+pub inline fn getEvidence(fiber: *Fiber, framePtr: CallStack.Ptr) *Evidence {
+    const callFrame = fiber.stack.call.getPtrUnchecked(framePtr);
+    return fiber.evidence[callFrame.evidence.index].getPtrUnchecked(callFrame.evidence.offset);
 }
-
-pub fn binary(fiber: *Fiber, comptime T: type, comptime op: []const u8, xOp: Bytecode.Operand, yOp: Bytecode.Operand, zOp: Bytecode.Operand) callconv(Config.INLINING_CALL_CONV) void {
-    const x = fiber.read(T, xOp);
-    const y = fiber.read(T, yOp);
-
-    const z = @call(Config.INLINING_CALL_MOD, @field(ops, op), .{x, y});
-
-    fiber.write(zOp, z);
-}
-
-const ops = struct {
-    fn intCast(comptime T: type, x: anytype) T {
-        const U = @TypeOf(x);
-
-        if (comptime @typeInfo(U).int.bits > @typeInfo(T).int.bits) {
-            return @truncate(x);
-        } else {
-            return x;
-        }
-    }
-
-    fn floatCast(comptime T: type, x: anytype) T {
-        return @floatCast(x);
-    }
-
-    fn typeCast(comptime T: type, x: anytype) T {
-        const U = @TypeOf(x);
-
-        const tagT = @as(std.builtin.TypeId, @typeInfo(T));
-        const tagU = @as(std.builtin.TypeId, @typeInfo(U));
-
-        if (comptime tagT == .int and tagU == .float) {
-            return @intFromFloat(x);
-        } else if (comptime tagT == .float and tagU == .int) {
-            return @floatFromInt(x);
-        } else unreachable;
-    }
-
-    fn neg(a: anytype) @TypeOf(a) {
-        switch (@typeInfo(@TypeOf(a))) {
-            .int => return -% a,
-            else => return -a,
-        }
-    }
-
-    fn add(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-        switch (@typeInfo(@TypeOf(a))) {
-            .int => return a +% b,
-            else => return a + b,
-        }
-    }
-
-    fn sub(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-        switch (@typeInfo(@TypeOf(a))) {
-            .int => return a -% b,
-            else => return a - b,
-        }
-    }
-
-    fn mul(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-        switch (@typeInfo(@TypeOf(a))) {
-            .int => return a *% b,
-            else => return a * b,
-        }
-    }
-
-    fn div(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-        switch (@typeInfo(@TypeOf(a))) {
-            .int => return @divTrunc(a, b),
-            else => return a / b,
-        }
-    }
-
-    fn rem(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-        return @rem(a, b);
-    }
-
-    fn bitnot(a: anytype) @TypeOf(a) {
-        return ~a;
-    }
-
-    fn not(a: anytype) @TypeOf(a) {
-        return !a;
-    }
-
-    fn bitand(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-        return a & b;
-    }
-
-    fn @"and"(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-        return a and b;
-    }
-
-    fn bitor(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-        return a | b;
-    }
-
-    fn @"or"(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-        return a or b;
-    }
-
-    fn bitxor(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-        return a ^ b;
-    }
-
-    fn shiftl(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-        const T = @TypeOf(a);
-        const bits = @bitSizeOf(T);
-        const S = std.meta.Int(.unsigned, std.math.log2(bits));
-        const U = std.meta.Int(.unsigned, bits);
-        const bu: U = @bitCast(b);
-        const bs: U = @rem(std.math.maxInt(S), bu);
-        return a << @truncate(bs);
-    }
-
-    fn shiftr(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-        const T = @TypeOf(a);
-        const bits = @bitSizeOf(T);
-        const S = std.meta.Int(.unsigned, std.math.log2(bits));
-        const U = std.meta.Int(.unsigned, bits);
-        const bu: U = @bitCast(b);
-        const bs: U = @rem(std.math.maxInt(S), bu);
-        return a >> @truncate(bs);
-    }
-
-    fn eq(a: anytype, b: @TypeOf(a)) bool {
-        return a == b;
-    }
-
-    fn ne(a: anytype, b: @TypeOf(a)) bool {
-        return a != b;
-    }
-
-    fn lt(a: anytype, b: @TypeOf(a)) bool {
-        return a < b;
-    }
-
-    fn gt(a: anytype, b: @TypeOf(a)) bool {
-        return a > b;
-    }
-
-    fn le(a: anytype, b: @TypeOf(a)) bool {
-        return a <= b;
-    }
-
-    fn ge(a: anytype, b: @TypeOf(a)) bool {
-        return a >= b;
-    }
-};
 
 
 pub fn dumpGlobals(fiber: *Fiber, writer: anytype) !void {
@@ -815,16 +456,19 @@ pub fn dumpGlobals(fiber: *Fiber, writer: anytype) !void {
     }
 }
 
-pub fn dumpRegisters(fiber: *Fiber, registerData: Fiber.RegisterData, writer: anytype) !void {
+pub fn dumpRegisters(fiber: *Fiber, framePtr: CallStack.Ptr, writer: anytype) !void {
     try writer.writeAll("Registers:\n");
 
-    for (0..registerData.layout.num_registers) |i| {
-        const typeId = registerData.layout.register_types[i];
-        const layout = registerData.layout.register_layouts[i];
+    const callFrame = fiber.stack.call.getPtrUnchecked(framePtr);
+    const details = fiber.program.layout_details[callFrame.function.index];
+
+    for (0..callFrame.function.layout_table.num_registers) |i| {
+        const typeId = details.register_types[i];
+        const layout = details.register_layouts[i];
         const reg: Bytecode.Register = @enumFromInt(i);
         try writer.print("\t{s} (", .{ @tagName(reg) });
         try Bytecode.printType(fiber.program.types, typeId, writer);
-        const offset = try getRegisterOffset(registerData, reg);
+        const offset = try fiber.getRegisterOffset(framePtr, reg);
         try writer.print(") at {x:0>6}:\n\t\t", .{ offset });
 
         const valueBase = try fiber.stack.data.getPtr(offset);

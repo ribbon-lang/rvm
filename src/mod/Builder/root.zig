@@ -79,12 +79,12 @@ pub const Function = union(enum) {
         index: Bytecode.FunctionIndex,
 
         pub fn assemble(self: *const Foreign, foreignId: Bytecode.ForeignId, allocator: std.mem.Allocator) Error!struct {Bytecode.Function, Bytecode.LayoutDetails} {
-            const layout_table, const layout_details = try self.generateLayouts(allocator);
+            const num_registers, const layout_details = try self.generateLayouts(allocator);
 
             return .{
                 Bytecode.Function {
                     .index = self.index,
-                    .layout_table = layout_table,
+                    .num_registers = num_registers,
                     .value = .{ .foreign = foreignId },
                 },
 
@@ -93,7 +93,7 @@ pub const Function = union(enum) {
         }
 
 
-        pub fn generateLayouts(self: *const Foreign, allocator: std.mem.Allocator) Error!struct {Bytecode.LayoutTable, Bytecode.LayoutDetails} {
+        pub fn generateLayouts(self: *const Foreign, allocator: std.mem.Allocator) Error!struct {u16, Bytecode.LayoutDetails} {
             const typeInfo = (try self.parent.getType(self.type)).function;
 
             const register_types = try allocator.alloc(Bytecode.TypeIndex, typeInfo.params.len);
@@ -104,6 +104,12 @@ pub const Function = union(enum) {
 
             const register_info = try allocator.alloc(Bytecode.LayoutTable.RegisterInfo, typeInfo.params.len);
             errdefer allocator.free(register_info);
+
+            const block_types = try allocator.alloc(Bytecode.TypeIndex, 0);
+            errdefer allocator.free(block_types);
+
+            const block_layouts = try allocator.alloc(Bytecode.Layout, 0);
+            errdefer allocator.free(block_layouts);
 
             var size: Bytecode.LayoutTableSize = 0;
             var alignment: Bytecode.ValueAlignment = 0;
@@ -128,28 +134,21 @@ pub const Function = union(enum) {
             const return_layout = try self.parent.getTypeLayout(typeInfo.result);
 
             return .{
-                Bytecode.LayoutTable {
-                    .register_info = @truncate(@intFromPtr(register_info.ptr)),
-
-                    .term_size = term_layout.size,
-                    .return_size = return_layout.size,
-
-                    .size = size,
-                    .alignment = alignment,
-
-                    .num_registers = @intCast(typeInfo.params.len),
-                },
+                @intCast(typeInfo.params.len),
                 Bytecode.LayoutDetails {
                     .term_type = typeInfo.term,
                     .return_type = typeInfo.result,
                     .register_types = register_types.ptr,
+                    .block_types = block_types.ptr,
 
                     .term_layout = term_layout,
                     .return_layout = return_layout,
                     .register_layouts = register_layouts.ptr,
+                    .block_layouts = block_layouts.ptr,
 
                     .num_arguments = @intCast(typeInfo.params.len),
                     .num_registers = @intCast(typeInfo.params.len),
+                    .num_blocks = 0,
                 }
             };
         }
@@ -220,10 +219,12 @@ pub fn assemble(self: *const Builder, allocator: std.mem.Allocator) Error!Byteco
     const globals = try self.generateGlobalSet(allocator);
     errdefer globals.deinit(allocator);
 
-    const functions = try self.generateFunctionList(allocator);
+    const functions, const layout_details = try self.generateFunctionList(allocator);
     errdefer {
         for (functions) |f| f.deinit(allocator);
+        for (layout_details) |d| d.deinit(allocator);
         allocator.free(functions);
+        allocator.free(layout_details);
     }
 
     const handler_sets = try self.generateHandlerSetList(allocator);
@@ -236,6 +237,7 @@ pub fn assemble(self: *const Builder, allocator: std.mem.Allocator) Error!Byteco
         .types = types,
         .globals = globals,
         .functions = functions,
+        .layout_details = layout_details,
         .handler_sets = handler_sets,
         .main = self.main_function,
     };
@@ -292,24 +294,26 @@ pub fn generateGlobalSet(self: *const Builder, allocator: std.mem.Allocator) Err
     };
 }
 
-pub fn generateFunctionList(self: *const Builder, allocator: std.mem.Allocator) Error![]Bytecode.Function {
+pub fn generateFunctionList(self: *const Builder, allocator: std.mem.Allocator) Error!struct {[]Bytecode.Function, []Bytecode.LayoutDetails} {
     const functions = try allocator.alloc(Bytecode.Function, self.functions.items.len);
+    const details = try allocator.alloc(Bytecode.LayoutDetails, self.functions.items.len);
 
     var i: usize = 0;
     errdefer {
         for (0..i) |j| functions[j].deinit(allocator);
+        for (0..i) |j| details[j].deinit(allocator);
         allocator.free(functions);
+        allocator.free(details);
     }
 
     while (i < self.functions.items.len) : (i += 1) {
         const func, const layout_details = try self.functions.items[i].assemble(allocator);
-        functions[i] = func;
 
-        // TODO: store this in the bytecode program
-        _ = layout_details;
+        functions[i] = func;
+        details[i] = layout_details;
     }
 
-    return functions;
+    return .{functions, details};
 }
 
 pub fn generateHandlerSetList(self: *const Builder, allocator: std.mem.Allocator) Error![]Bytecode.HandlerSet {
@@ -437,9 +441,9 @@ pub fn getGlobal(self: *const Builder, index: Bytecode.GlobalIndex) Error!Global
     return self.globals.items[index];
 }
 
-pub fn getGlobalType(self: *const Builder, operand: Bytecode.GlobalOperand) Error!Bytecode.TypeIndex {
-    const global = try self.getGlobal(operand.index);
-    return self.getOffsetType(global.type, operand.offset);
+pub fn getGlobalType(self: *const Builder, g: Bytecode.GlobalIndex) Error!Bytecode.TypeIndex {
+    const global = try self.getGlobal(g);
+    return global.type;
 }
 
 pub fn globalBytes(self: *Builder, t: Bytecode.TypeIndex, initial: []u8) Error!Bytecode.GlobalIndex {

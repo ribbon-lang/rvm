@@ -389,9 +389,6 @@ fn formatParams(comptime T: type) []const u8 {
 fn formatType(comptime T: type) []const u8 {
     switch (T) {
         u16 => return "I",
-        Bytecode.Register => return "R",
-        Bytecode.MemorySize => return "M",
-        Bytecode.Operand => return "O",
         else => switch (@typeInfo(T)) {
             .pointer => |info| if (info.size == .Slice) return "[" ++ formatType(info.child) ++ "]",
             else => {}
@@ -491,7 +488,13 @@ fn longName(comptime name: [:0]const u8) []const u8 {
         else if (strCmp(name, "f_ext")) "floating point extension"
         else if (strCmp(name, "f_trunc")) "floating point truncation"
 
-        else if (strCmp(name, "addr")) "address extraction of operand"
+        else if (strCmp(name, "addr_local")) "address extraction of local register"
+        else if (strCmp(name, "addr_global")) "address extraction of global variable"
+        else if (strCmp(name, "addr_upvalue")) "address extraction of upvalue register"
+        else if (strCmp(name, "read_global")) "value extraction of global variable"
+        else if (strCmp(name, "write_global")) "value replacement of global variable"
+        else if (strCmp(name, "read_upvalue")) "value extraction of upvalue register"
+        else if (strCmp(name, "write_upvalue")) "value replacement of upvalue register"
         else if (strCmp(name, "load")) "read from address"
         else if (strCmp(name, "store")) "write to address"
         else if (strCmp(name, "copy")) "value copy"

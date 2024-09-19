@@ -6,12 +6,11 @@ const TypeUtils = @import("ZigTypeUtils");
 const IO = @import("IO");
 
 const Bytecode = @import("root.zig");
-const Operand = Bytecode.Operand;
-const Register = Bytecode.Register;
-const RegisterLocalOffset = Bytecode.RegisterLocalOffset;
+const GlobalIndex = Bytecode.GlobalIndex;
+const RegisterIndex = Bytecode.RegisterIndex;
+const UpvalueIndex = Bytecode.UpvalueIndex;
 const BlockIndex = Bytecode.BlockIndex;
 const EvidenceIndex = Bytecode.EvidenceIndex;
-const ConstantIndex = Bytecode.ConstantIndex;
 const FunctionIndex = Bytecode.FunctionIndex;
 const HandlerSetIndex = Bytecode.HandlerSetIndex;
 
@@ -219,13 +218,43 @@ pub const InstructionPrototypes = .{
     },
 
     .@"Memory" = .{
-        .{ "addr"
+        .{ "addr_local"
          , \\copy the address of `x` into `y`
          , TwoOperand
+        },
+
+        .{ "addr_global"
+         , \\copy the address of the global designated by `g` into `x`
+         , GlobalOperand
+        },
+
+        .{ "addr_upvalue"
+         , \\copy the address of the upvalue designated by `u` into `x`
+         , UpvalueOperand
         },
     },
 
     .@"Memory _bits" = .{
+        .{ "read_global"
+         , \\load *n* bits of the global designated by `g` into `x`
+         , GlobalOperand
+        },
+
+        .{ "write_global"
+         , \\store *n* bits of the register desiganted by `x` into the global `g`
+         , GlobalOperand
+        },
+
+        .{ "read_upvalue"
+         , \\load *n* bits of the upvalue designated by `g` into `x`
+         , UpvalueOperand
+        },
+
+        .{ "write_upvalue"
+         , \\store *n* bits of the register desiganted by `x` into the upvalue `g`
+         , UpvalueOperand
+        },
+
         .{ "load"
          , \\copy *n* aligned bits from the address stored in `x` into `y`
            \\the address must be located in the operand stack or global memory
@@ -448,22 +477,32 @@ pub const InstructionPrototypes = .{
 };
 
 pub const OneOperand = struct {
-    x: Operand,
+    x: RegisterIndex,
 };
 
 pub const YieldOperand = struct {
-    y: Operand,
+    y: RegisterIndex,
 };
 
 pub const TwoOperand = struct {
-    x: Operand,
-    y: Operand,
+    x: RegisterIndex,
+    y: RegisterIndex,
 };
 
 pub const ThreeOperand = struct {
-    x: Operand,
-    y: Operand,
-    z: Operand,
+    x: RegisterIndex,
+    y: RegisterIndex,
+    z: RegisterIndex,
+};
+
+pub const GlobalOperand = struct {
+    g: GlobalIndex,
+    x: RegisterIndex,
+};
+
+pub const UpvalueOperand = struct {
+    u: UpvalueIndex,
+    x: RegisterIndex,
 };
 
 pub const Block = struct {
@@ -472,22 +511,22 @@ pub const Block = struct {
 
 pub const BlockOperand = struct {
     b: BlockIndex,
-    x: Operand,
+    x: RegisterIndex,
 };
 
 pub const StaticFunction = struct {
     f: FunctionIndex,
-    as: []const Operand,
+    as: []const RegisterIndex,
 };
 
 pub const DynFunction = struct {
-    f: Operand,
-    as: []const Operand,
+    f: RegisterIndex,
+    as: []const RegisterIndex,
 };
 
 pub const Prompt = struct {
     e: EvidenceIndex,
-    as: []const Operand,
+    as: []const RegisterIndex,
 };
 
 pub const With = struct {
@@ -498,11 +537,11 @@ pub const With = struct {
 pub const Branch = struct {
     t: BlockIndex,
     e: BlockIndex,
-    x: Operand,
+    x: RegisterIndex,
 };
 
 pub const Case = struct {
-    x: Operand,
+    x: RegisterIndex,
     bs: []const BlockIndex,
 };
 

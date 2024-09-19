@@ -39,31 +39,40 @@ pub inline fn relIp(self: *const Decoder, offset: usize) usize {
     return self.ip() + offset;
 }
 
-pub fn decodeByte(self: *const Decoder) Error!u8 {
-    return self.decodeByteInline();
+pub inline fn decodeByte(self: *const Decoder) Error!u8 {
+    return @call(.never_inline, decodeByteImpl, .{self, });
 }
 
-pub fn decodeAll(self: *const Decoder, count: usize) Error![]const u8 {
-    return self.decodeAllInline(count);
+pub inline fn decodeAll(self: *const Decoder, count: usize) Error![]const u8 {
+    return @call(.never_inline, decodeAllImpl, .{self, count});
 }
 
-pub fn decodeRaw(self: *const Decoder, comptime T: type) Error!T {
-    return self.decodeRawInline(T);
+pub inline fn decodeRaw(self: *const Decoder, comptime T: type) Error!T {
+    return @call(.never_inline, decodeRawImpl, .{self, T});
 }
 
-pub fn pad(self: *const Decoder, alignment: usize) Error!void {
-    return self.padInline(alignment);
+pub inline fn pad(self: *const Decoder, alignment: usize) Error!void {
+    return @call(.never_inline, padImpl, .{self, alignment});
 }
 
-pub fn decode(self: *const Decoder, comptime T: type) Error!T {
-    return self.decodeInline(T);
+pub inline fn decode(self: *const Decoder, comptime T: type) Error!T {
+    return @call(.never_inline, decodeImpl, .{self, T});
 }
 
-pub fn decodeUnchecked(self: *const Decoder, comptime T: type) T {
-    return self.decodeInlineUnchecked(T);
+pub inline fn decodeRawUnchecked(self: *const Decoder, comptime T: type) T {
+    return @call(.never_inline, decodeRawUncheckedImpl, .{self, T});
 }
 
-pub inline fn decodeByteInline(self: *const Decoder) Error!u8 {
+pub inline fn decodeUnchecked(self: *const Decoder, comptime T: type) T {
+    return @call(.never_inline, decodeUncheckedImpl, .{self, T});
+}
+
+pub inline fn grabSliceUnchecked(self: *const Decoder, comptime T: type, size: usize) []const align(@alignOf(IO.SizeT)) T {
+    return @call(.never_inline, grabSliceUncheckedImpl, .{self, T, size});
+}
+
+
+pub fn decodeByteImpl(self: *const Decoder) Error!u8 {
     if (self.isEof()) {
         @branchHint(.cold);
         return Error.OutOfBounds;
@@ -74,29 +83,31 @@ pub inline fn decodeByteInline(self: *const Decoder) Error!u8 {
     return value;
 }
 
-pub inline fn decodeAllInline(self: *const Decoder, count: usize) Error![]const u8 {
+pub fn decodeAllImpl(self: *const Decoder, count: usize) Error![]const u8 {
     if (!self.inbounds(count)) {
         @branchHint(.cold);
         return Error.OutOfBounds;
     }
 
-    return self.decodeAllInlineUnchecked(count);
+    return @call(.always_inline, decodeAllUncheckedImpl, .{self, count});
 }
 
-pub inline fn decodeAllInlineUnchecked(self: *const Decoder, count: usize) []const u8 {
+pub fn decodeAllUncheckedImpl(self: *const Decoder, count: usize) []const u8 {
     const start = self.ip();
     self.offset.* += @truncate(count);
     return self.memory[start..self.ip()];
 }
 
-pub inline fn decodeRawInline(self: *const Decoder, comptime T: type) Error!T {
-    const bytes = try self.decodeAllInline(@sizeOf(T));
-    var out: T = undefined;
-    @memcpy(@as([*]u8, @ptrCast(&out)), bytes);
-    return out;
+pub fn decodeRawImpl(self: *const Decoder, comptime T: type) Error!T {
+    if (!self.inbounds(@sizeOf(T))) {
+        @branchHint(.cold);
+        return Error.OutOfBounds;
+    }
+
+    return @call(.always_inline, decodeRawUncheckedImpl, .{self, T});
 }
 
-pub inline fn decodeRawInlineUnchecked(self: *const Decoder, comptime T: type) T {
+pub fn decodeRawUncheckedImpl(self: *const Decoder, comptime T: type) T {
     const start = self.ip();
 
     self.offset.* += @truncate(@sizeOf(T));
@@ -104,7 +115,15 @@ pub inline fn decodeRawInlineUnchecked(self: *const Decoder, comptime T: type) T
     return @as(*const align(@alignOf(IO.SizeT)) T, @alignCast(@ptrCast(&self.memory[start]))).*;
 }
 
-pub inline fn padInline(self: *const Decoder, alignment: usize) Error!void {
+pub fn grabSliceUncheckedImpl(self: *const Decoder, comptime T: type, size: usize) []const align(@alignOf(IO.SizeT)) T {
+    const start = self.ip();
+
+    self.offset.* += @truncate(@sizeOf(T) * size);
+
+    return @as([*]const align(@alignOf(IO.SizeT)) T, @alignCast(@ptrCast(&self.memory[start])))[0..size];
+}
+
+pub fn padImpl(self: *const Decoder, alignment: usize) Error!void {
     const addr = @intFromPtr(self.memory.ptr) + self.ip();
     const padding = Support.alignmentDelta(addr, alignment);
 
@@ -116,15 +135,15 @@ pub inline fn padInline(self: *const Decoder, alignment: usize) Error!void {
     self.offset.* += @truncate(padding);
 }
 
-pub inline fn padInlineUnchecked(self: *const Decoder, alignment: usize) void {
+pub fn padUncheckedImpl(self: *const Decoder, alignment: usize) void {
     const addr = @intFromPtr(self.memory.ptr) + self.ip();
     const padding = Support.alignmentDelta(addr, alignment);
 
     self.offset.* += @truncate(padding);
 }
 
-pub inline fn decodeInline(self: *const Decoder, comptime T: type) Error!T {
-    @setEvalBranchQuota(10_000);
+pub fn decodeImpl(self: *const Decoder, comptime T: type) Error!T {
+    @setEvalBranchQuota(25_000);
 
     if (comptime T == void) return {};
 
@@ -133,15 +152,15 @@ pub inline fn decodeInline(self: *const Decoder, comptime T: type) Error!T {
     }
 
     if (comptime Endian.IntType(T)) |I| {
-        const int = try self.decodeRawInline(I);
+        const int = try self.decodeRawImpl(I);
         return Endian.bitCastFrom(T, int);
     } else {
         return self.decodeStructure(T);
     }
 }
 
-pub inline fn decodeInlineUnchecked(self: *const Decoder, comptime T: type) T {
-    @setEvalBranchQuota(10_000);
+pub fn decodeUncheckedImpl(self: *const Decoder, comptime T: type) T {
+    @setEvalBranchQuota(25_000);
 
     if (comptime T == void) return {};
 
@@ -150,31 +169,31 @@ pub inline fn decodeInlineUnchecked(self: *const Decoder, comptime T: type) T {
     }
 
     if (comptime Endian.IntType(T)) |I| {
-        const int = self.decodeRawInlineUnchecked(I);
+        const int = self.decodeRawUncheckedImpl(I);
         return Endian.bitCastFrom(T, int);
     } else {
         return self.decodeStructureUnchecked(T);
     }
 }
 
-inline fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
+fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
     switch (@typeInfo(T)) {
         .@"struct" => |info| {
             var out: T = undefined;
 
             inline for (info.fields) |field| {
-                @field(out, field.name) = try self.decodeInline(field.type);
+                @field(out, field.name) = try self.decodeImpl(field.type);
             }
 
             return out;
         },
 
         .@"union" => |info| if (info.tag_type) |TT| {
-            const tag = try self.decodeInline(TT);
+            const tag = try self.decodeImpl(TT);
 
             inline for (info.fields) |field| {
                 if (tag == @field(TT, field.name)) {
-                    const fieldValue = try self.decodeInline(field.type);
+                    const fieldValue = try self.decodeImpl(field.type);
                     return @unionInit(T, field.name, fieldValue);
                 }
             }
@@ -189,11 +208,11 @@ inline fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
 
             var out: [info.len:sentinel]info.child = undefined;
 
-            for (0..info.len) |i| {
-                out[i] = try self.decodeInline(info.child);
+            inline for (0..info.len) |i| {
+                out[i] = try self.decodeImpl(info.child);
             }
 
-            const lastValue = try self.decodeInline(info.child);
+            const lastValue = try self.decodeImpl(info.child);
             if (lastValue != sentinel) {
                 @branchHint(.cold);
                 return Error.BadEncoding;
@@ -205,8 +224,8 @@ inline fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
         } else {
             var out: [info.len]info.child = undefined;
 
-            for (0..info.len) |i| {
-                out[i] = try self.decodeInline(info.child);
+            inline for (0..info.len) |i| {
+                out[i] = try self.decodeImpl(info.child);
             }
 
             return out;
@@ -238,7 +257,7 @@ inline fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
                     const ptr: T = @alignCast(@ptrCast(&self.memory[self.ip()]));
 
                     while (true) {
-                        const elemValue = try self.decodeInline(info.child);
+                        const elemValue = try self.decodeImpl(info.child);
                         if (elemValue == sentinel) break;
                     }
 
@@ -248,7 +267,7 @@ inline fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
                 }
             },
             .Slice => {
-                const len = try self.decodeInline(IO.SizeT);
+                const len = try self.decodeImpl(IO.SizeT);
 
                 // try self.padInline(@alignOf(info.child));
 
@@ -267,7 +286,7 @@ inline fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
 
                 if (info.sentinel) |sPtr| {
                     const sentinel = @as(*const info.child, @ptrCast(sPtr)).*;
-                    const elemValue = try self.decodeInline(info.child);
+                    const elemValue = try self.decodeImpl(info.child);
                     if (elemValue != sentinel) {
                         @branchHint(.cold);
                         return Error.BadEncoding;
@@ -282,9 +301,9 @@ inline fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
         },
 
         .optional => |info| {
-            const discrimValue = try self.decodeInline(bool);
+            const discrimValue = try self.decodeImpl(bool);
             if (discrimValue) {
-                return try self.decodeInline(info.child);
+                return try self.decodeImpl(info.child);
             } else {
                 return null;
             }
@@ -298,24 +317,24 @@ inline fn decodeStructure(self: *const Decoder, comptime T: type) Error!T {
 
 
 
-inline fn decodeStructureUnchecked(self: *const Decoder, comptime T: type) T {
+fn decodeStructureUnchecked(self: *const Decoder, comptime T: type) T {
     switch (@typeInfo(T)) {
         .@"struct" => |info| {
             var out: T = undefined;
 
             inline for (info.fields) |field| {
-                @field(out, field.name) = self.decodeInlineUnchecked(field.type);
+                @field(out, field.name) = self.decodeUncheckedImpl(field.type);
             }
 
             return out;
         },
 
         .@"union" => |info| if (info.tag_type) |TT| {
-            const tag = self.decodeInlineUnchecked(TT);
+            const tag = self.decodeUncheckedImpl(TT);
 
             inline for (info.fields) |field| {
                 if (tag == @field(TT, field.name)) {
-                    const fieldValue = self.decodeInlineUnchecked(field.type);
+                    const fieldValue = self.decodeUncheckedImpl(field.type);
                     return @unionInit(T, field.name, fieldValue);
                 }
             }
@@ -330,11 +349,11 @@ inline fn decodeStructureUnchecked(self: *const Decoder, comptime T: type) T {
 
             var out: [info.len:sentinel]info.child = undefined;
 
-            for (0..info.len) |i| {
-                out[i] = self.decodeInlineUnchecked(info.child);
+            inline for (0..info.len) |i| {
+                out[i] = self.decodeUncheckedImpl(info.child);
             }
 
-            _ = self.decodeInlineUnchecked(info.child);
+            _ = self.decodeUncheckedImpl(info.child);
 
             @as([*]info.child, &out)[info.len] = sentinel;
 
@@ -342,8 +361,8 @@ inline fn decodeStructureUnchecked(self: *const Decoder, comptime T: type) T {
         } else {
             var out: [info.len]info.child = undefined;
 
-            for (0..info.len) |i| {
-                out[i] = self.decodeInlineUnchecked(info.child);
+            inline for (0..info.len) |i| {
+                out[i] = self.decodeUncheckedImpl(info.child);
             }
 
             return out;
@@ -352,9 +371,9 @@ inline fn decodeStructureUnchecked(self: *const Decoder, comptime T: type) T {
         .pointer => @compileError("cannot decode type `" ++ @typeName(T) ++ "`; decode pointers individually"),
 
         .optional => |info| {
-            const discrimValue = self.decodeInlineUnchecked(bool);
+            const discrimValue = self.decodeUncheckedImpl(bool);
             if (discrimValue) {
-                return self.decodeInlineUnchecked(info.child);
+                return self.decodeUncheckedImpl(info.child);
             } else {
                 return null;
             }

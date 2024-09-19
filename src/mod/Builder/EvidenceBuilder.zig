@@ -34,7 +34,7 @@ pub fn init(parent: *Builder, t: Bytecode.TypeIndex, tt: Bytecode.TypeIndex, ind
     return ptr;
 }
 
-pub fn upvalue(self: *EvidenceBuilder, t: Bytecode.TypeIndex) Error!Bytecode.Register {
+pub fn upvalue(self: *EvidenceBuilder, t: Bytecode.TypeIndex) Error!Bytecode.RegisterIndex {
     const index = self.upvalue_types.items.len;
     if (index >= Bytecode.MAX_REGISTERS) {
         return Error.TooManyRegisters;
@@ -42,18 +42,15 @@ pub fn upvalue(self: *EvidenceBuilder, t: Bytecode.TypeIndex) Error!Bytecode.Reg
 
     try self.upvalue_types.append(self.parent.allocator, t);
 
-    return @enumFromInt(index);
+    return @truncate(index);
 }
 
-pub fn getUpvalueType(self: *const EvidenceBuilder, operand: Bytecode.RegisterOperand) Error!Bytecode.TypeIndex {
-    const index = @intFromEnum(operand.register);
-
-    if (index >= self.upvalue_types.items.len) {
+pub fn getUpvalueType(self: *const EvidenceBuilder, u: Bytecode.UpvalueIndex) Error!Bytecode.TypeIndex {
+    if (u >= self.upvalue_types.items.len) {
         return Error.InvalidOperand;
     }
 
-    const operandType = self.upvalue_types.items[index];
-    return self.parent.getOffsetType(operandType, operand.offset);
+    return self.upvalue_types.items[u];
 }
 
 

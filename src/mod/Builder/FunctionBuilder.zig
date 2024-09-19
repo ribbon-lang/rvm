@@ -63,18 +63,22 @@ pub fn assemble(self: *const FunctionBuilder, allocator: std.mem.Allocator) Erro
     var encoder = IO.Encoder {};
     defer encoder.deinit(allocator);
 
+    const blockTypes = try allocator.alloc(Bytecode.TypeIndex, self.blocks.items.len);
+
     for (self.blocks.items, 0..) |builder, i| {
-        blocks[i] = try builder.assemble(&encoder, allocator);
+        const block, const blockType = try builder.assemble(&encoder, allocator);
+        blocks[i] = block;
+        blockTypes[i] = blockType;
     }
 
     const instructions = try encoder.finalize(allocator);
 
-    const layout_table, const layout_details = try self.generateLayouts(allocator);
+    const num_registers, const layout_details = try self.generateLayouts(allocator, blockTypes);
 
     return .{
         Bytecode.Function {
             .index = self.index,
-            .layout_table = layout_table,
+            .num_registers = num_registers,
             .value = .{
                 .bytecode = .{
                     .blocks = blocks,
@@ -87,7 +91,7 @@ pub fn assemble(self: *const FunctionBuilder, allocator: std.mem.Allocator) Erro
     };
 }
 
-pub fn generateLayouts(self: *const FunctionBuilder, allocator: std.mem.Allocator) Error!struct { Bytecode.LayoutTable, Bytecode.LayoutDetails } {
+pub fn generateLayouts(self: *const FunctionBuilder, allocator: std.mem.Allocator, block_types: []const Bytecode.TypeIndex) Error!struct { u16, Bytecode.LayoutDetails } {
     const typeInfo = (try self.parent.getType(self.type)).function;
 
     const register_types = try allocator.alloc(Bytecode.TypeIndex, self.local_types.items.len);
@@ -98,6 +102,9 @@ pub fn generateLayouts(self: *const FunctionBuilder, allocator: std.mem.Allocato
 
     const register_info = try allocator.alloc(Bytecode.LayoutTable.RegisterInfo, self.local_types.items.len);
     errdefer allocator.free(register_info);
+
+    const block_layouts = try allocator.alloc(Bytecode.Layout, block_types.len);
+    errdefer allocator.free(block_layouts);
 
     var size: Bytecode.LayoutTableSize = 0;
     var alignment: Bytecode.ValueAlignment = 0;
@@ -118,33 +125,30 @@ pub fn generateLayouts(self: *const FunctionBuilder, allocator: std.mem.Allocato
         size += layout.size;
     }
 
+    for (block_types, 0..) |typeIndex, i| {
+        block_layouts[i] = try self.parent.getTypeLayout(typeIndex);
+    }
+
     const term_layout = try self.parent.getTypeLayout(typeInfo.term);
     const return_layout = try self.parent.getTypeLayout(typeInfo.result);
 
     return .{
-        Bytecode.LayoutTable {
-            .register_info = @truncate(@intFromPtr(register_info.ptr)),
-
-            .term_size = term_layout.size,
-            .return_size = return_layout.size,
-
-            .size = size,
-            .alignment = alignment,
-
-            .num_registers = @intCast(self.local_types.items.len),
-        },
+        @intCast(self.local_types.items.len),
 
         Bytecode.LayoutDetails {
             .term_type = typeInfo.term,
             .return_type = typeInfo.result,
             .register_types = register_types.ptr,
+            .block_types = block_types.ptr,
 
             .term_layout = term_layout,
             .return_layout = return_layout,
             .register_layouts = register_layouts.ptr,
+            .block_layouts = block_layouts.ptr,
 
             .num_arguments = @intCast(typeInfo.params.len),
             .num_registers = @intCast(self.local_types.items.len),
+            .num_blocks = @intCast(block_types.len),
         },
     };
 }
@@ -168,41 +172,30 @@ pub fn newBlock(self: *FunctionBuilder, parent: ?Bytecode.BlockIndex, kind: Bloc
     return block;
 }
 
-pub fn getOperandType(self: *const FunctionBuilder, operand: Bytecode.Operand) Error!Bytecode.TypeIndex {
-    return switch (operand.kind) {
-        .global => self.parent.getGlobalType(operand.data.global),
-        .upvalue => self.getUpvalueType(operand.data.register),
-        .local => self.getLocalType(operand.data.register),
-    };
-}
-
-pub fn getUpvalueType(self: *const FunctionBuilder, operand: Bytecode.RegisterOperand) Error!Bytecode.TypeIndex {
+pub fn getUpvalueType(self: *const FunctionBuilder, u: Bytecode.UpvalueIndex) Error!Bytecode.TypeIndex {
     if (self.evidence) |evidenceIndex| {
         const ev = try self.parent.getEvidence(evidenceIndex);
-        return ev.getUpvalueType(operand);
+        return ev.getUpvalueType(u);
     }
 
     return Error.InvalidOperand;
 }
 
-pub fn getLocalType(self: *const FunctionBuilder, operand: Bytecode.RegisterOperand) Error!Bytecode.TypeIndex {
-    const index = @intFromEnum(operand.register);
-    if (index >= self.local_types.items.len) {
+pub fn getLocalType(self: *const FunctionBuilder, l: Bytecode.RegisterIndex) Error!Bytecode.TypeIndex {
+    if (l >= self.local_types.items.len) {
         return Error.InvalidOperand;
     }
 
-    const registerType = self.local_types.items[index];
-
-    return self.parent.getOffsetType(registerType, operand.offset);
+    return self.local_types.items[l];
 }
 
-pub fn local(self: *FunctionBuilder, t: Bytecode.TypeIndex) Error!Bytecode.Register {
+pub fn local(self: *FunctionBuilder, t: Bytecode.TypeIndex) Error!Bytecode.RegisterIndex {
     const index = self.local_types.items.len;
     if (index >= Bytecode.MAX_REGISTERS) return Error.TooManyRegisters;
 
     self.local_types.appendAssumeCapacity(t);
 
-    return @enumFromInt(index);
+    return @truncate(index);
 }
 
 pub fn typecheckEvidence(self: *const FunctionBuilder, evidence: Bytecode.EvidenceIndex) Error!void {
@@ -218,7 +211,7 @@ pub fn typecheckEvidence(self: *const FunctionBuilder, evidence: Bytecode.Eviden
 }
 
 /// does not check evidence
-pub fn typecheckCall(self: *const FunctionBuilder, calleeTypeIndex: Bytecode.TypeIndex, operand: ?Bytecode.Operand, as: anytype) Error!void {
+pub fn typecheckCall(self: *const FunctionBuilder, calleeTypeIndex: Bytecode.TypeIndex, r: ?Bytecode.RegisterIndex, as: anytype) Error!void {
     const calleeType = try self.parent.getType(calleeTypeIndex);
 
     if (calleeType != .function) {
@@ -232,29 +225,29 @@ pub fn typecheckCall(self: *const FunctionBuilder, calleeTypeIndex: Bytecode.Typ
     }
 
     inline for (0..as.len) |i| {
-        try self.typecheck(calleeType.function.params[i], as[i]);
+        try self.typecheckLocal(calleeType.function.params[i], as[i]);
     }
 
-    if (operand) |returnOperand| {
-        try self.typecheck(calleeType.function.result, returnOperand);
+    if (r) |returnReg| {
+        try self.typecheckLocal(calleeType.function.result, returnReg);
     } // automatic discard is allowed
 }
 
-pub fn typecheckRet(self: *const FunctionBuilder, operand: ?Bytecode.Operand) Error!void {
+pub fn typecheckRet(self: *const FunctionBuilder, r: ?Bytecode.RegisterIndex) Error!void {
     const ty = try self.parent.getType(self.type);
 
-    if (operand) |returnOperand| {
-        try self.typecheck(ty.function.result, returnOperand);
+    if (r) |returnReg| {
+        try self.typecheckLocal(ty.function.result, returnReg);
     } else {
         try self.parent.typecheck(ty.function.result, Bytecode.Type.void_t);
     }
 }
 
-pub fn typecheckTerm(self: *const FunctionBuilder, operand: ?Bytecode.Operand) Error!void {
+pub fn typecheckTerm(self: *const FunctionBuilder, t: ?Bytecode.RegisterIndex) Error!void {
     const ty = try self.parent.getType(self.type);
 
-    if (operand) |termOperand| {
-        try self.typecheck(ty.function.term, termOperand);
+    if (t) |termReg| {
+        try self.typecheckLocal(ty.function.term, termReg);
     } else {
         try self.parent.typecheck(ty.function.term, Bytecode.Type.void_t);
     }
@@ -262,10 +255,16 @@ pub fn typecheckTerm(self: *const FunctionBuilder, operand: ?Bytecode.Operand) E
     return Error.TypeError;
 }
 
-pub fn typecheck(self: *const FunctionBuilder, t: Bytecode.TypeIndex, operand: Bytecode.Operand) Error!void {
-    const operandTypeIndex = try self.getOperandType(operand);
+pub fn typecheckUpvalue(self: *const FunctionBuilder, t: Bytecode.TypeIndex, r: Bytecode.RegisterIndex) Error!void {
+    const uTypeIndex = try self.getUpvalueType(r);
 
-    return self.parent.typecheck(t, operandTypeIndex);
+    return self.parent.typecheck(t, uTypeIndex);
+}
+
+pub fn typecheckLocal(self: *const FunctionBuilder, t: Bytecode.TypeIndex, r: Bytecode.RegisterIndex) Error!void {
+    const lTypeIndex = try self.getLocalType(r);
+
+    return self.parent.typecheck(t, lTypeIndex);
 }
 
 

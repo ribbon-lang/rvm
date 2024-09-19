@@ -113,23 +113,27 @@ pub fn main() Error!void {
 
 
     const cond = try func.local(Bytecode.Type.bool_t);
-    try func.entry.s_lt64(.local(.r0, 0), .global(two, 0), .local(cond, 0));
-    const thenBlock, const elseBlock = try func.entry.if_nz(.local(cond, 0));
+    const two_loaded = try func.local(Bytecode.Type.i64_t);
+    const one_loaded = try func.local(Bytecode.Type.i64_t);
+    try func.entry.read_global64(two, two_loaded);
+    try func.entry.read_global64(one, one_loaded);
+    try func.entry.s_lt64(0, two_loaded, cond);
+    const thenBlock, const elseBlock = try func.entry.if_nz(cond);
 
     try func.entry.trap();
 
-    try thenBlock.ret_v(.local(.r0, 0));
+    try thenBlock.ret_v(0);
 
     const a = try func.local(Bytecode.Type.i64_t);
-    try elseBlock.i_sub64(.local(.r0, 0), .global(one, 0), .local(a, 0));
-    try elseBlock.call_v(func, .local(a, 0), .{Bytecode.Operand.local(a, 0)});
+    try elseBlock.i_sub64(0, one_loaded, a);
+    try elseBlock.call_v(func, a, .{a});
 
     const b = try func.local(Bytecode.Type.i64_t);
-    try elseBlock.i_sub64(.local(.r0, 0), .global(two, 0), .local(b, 0));
-    try elseBlock.call_v(func, .local(b, 0), .{Bytecode.Operand.local(b, 0)});
+    try elseBlock.i_sub64(0, two_loaded, b);
+    try elseBlock.call_v(func, b, .{b});
 
-    try elseBlock.i_add64(.local(a, 0), .local(b, 0), .local(a, 0));
-    try elseBlock.ret_v(.local(a, 0));
+    try elseBlock.i_add64(a, b, a);
+    try elseBlock.ret_v(a);
 
     const program = try builder.assemble(arena.allocator());
     // defer program.deinit(arena.allocator());
