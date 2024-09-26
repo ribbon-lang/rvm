@@ -124,7 +124,12 @@ but here is a preliminary rundown.
 + Little-endian encoding
 + Separated address spaces for global data, executable, and working memory
 + Heap access controlled by host environment
-+ 14-bit index x 16-bit address spaces for global data
++ 16-bit indexed spaces for:
+    - global data
+    - functions
+    - blocks within functions
+    - effect handler sets
+    - effect handlers
 + Floating point values are IEEE754
 + Floats are fixed width, in sizes `32` and `64`
 + Integers are always two's complement
@@ -137,16 +142,19 @@ but here is a preliminary rundown.
 ### Parameter Legend
 
 | Symbol | Type | Description | Bit Size |
-|-|-|-|-|
-| `O` | `Operand` | a register or a global index paired with an offset into it | `32` |
-| `I` | `Index` (Varies) | a static index, varying kinds based on context (ie. `BlockIndex`, `HandlerSetIndex`, etc) | `16` |
-| `[x]` | A variable-length array of `x` | a set of parameters; for example, the set of argument registers to provide to a function call | `8 + bits(x) * length` |
+| ------ | ---- | ----------- | -------- |
+| `R` | RegisterIndex | Designates a register | `8` |
+| `H` | HandlerSetIndex | Designates an effect handler set | `16` |
+| `E` | EvidenceIndex | Designates a specific effect handler on the stack of effect handlers | `16` |
+| `G` | GlobalIndex | Designates a global variable | `16` |
+| `U` | UpvalueIndex | Designates a register in the enclosing scope of an effect handler | `8` |
+| `F` | FunctionIndex | Designates a specific function | `16` |
+| `B` | BlockIndex | Designates a specific block; may be either relative to the function (called absolute below) or relative to the block the instruction is in, depending on instruction type | `16` |
+| `b` | Byte Immediate | Number designating the amount of values to follow the instruction; ie the count of register operands for a call | `8` |
+| `I` | Immediate | Immediate value encoded directly within the instruction | `32` |
+| `W`| Wide Immediate | Immediate value encoded after the instruction | `64` |
 
 
 ### Op codes
-
-> [!note]
-> Github markdown formatting is a bit weird;
-> If you see scroll bars on the tables below, try reloading the page
 
 <!--#Readme:ISA body-->

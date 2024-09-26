@@ -2270,7 +2270,7 @@ fn callImpl_no_tail(fiber: *Fiber, decoder: *const IO.Decoder, funcIndex: Byteco
     }
 
     const newBlockFrame = Fiber.BlockFrame.entryPoint(null);
-    const evidence = Fiber.CallFrame.EvidenceRef.SENTINEL;
+    const evidence = undefined;
 
     try fiber.stack.call.push(Fiber.CallFrame {
         .function = newFunction,
@@ -2376,7 +2376,7 @@ fn callImpl_no_tail_v(fiber: *Fiber, decoder: *const IO.Decoder, funcIndex: Byte
 
     try fiber.stack.call.push(Fiber.CallFrame {
         .function = newFunction,
-        .evidence = Fiber.CallFrame.EvidenceRef.SENTINEL,
+        .evidence = undefined,
         .root_block = fiber.stack.block.ptr,
         .stack = base,
     });
@@ -2409,7 +2409,7 @@ fn callImpl_tail(fiber: *Fiber, decoder: *const IO.Decoder, funcIndex: Bytecode.
 
     try fiber.stack.call.push(Fiber.CallFrame {
         .function = newFunction,
-        .evidence = Fiber.CallFrame.EvidenceRef.SENTINEL,
+        .evidence = undefined,
         .root_block = fiber.stack.block.ptr,
         .stack = base,
     });
@@ -2446,7 +2446,7 @@ fn callImpl_tail_v(fiber: *Fiber, decoder: *const IO.Decoder, funcIndex: Bytecod
 
     try fiber.stack.call.push(Fiber.CallFrame {
         .function = newFunction,
-        .evidence = Fiber.CallFrame.EvidenceRef.SENTINEL,
+        .evidence = undefined,
         .root_block = fiber.stack.block.ptr,
         .stack = base,
     });

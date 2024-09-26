@@ -18,15 +18,120 @@ instructions: []const u8,
 
 pub const ISA = @import("ISA.zig");
 
-pub const Op = ISA.Op;
-pub const OpCode = @typeInfo(Op).@"union".tag_type.?;
+pub const OpCode = op_code: {
+    var fields: []const std.builtin.Type.EnumField = &[0]std.builtin.Type.EnumField{};
+
+    var i: u8 = 0;
+    for (ISA.Instructions) |category| {
+        for (category.kinds) |kind| {
+            var j: u8 = 1;
+
+            for (kind.instructions) |instr| {
+                fields = fields ++ [1]std.builtin.Type.EnumField { .{
+                    .name = (if (instr.prefix.len > 0) instr.prefix ++ "_" else "") ++ kind.base_name ++ (if (instr.suffix.len > 0) "_" ++ instr.suffix else ""),
+                    .value = (@as(u16, i) << 8) | @as(u16, j),
+                } };
+
+                j += 1;
+            }
+
+            i += 1;
+        }
+    }
+
+    break :op_code @Type(.{ .@"enum" = .{
+        .tag_type = u16,
+        .fields = fields,
+        .decls = &[0]std.builtin.Type.Declaration {},
+        .is_exhaustive = true,
+    } });
+};
+pub const OpData = op_data: {
+    const opCodeFields = @typeInfo(OpCode).@"enum".fields;
+    var fields: []const std.builtin.Type.UnionField = &[0]std.builtin.Type.UnionField{};
+
+    var i = 0;
+
+    for (ISA.Instructions) |category| {
+        for (category.kinds) |kind| {
+            for (kind.instructions) |instr| {
+                var operands: []const std.builtin.Type.StructField = &[0]std.builtin.Type.StructField{};
+
+                if (instr.operands.len > 0) {
+                    var size = 0;
+                    for (instr.operands, 0..) |operand, o| {
+                        const opType = switch (operand) {
+                            .register => RegisterIndex,
+                            .byte => u8,
+                            .immediate => u32,
+                            .handler_set_index => HandlerSetIndex,
+                            .evidence_index => EvidenceIndex,
+                            .global_index => GlobalIndex,
+                            .upvalue_index => UpvalueIndex,
+                            .function_index => FunctionIndex,
+                            .block_index => BlockIndex,
+                        };
+
+                        size += @bitSizeOf(opType);
+
+                        operands = operands ++ [1]std.builtin.Type.StructField { .{
+                            .name = std.fmt.comptimePrint("{}", .{o}),
+                            .type = opType,
+                            .is_comptime = false,
+                            .default_value = null,
+                            .alignment = 0,
+                        } };
+                    }
+
+                    if (size > 48) {
+                        @compileError("Operand set size too large in instruction `"
+                            ++ opCodeFields[i].name ++ "`");
+                    }
+
+                    const backingType = std.meta.Int(.unsigned, size);
+                    fields = fields ++ [1]std.builtin.Type.UnionField { .{
+                        .name = opCodeFields[i].name,
+                        .type = @Type(.{ .@"struct" = .{
+                            .layout = .@"packed",
+                            .backing_integer = backingType,
+                            .fields = operands,
+                            .decls = &[0]std.builtin.Type.Declaration {},
+                            .is_tuple = false,
+                        } }),
+                        .alignment = @alignOf(backingType),
+                    } };
+                } else {
+                    fields = fields ++ [1]std.builtin.Type.UnionField { .{
+                        .name = opCodeFields[i].name,
+                        .type = void,
+                        .alignment = 0,
+                    } };
+                }
+
+                i += 1;
+            }
+        }
+    }
+
+    break :op_data @Type(.{ .@"union" = .{
+        .layout = .@"packed",
+        .tag_type = null,
+        .fields = fields,
+        .decls = &[0]std.builtin.Type.Declaration {},
+    } });
+};
+
+pub const Instruction = packed struct {
+    opcode: OpCode,
+    data: OpData,
+};
 
 pub const InstructionPointer = u24;
 pub const InstructionPointerOffset = u16;
-pub const RegisterIndex = u16;
+pub const RegisterIndex = u8;
 pub const RegisterLocalOffset = u16;
 pub const RegisterBaseOffset = u32;
-pub const UpvalueIndex = u16;
+pub const UpvalueIndex = u8;
 pub const UpvalueLocalOffset = u16;
 pub const UpvalueBaseOffset = u32;
 pub const GlobalIndex = u16;
@@ -45,7 +150,7 @@ pub const ForeignId = u48;
 
 pub const MAX_BLOCKS: BlockIndex = 256;
 pub const MAX_EVIDENCE: EvidenceIndex = 1024;
-pub const MAX_REGISTERS: RegisterIndex = 256;
+pub const MAX_REGISTERS: RegisterIndex = 255;
 pub const MAX_INSTRUCTIONS: InstructionPointer = std.math.maxInt(InstructionPointer);
 pub const MAX_INSTRUCTION_OFFSET: InstructionPointerOffset = std.math.maxInt(InstructionPointerOffset);
 
@@ -251,7 +356,7 @@ pub const LayoutDetails = struct {
     }
 };
 
-pub const LayoutTable = packed struct {
+pub const LayoutTable = struct {
     register_info: u48,
 
     term_size: ValueSize,
@@ -262,7 +367,7 @@ pub const LayoutTable = packed struct {
 
     num_registers: RegisterIndex,
 
-    pub const RegisterInfo = packed struct {
+    pub const RegisterInfo = struct {
         offset: RegisterBaseOffset,
         size: ValueSize,
     };
@@ -400,71 +505,71 @@ pub fn deinit(self: Bytecode, allocator: std.mem.Allocator) void {
     allocator.free(self.instructions);
 }
 
-pub fn write(self: *const Bytecode, writer: IO.Writer) !void {
-    try writer.write(@as(BlockIndex, @intCast(self.blocks.len)));
+// pub fn write(self: *const Bytecode, writer: IO.Writer) !void {
+//     try writer.write(@as(BlockIndex, @intCast(self.blocks.len)));
 
-    for (self.blocks) |block| {
-        try writer.write(block);
-    }
+//     for (self.blocks) |block| {
+//         try writer.write(block);
+//     }
 
-    try writeInstructions(self.instructions, writer);
-}
+//     try writeInstructions(self.instructions, writer);
+// }
 
-pub fn writeInstructions(instructions: []const u8, writer: IO.Writer) !void {
-    try writer.write(@as(InstructionPointer, @intCast(instructions.len)));
+// pub fn writeInstructions(instructions: []const u8, writer: IO.Writer) !void {
+//     try writer.write(@as(InstructionPointer, @intCast(instructions.len)));
 
-    var decoderOffset: InstructionPointerOffset = 0;
-    const decoder = IO.Decoder { .memory = instructions, .base = 0, .offset = &decoderOffset };
+//     var decoderOffset: InstructionPointerOffset = 0;
+//     const decoder = IO.Decoder { .memory = instructions, .base = 0, .offset = &decoderOffset };
 
-    while (!decoder.isEof()) {
-        const op = try decoder.decode(Op);
-        try writer.write(op);
-    }
-}
+//     while (!decoder.isEof()) {
+//         const instr = try decoder.decode();
+//         try writer.write(instr);
+//     }
+// }
 
-pub fn read(reader: IO.Reader, context: anytype) !Bytecode {
-    const blockCount: usize = try reader.read(BlockIndex, context);
-    var blocks = try context.allocator.alloc(Block, blockCount);
-    errdefer context.allocator.free(blocks);
+// pub fn read(reader: IO.Reader, context: anytype) !Bytecode {
+//     const blockCount: usize = try reader.read(BlockIndex, context);
+//     var blocks = try context.allocator.alloc(Block, blockCount);
+//     errdefer context.allocator.free(blocks);
 
-    for (0..blockCount) |i| {
-        const block = try reader.read(Block, context);
-        blocks[i] = block;
-    }
+//     for (0..blockCount) |i| {
+//         const block = try reader.read(Block, context);
+//         blocks[i] = block;
+//     }
 
-    const instructions = try readInstructions(reader, context);
-    errdefer context.allocator.free(instructions);
+//     const instructions = try readInstructions(reader, context);
+//     errdefer context.allocator.free(instructions);
 
-    return .{
-        .blocks = blocks,
-        .instructions = instructions,
-    };
-}
+//     return .{
+//         .blocks = blocks,
+//         .instructions = instructions,
+//     };
+// }
 
-pub fn readInstructions(reader: IO.Reader, context: anytype) ![]const u8 {
-    if (comptime @hasField(@TypeOf(context), "tempAllocator")) {
-        return readInstructionsImpl(reader, context.allocator, .{ .allocator = context.tempAllocator });
-    } else {
-        var arena = std.heap.ArenaAllocator.init(context.allocator);
-        defer arena.deinit();
+// pub fn readInstructions(reader: IO.Reader, context: anytype) ![]const u8 {
+//     if (comptime @hasField(@TypeOf(context), "tempAllocator")) {
+//         return readInstructionsImpl(reader, context.allocator, .{ .allocator = context.tempAllocator });
+//     } else {
+//         var arena = std.heap.ArenaAllocator.init(context.allocator);
+//         defer arena.deinit();
 
-        return readInstructionsImpl(reader, context.allocator, .{ .allocator = arena.allocator() });
-    }
-}
+//         return readInstructionsImpl(reader, context.allocator, .{ .allocator = arena.allocator() });
+//     }
+// }
 
-pub fn readInstructionsImpl(reader: IO.Reader, encoderAllocator: std.mem.Allocator, context: anytype) ![]const u8 {
-    var encoder = IO.Encoder {};
-    defer encoder.deinit(encoderAllocator);
+// pub fn readInstructionsImpl(reader: IO.Reader, encoderAllocator: std.mem.Allocator, context: anytype) ![]const u8 {
+//     var encoder = IO.Encoder {};
+//     defer encoder.deinit(encoderAllocator);
 
-    const instructionBytes: usize = try reader.read(InstructionPointer, context);
+//     const instructionBytes: usize = try reader.read(InstructionPointer, context);
 
-    while (encoder.len() < instructionBytes) {
-        const op = try reader.read(Op, context);
-        try encoder.encode(encoderAllocator, op);
-    }
+//     while (encoder.len() < instructionBytes) {
+//         const op = try reader.read(Op, context);
+//         try encoder.encode(encoderAllocator, op);
+//     }
 
-    return try encoder.finalize(encoderAllocator);
-}
+//     return try encoder.finalize(encoderAllocator);
+// }
 
 
 // TODO: this should be a format method on Type

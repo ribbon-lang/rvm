@@ -153,14 +153,14 @@ pub const CallStack = Stack(CallFrame, u16, null);
 pub const BlockStack = Stack(BlockFrame, u16, null);
 pub const EvidenceStack = Stack(Evidence, u8, null);
 
-pub const Evidence = packed struct {
+pub const Evidence = struct {
     handler: Bytecode.FunctionIndex,
     data: DataStack.Ptr,
     call: CallStack.Ptr,
     block: BlockStack.Ptr,
 };
 
-pub const BlockFrame = packed struct {
+pub const BlockFrame = struct {
     index: Bytecode.BlockIndex,
     ip_offset: Bytecode.InstructionPointerOffset,
     out: Bytecode.RegisterIndex,
@@ -187,16 +187,9 @@ pub const CallFrame = struct {
     root_block: BlockStack.Ptr,
     stack: DataStack.Ptr,
 
-    pub const EvidenceRef = packed struct {
+    pub const EvidenceRef = struct {
         index: Bytecode.EvidenceIndex,
         offset: EvidenceStack.Ptr,
-
-        const INT_T: type = std.meta.Int(.unsigned, @bitSizeOf(EvidenceRef));
-        pub const SENTINEL: EvidenceRef = @bitCast(@as(INT_T, std.math.maxInt(INT_T)));
-
-        pub fn isSentinel(self: EvidenceRef) bool {
-            return @as(INT_T, @bitCast(self)) == @as(INT_T, @bitCast(SENTINEL));
-        }
     };
 };
 
@@ -313,7 +306,7 @@ pub fn invoke(fiber: *Core.Fiber, comptime T: type, functionIndex: Bytecode.Func
     try fiber.stack.data.pushUninit(8);
     try fiber.stack.call.push(CallFrame {
         .function = &wrapper,
-        .evidence = CallFrame.EvidenceRef.SENTINEL,
+        .evidence = undefined,
         .root_block = fiber.stack.block.ptr,
         .stack = dataBase,
     });
@@ -328,7 +321,7 @@ pub fn invoke(fiber: *Core.Fiber, comptime T: type, functionIndex: Bytecode.Func
     try fiber.stack.data.pushUninit(function.num_registers * 8);
     try fiber.stack.call.push(CallFrame {
         .function = function,
-        .evidence = CallFrame.EvidenceRef.SENTINEL,
+        .evidence = undefined,
         .root_block = fiber.stack.block.ptr,
         .stack = dataBase,
     });

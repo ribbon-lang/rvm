@@ -37,14 +37,13 @@ discouraged.
     - [High Level Properties](#high-level-properties)
     - [Parameter Legend](#parameter-legend)
     - [Op Codes](#op-codes)
-        * [Basic](#basic)
+        * [Miscellaneous](#miscellaneous)
         * [Control Flow](#control-flow)
         * [Memory](#memory)
         * [Arithmetic](#arithmetic)
-        * [Boolean](#boolean)
-        * [Size Cast Int](#size-cast-int)
-        * [Size Cast Float](#size-cast-float)
-        * [Int <-> Float Cast](#int---float-cast)
+        * [Bitwise](#bitwise)
+        * [Comparison](#comparison)
+        * [Conversion](#conversion)
 
 
 ## Discussion
@@ -204,7 +203,12 @@ but here is a preliminary rundown.
 + Little-endian encoding
 + Separated address spaces for global data, executable, and working memory
 + Heap access controlled by host environment
-+ 14-bit index x 16-bit address spaces for global data
++ 16-bit indexed spaces for:
+    - global data
+    - functions
+    - blocks within functions
+    - effect handler sets
+    - effect handlers
 + Floating point values are IEEE754
 + Floats are fixed width, in sizes `32` and `64`
 + Integers are always two's complement
@@ -217,965 +221,791 @@ but here is a preliminary rundown.
 ### Parameter Legend
 
 | Symbol | Type | Description | Bit Size |
-|-|-|-|-|
-| `O` | `Operand` | a register or a global index paired with an offset into it | `32` |
-| `I` | `Index` (Varies) | a static index, varying kinds based on context (ie. `BlockIndex`, `HandlerSetIndex`, etc) | `16` |
-| `[x]` | A variable-length array of `x` | a set of parameters; for example, the set of argument registers to provide to a function call | `8 + bits(x) * length` |
+| ------ | ---- | ----------- | -------- |
+| `R` | Register | Register index | `8` |
+| `H` | HandlerSetIndex | Designates to an effect handler set | `16` |
+| `E` | EvidenceIndex | Designates a specific effect handler on the stack of effect handlers | `16` |
+| `G` | GlobalIndex | Designates a global variable | `16` |
+| `U` | UpvalueIndex | Designates a register in the enclosing scope of an effect handler | `8` |
+| `F` | FunctionIndex | Designates a specific function | `16` |
+| `B` | BlockIndex | Designates a specific block; may be either relative to the function (called absolute below) or relative to the block the instruction is in, depending on instruction type | `16` |
+| `b` | Byte Immediate | Number designating the amount of values to follow the instruction | `8` |
+| `I` | Immediate | Immediate value encoded directly within the instruction | `32` |
+| `W`| Wide Immediate | Immediate value encoded after the instruction | `64` |
 
 
 ### Op codes
 
-> [!note]
-> Github markdown formatting is a bit weird;
-> If you see scroll bars on the tables below, try reloading the page
+Current total number of instructions: 467
+#### Miscellaneous
 
++ [nop](#nop)
+##### nop
+Not an operation; does nothing
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `0001` | nop | No operation |  |
 
-#### Basic
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">trap<img width="960px" height="1" align="right"></th>
-        <td>Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" width="100%" align="center">triggers a trap if execution reaches it</td>
-        <td>None</td>
-    </tr>
-    <tr>
-        <td align="right" width="1%"><code>0x00</code></td>
-        <td align="left" width="1%"><code>trap</code></td>
-        <td align="center" colspan="2">trigger a trap</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">nop<img width="960px" height="1" align="right"></th>
-        <td>Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" width="100%" align="center">no operation, does nothing</td>
-        <td>None</td>
-    </tr>
-    <tr>
-        <td align="right" width="1%"><code>0x01</code></td>
-        <td align="left" width="1%"><code>nop</code></td>
-        <td align="center" colspan="2">no operation</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">halt<img width="960px" height="1" align="right"></th>
-        <td>Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" width="100%" align="center">stop execution</td>
-        <td>None</td>
-    </tr>
-    <tr>
-        <td align="right" width="1%"><code>0x02</code></td>
-        <td align="left" width="1%"><code>halt</code></td>
-        <td align="center" colspan="2">stop execution</td>
-    </tr>
-</table>
 
 #### Control Flow
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">when_nz<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">if the 8-bit condition in <code>x</code> is non-zero:<br>enter the block designated by <code>b</code><br><br><code>b</code> is an absolute block index</td>
-    </tr>
-    <tr><td>b</td><td><code>I</code></td></tr><tr><td>x</td><td><code>I</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x03</code></td>
-        <td align="left" width="1%"><code>when_nz</code></td>
-        <td align="center" colspan="3">one-way conditional block, based on the predicate being non-zero</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">when_z<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">if the 8-bit condition in <code>x</code> is zero:<br>enter the block designated by <code>b</code><br><br><code>b</code> is an absolute block index</td>
-    </tr>
-    <tr><td>b</td><td><code>I</code></td></tr><tr><td>x</td><td><code>I</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x04</code></td>
-        <td align="left" width="1%"><code>when_z</code></td>
-        <td align="center" colspan="3">one-way conditional block, based on the predicate being zero</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">re<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="2" width="100%" align="center">restart the block designated by <code>b</code><br><br><code>b</code> is a relative block index<br>the designated block may not produce a value</td>
-    </tr>
-    <tr><td>b</td><td><code>I</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x05</code></td>
-        <td align="left" width="1%"><code>re</code></td>
-        <td align="center" colspan="3">unconditional branch to start of block</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">re_nz<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">if the 8-bit condition in <code>x</code> is non-zero:<br>restart the block designated by <code>b</code><br><br><code>b</code> is a relative block index<br><br>the designated block may not produce a value</td>
-    </tr>
-    <tr><td>b</td><td><code>I</code></td></tr><tr><td>x</td><td><code>I</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x06</code></td>
-        <td align="left" width="1%"><code>re_nz</code></td>
-        <td align="center" colspan="3">conditional branch to start of block, based on the predicate being non-zero</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">re_z<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">if the 8-bit condition in <code>x</code> is zero:<br>restart the block designated by <code>b</code><br><br><code>b</code> is a relative block index<br><br>the designated block may not produce a value</td>
-    </tr>
-    <tr><td>b</td><td><code>I</code></td></tr><tr><td>x</td><td><code>I</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x07</code></td>
-        <td align="left" width="1%"><code>re_z</code></td>
-        <td align="center" colspan="3">conditional branch to start of block, based on the predicate being zero</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">call<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params&nbsp;(both)</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="5" width="100%" align="center">call the function statically designated by <code>f</code><br>use the values designated by <code>as</code> as arguments<br><br>for <code>_v</code>, place the result in <code>y</code></td>
-    </tr>
-    <tr><td>f</td><td><code>I</code></td></tr><tr><td>as</td><td><code>[I]</code></td></tr>
-    <tr>
-        <td colspan="2">Params&nbsp;(_v)</td>
-    </tr>
-    <tr><td>y</td><td><code>I</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x08</code></td>
-        <td align="left" width="1%"><code>call</code></td>
-        <td align="center" colspan="3">static function call</td>
-    </tr>
-    <tr>
-        <td align="right" width="1%"><code>0x09</code></td>
-        <td align="left" width="1%"><code>call_v</code></td>
-        <td align="center" colspan="3">static function call with a result value</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">tail_call<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params&nbsp;(both)</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="5" width="100%" align="center">call the function statically designated by <code>f</code><br>use the values designated by <code>as</code> as arguments<br>end the current function<br><br>for <code>_v</code>, place the result in the caller's return register</td>
-    </tr>
-    <tr><td>f</td><td><code>I</code></td></tr><tr><td>as</td><td><code>[I]</code></td></tr>
-    <tr>
-        <td colspan="2">Params&nbsp;(_v)</td>
-    </tr>
-    <tr><td colspan="2">None</td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x0a</code></td>
-        <td align="left" width="1%"><code>tail_call</code></td>
-        <td align="center" colspan="3">static function tail call</td>
-    </tr>
-    <tr>
-        <td align="right" width="1%"><code>0x0b</code></td>
-        <td align="left" width="1%"><code>tail_call_v</code></td>
-        <td align="center" colspan="3">static function tail call with a result value</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">prompt<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params&nbsp;(both)</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="5" width="100%" align="center">prompt the evidence designated by <code>e</code><br>use the values designated by <code>as</code> as arguments<br><br>for <code>_v</code>, place the result in <code>y</code></td>
-    </tr>
-    <tr><td>e</td><td><code>I</code></td></tr><tr><td>as</td><td><code>[I]</code></td></tr>
-    <tr>
-        <td colspan="2">Params&nbsp;(_v)</td>
-    </tr>
-    <tr><td>y</td><td><code>I</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x0c</code></td>
-        <td align="left" width="1%"><code>prompt</code></td>
-        <td align="center" colspan="3">dynamically bound effect handler call</td>
-    </tr>
-    <tr>
-        <td align="right" width="1%"><code>0x0d</code></td>
-        <td align="left" width="1%"><code>prompt_v</code></td>
-        <td align="center" colspan="3">dynamically bound effect handler call with a result value</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">tail_prompt<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params&nbsp;(both)</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="5" width="100%" align="center">prompt the evidence designated by <code>e</code><br>use the values designated by <code>as</code> as arguments<br>end the current function<br><br>for <code>_v</code>, place the result in the caller's return register</td>
-    </tr>
-    <tr><td>e</td><td><code>I</code></td></tr><tr><td>as</td><td><code>[I]</code></td></tr>
-    <tr>
-        <td colspan="2">Params&nbsp;(_v)</td>
-    </tr>
-    <tr><td colspan="2">None</td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x0e</code></td>
-        <td align="left" width="1%"><code>tail_prompt</code></td>
-        <td align="center" colspan="3">dynamically bound effect handler tail call</td>
-    </tr>
-    <tr>
-        <td align="right" width="1%"><code>0x0f</code></td>
-        <td align="left" width="1%"><code>tail_prompt_v</code></td>
-        <td align="center" colspan="3">dynamically bound effect handler tail call with a result value</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">dyn_call<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params&nbsp;(both)</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="5" width="100%" align="center">call the function at the index stored in <code>f</code><br>use the values designated by <code>as</code> as arguments<br><br>for <code>_v</code>, place the result in <code>y</code></td>
-    </tr>
-    <tr><td>f</td><td><code>I</code></td></tr><tr><td>as</td><td><code>[I]</code></td></tr>
-    <tr>
-        <td colspan="2">Params&nbsp;(_v)</td>
-    </tr>
-    <tr><td>y</td><td><code>I</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x10</code></td>
-        <td align="left" width="1%"><code>dyn_call</code></td>
-        <td align="center" colspan="3">dynamic function call</td>
-    </tr>
-    <tr>
-        <td align="right" width="1%"><code>0x11</code></td>
-        <td align="left" width="1%"><code>dyn_call_v</code></td>
-        <td align="center" colspan="3">dynamic function call with a result value</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">dyn_tail_call<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params&nbsp;(both)</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="5" width="100%" align="center">call the function at the index stored in <code>f</code><br>use the values designated by <code>as</code> as arguments<br>end the current function<br><br>for <code>_v</code>, place the result in the caller's return register</td>
-    </tr>
-    <tr><td>f</td><td><code>I</code></td></tr><tr><td>as</td><td><code>[I]</code></td></tr>
-    <tr>
-        <td colspan="2">Params&nbsp;(_v)</td>
-    </tr>
-    <tr><td colspan="2">None</td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x12</code></td>
-        <td align="left" width="1%"><code>dyn_tail_call</code></td>
-        <td align="center" colspan="3">dynamic function tail call</td>
-    </tr>
-    <tr>
-        <td align="right" width="1%"><code>0x13</code></td>
-        <td align="left" width="1%"><code>dyn_tail_call_v</code></td>
-        <td align="center" colspan="3">dynamic function tail call with a result value</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">ret<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params&nbsp;(both)</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="4" width="100%" align="center">return control from the current function<br><br>for <code>_v</code>, place the result designated by <code>y</code> into the call's return register</td>
-    </tr>
-    <tr><td colspan="2">None</td></tr>
-    <tr>
-        <td colspan="2">Params&nbsp;(_v)</td>
-    </tr>
-    <tr><td>y</td><td><code>I</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x14</code></td>
-        <td align="left" width="1%"><code>ret</code></td>
-        <td align="center" colspan="3">function return</td>
-    </tr>
-    <tr>
-        <td align="right" width="1%"><code>0x15</code></td>
-        <td align="left" width="1%"><code>ret_v</code></td>
-        <td align="center" colspan="3">function return with a result value</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">term<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params&nbsp;(both)</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="4" width="100%" align="center">terminate the current handler's with block<br><br>for <code>_v</code>,  place the result designated by <code>y</code> into the handler's return register</td>
-    </tr>
-    <tr><td colspan="2">None</td></tr>
-    <tr>
-        <td colspan="2">Params&nbsp;(_v)</td>
-    </tr>
-    <tr><td>y</td><td><code>I</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x16</code></td>
-        <td align="left" width="1%"><code>term</code></td>
-        <td align="center" colspan="3">effect handler termination</td>
-    </tr>
-    <tr>
-        <td align="right" width="1%"><code>0x17</code></td>
-        <td align="left" width="1%"><code>term_v</code></td>
-        <td align="center" colspan="3">effect handler termination with a result value</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">block<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params&nbsp;(both)</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="4" width="100%" align="center">enter the block designated by <code>b</code><br><br><code>b</code> is an absolute block index<br><br>for <code>_v</code>, place the result of the block in <code>y</code></td>
-    </tr>
-    <tr><td>b</td><td><code>I</code></td></tr>
-    <tr>
-        <td colspan="2">Params&nbsp;(_v)</td>
-    </tr>
-    <tr><td>y</td><td><code>I</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x18</code></td>
-        <td align="left" width="1%"><code>block</code></td>
-        <td align="center" colspan="3">basic block</td>
-    </tr>
-    <tr>
-        <td align="right" width="1%"><code>0x19</code></td>
-        <td align="left" width="1%"><code>block_v</code></td>
-        <td align="center" colspan="3">basic block with a result value</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">with<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params&nbsp;(both)</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="5" width="100%" align="center">enter the block designated by <code>b</code><br>use the effect handler set designated by <code>h</code> to handle effects<br><br><code>b</code> is an absolute block index<br><br>for <code>_v</code>, place the result of the block in <code>y</code></td>
-    </tr>
-    <tr><td>b</td><td><code>I</code></td></tr><tr><td>h</td><td><code>I</code></td></tr>
-    <tr>
-        <td colspan="2">Params&nbsp;(_v)</td>
-    </tr>
-    <tr><td>y</td><td><code>I</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x1a</code></td>
-        <td align="left" width="1%"><code>with</code></td>
-        <td align="center" colspan="3">effect handler block</td>
-    </tr>
-    <tr>
-        <td align="right" width="1%"><code>0x1b</code></td>
-        <td align="left" width="1%"><code>with_v</code></td>
-        <td align="center" colspan="3">effect handler block with a result value</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">if_nz<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params&nbsp;(both)</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="6" width="100%" align="center">if the 8-bit condition in <code>x</code> is non-zero:<br>then: enter the block designated by <code>t</code><br>else: enter the block designated by <code>e</code><br><br><code>t</code> and <code>e</code> are absolute block indices<br><br>for <code>_v</code>, place the result of the block in <code>y</code></td>
-    </tr>
-    <tr><td>t</td><td><code>I</code></td></tr><tr><td>e</td><td><code>I</code></td></tr><tr><td>x</td><td><code>I</code></td></tr>
-    <tr>
-        <td colspan="2">Params&nbsp;(_v)</td>
-    </tr>
-    <tr><td>y</td><td><code>I</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x1c</code></td>
-        <td align="left" width="1%"><code>if_nz</code></td>
-        <td align="center" colspan="3">two-way conditional block, based on the predicate being non-zero</td>
-    </tr>
-    <tr>
-        <td align="right" width="1%"><code>0x1d</code></td>
-        <td align="left" width="1%"><code>if_nz_v</code></td>
-        <td align="center" colspan="3">two-way conditional block, based on the predicate being non-zero with a result value</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">if_z<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params&nbsp;(both)</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="6" width="100%" align="center">if the 8-bit condition in <code>x</code> is zero:<br>then: enter the block designated by <code>t</code><br>else: enter the block designated by <code>e</code><br><br><code>t</code> and <code>e</code> are absolute block indices<br><br>for <code>_v</code>, place the result of the block in <code>y</code></td>
-    </tr>
-    <tr><td>t</td><td><code>I</code></td></tr><tr><td>e</td><td><code>I</code></td></tr><tr><td>x</td><td><code>I</code></td></tr>
-    <tr>
-        <td colspan="2">Params&nbsp;(_v)</td>
-    </tr>
-    <tr><td>y</td><td><code>I</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x1e</code></td>
-        <td align="left" width="1%"><code>if_z</code></td>
-        <td align="center" colspan="3">two-way conditional block, based on the predicate being zero</td>
-    </tr>
-    <tr>
-        <td align="right" width="1%"><code>0x1f</code></td>
-        <td align="left" width="1%"><code>if_z_v</code></td>
-        <td align="center" colspan="3">two-way conditional block, based on the predicate being zero with a result value</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">br<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params&nbsp;(both)</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="4" width="100%" align="center">exit the block designated by <code>b</code><br><br><code>b</code> is a relative block index<br><br>for <code>_v</code>, copy the value in <code>y</code> into the block's yield register</td>
-    </tr>
-    <tr><td>b</td><td><code>I</code></td></tr>
-    <tr>
-        <td colspan="2">Params&nbsp;(_v)</td>
-    </tr>
-    <tr><td>y</td><td><code>I</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x20</code></td>
-        <td align="left" width="1%"><code>br</code></td>
-        <td align="center" colspan="3">unconditional branch out of block</td>
-    </tr>
-    <tr>
-        <td align="right" width="1%"><code>0x21</code></td>
-        <td align="left" width="1%"><code>br_v</code></td>
-        <td align="center" colspan="3">unconditional branch out of block with a result value</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">br_nz<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params&nbsp;(both)</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="5" width="100%" align="center">if the 8-bit condition in <code>x</code> is non-zero:<br>exit the block designated by <code>b</code><br><br><code>b</code> is a relative block index<br><br>for <code>_v</code>, copy the value in <code>y</code> into the block's yield register</td>
-    </tr>
-    <tr><td>b</td><td><code>I</code></td></tr><tr><td>x</td><td><code>I</code></td></tr>
-    <tr>
-        <td colspan="2">Params&nbsp;(_v)</td>
-    </tr>
-    <tr><td>y</td><td><code>I</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x22</code></td>
-        <td align="left" width="1%"><code>br_nz</code></td>
-        <td align="center" colspan="3">conditional branch out of block, based on the predicate being non-zero</td>
-    </tr>
-    <tr>
-        <td align="right" width="1%"><code>0x23</code></td>
-        <td align="left" width="1%"><code>br_nz_v</code></td>
-        <td align="center" colspan="3">conditional branch out of block, based on the predicate being non-zero with a result value</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">br_z<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params&nbsp;(both)</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="5" width="100%" align="center">if the 8-bit condition in <code>x</code> is zero:<br>exit the block designated by <code>b</code><br><br><code>b</code> is a relative block index<br><br>for <code>_v</code>, copy the value in <code>y</code> into the block's yield register</td>
-    </tr>
-    <tr><td>b</td><td><code>I</code></td></tr><tr><td>x</td><td><code>I</code></td></tr>
-    <tr>
-        <td colspan="2">Params&nbsp;(_v)</td>
-    </tr>
-    <tr><td>y</td><td><code>I</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x24</code></td>
-        <td align="left" width="1%"><code>br_z</code></td>
-        <td align="center" colspan="3">conditional branch out of block, based on the predicate being zero</td>
-    </tr>
-    <tr>
-        <td align="right" width="1%"><code>0x25</code></td>
-        <td align="left" width="1%"><code>br_z_v</code></td>
-        <td align="center" colspan="3">conditional branch out of block, based on the predicate being zero with a result value</td>
-    </tr>
-</table>
+Control the flow of program execution
++ [halt](#halt)
++ [trap](#trap)
++ [block](#block)
++ [with](#with)
++ [if](#if)
++ [when](#when)
++ [re](#re)
++ [br](#br)
++ [call](#call)
++ [prompt](#prompt)
++ [ret](#ret)
++ [term](#term)
+##### halt
+Stops execution of the program
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `0101` | halt | Halt execution |  |
+
+##### trap
+Stops execution of the program and triggers the `unreachable` trap
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `0201` | trap | Trigger a trap |  |
+
+##### block
+Unconditionally enter the block designated by the block operand
+
+The block operand is an absolute block index
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `0301` | block | Enter a block | `B` |
+| `0302` | block_v | Enter a block, placing the output value in the designated register | `B`,&nbsp;`R` |
+
+##### with
+Enter the block designated by the block operand, using the handler set operand to handle matching effects inside
+
+The block operand is an absolute block index
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `0401` | with | Enter a block, using the designated handler set | `B`,&nbsp;`H` |
+| `0402` | with_v | Enter a block, using the designated handler set, and place the output value in the designated register | `B`,&nbsp;`H`,&nbsp;`R` |
+
+##### if
+If the 8-bit conditional value designated by the register operand matches the test:
++ Then: Enter the block designated by the block operand
++ Else: Enter the block designated by the else block operand
+
+The block operands are absolute block indices
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `0501` | if_nz | Enter the first block, if the condition is non-zero; otherwise, enter the second block | `B`,&nbsp;`B`,&nbsp;`R` |
+| `0502` | if_z | Enter the first block, if the condition is zero; otherwise, enter the second block | `B`,&nbsp;`B`,&nbsp;`R` |
+
+##### when
+If the 8-bit conditional value designated by the register operand matches the test:
++ Enter the block designated by the block operand
+
+The block operand is an absolute block index
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `0601` | when_nz | Enter a block, if the condition is non-zero | `B`,&nbsp;`R` |
+| `0602` | when_z | Enter a block, if the condition is zero | `B`,&nbsp;`R` |
+
+##### re
+Restart the block designated by the block operand
+
+The block operand is a relative block index
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `0701` | re | Restart the designated block | `B` |
+| `0702` | re_nz | Restart the designated block, if the condition is non-zero | `B`,&nbsp;`R` |
+| `0703` | re_z | Restart the designated block, if the condition is zero | `B`,&nbsp;`R` |
+
+##### br
+Exit the block designated by the block operand
+
+The block operand is a relative block index
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `0801` | br | Exit the designated block | `B` |
+| `0802` | br_nz | Exit the designated block, if the condition is non-zero | `B`,&nbsp;`R` |
+| `0803` | br_z | Exit the designated block, if the condition is zero | `B`,&nbsp;`R` |
+| `0804` | br_v | Exit the designated block, yielding the value in the designated register | `B`,&nbsp;`R` |
+| `0805` | br_nz_v | Exit the designated block, if the condition is non-zero; yield the value in the secondary register | `B`,&nbsp;`R`,&nbsp;`R` |
+| `0806` | br_z_v | Exit the designated block, if the condition is zero; yield the value in the secondary register | `B`,&nbsp;`R`,&nbsp;`R` |
+| `0807` | im_br_v | Exit the designated block, yielding an immediate up to 32 bits | `B`,&nbsp;`I` |
+| `0808` | im_w_br_v | Exit the designated block, yielding an immediate up to 64 bits | `B`&nbsp;+&nbsp;`W` |
+| `0809` | im_br_nz_v | Exit the designated block, if the condition is non-zero; yield an immediate | `B`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `080a` | im_br_z_v | Exit the designated block, if the condition is zero; yield an immediate | `B`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+
+##### call
+Call the function designated by the function operand; expect a number of arguments, designated by the byte value operand, to follow this instruction
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `0901` | im_call | Call a static function, expecting no return value (discards the result, if there is one) | `F`,&nbsp;`b` |
+| `0902` | im_call_v | Call a static function, and place the return value in the designated register | `F`,&nbsp;`b`,&nbsp;`R` |
+| `0903` | im_call_tail | Call a static function in tail position, expecting no return value (discards the result, if there is one) | `F`,&nbsp;`b` |
+| `0904` | im_call_tail_v | Call a static function in tail position, expecting a return value (places the result in the caller's return register) | `F`,&nbsp;`b` |
+| `0905` | call | Call a dynamic function, expecting no return value (discards the result, if there is one) | `R`,&nbsp;`b` |
+| `0906` | call_v | Call a dynamic function, and place the return value in the designated register | `R`,&nbsp;`b`,&nbsp;`R` |
+| `0907` | call_tail | Call a dynamic function in tail position, expecting no return value (discards the result, if there is one) | `R`,&nbsp;`b` |
+| `0908` | call_tail_v | Call a dynamic function in tail position, and place the result in the caller's return register | `R`,&nbsp;`b`,&nbsp;`R` |
+
+##### prompt
+Call the effect handler designated by the evidence operand; expect a number of arguments, designated by the byte value operand, to follow this instruction
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `0a01` | prompt | Call an effect handler, expecting no return value (discards the result, if there is one) | `E`,&nbsp;`b` |
+| `0a02` | prompt_v | Call an effect handler, and place the return value in the designated register | `E`,&nbsp;`b`,&nbsp;`R` |
+| `0a03` | prompt_tail | Call an effect handler in tail position, expecting no return value (discards the result, if there is one) | `E`,&nbsp;`b` |
+| `0a04` | prompt_tail_v | Call an effect handler in tail position, and place the return value in the caller's return register | `E`,&nbsp;`b` |
+
+##### ret
+Return from the current function, optionally placing the result in the designated register
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `0b01` | ret | Return from the current function, yielding no value |  |
+| `0b02` | ret_v | Return from the current function, yielding the value in the designated register | `R` |
+| `0b03` | im_ret_v | Return from the current function, yielding an immediate value up to 32 bits | `I` |
+| `0b04` | im_w_ret_v | Return from the current function, yielding an immediate value up to 64 bits | `W` |
+
+##### term
+Trigger early-termination of an effect handler, ending the block it was introduced in
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `0c01` | term | Terminate the current effect handler, yielding no value |  |
+| `0c02` | term_v | Terminate the current effect handler, yielding the value in the designated register | `R` |
+| `0c03` | im_term_v | Terminate the current effect handler, yielding an immediate value up to 32 bits | `I` |
+| `0c04` | im_w_term_v | Terminate the current effect handler, yielding an immediate value up to 64 bits | `W` |
+
 
 #### Memory
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">addr_local<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">copy the address of <code>x</code> into <code>y</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x26</code></td>
-        <td align="left" width="1%"><code>addr_local</code></td>
-        <td align="center" colspan="3">address extraction of local register</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">addr_global<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">copy the address of the global designated by <code>g</code> into <code>x</code></td>
-    </tr>
-    <tr><td>g</td><td><code>I</code></td></tr><tr><td>x</td><td><code>I</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x27</code></td>
-        <td align="left" width="1%"><code>addr_global</code></td>
-        <td align="center" colspan="3">address extraction of global variable</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">addr_upvalue<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">copy the address of the upvalue designated by <code>u</code> into <code>x</code></td>
-    </tr>
-    <tr><td>u</td><td><code>I</code></td></tr><tr><td>x</td><td><code>I</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0x28</code></td>
-        <td align="left" width="1%"><code>addr_upvalue</code></td>
-        <td align="center" colspan="3">address extraction of upvalue register</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">read_global<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">load <em>n</em> bits of the global designated by <code>g</code> into <code>x</code></td>
-    </tr>
-    <tr><td>g</td><td><code>I</code></td></tr><tr><td>x</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x29</code></td><td align="left" width="1%"><code>read_global8</code></td><td align="center" colspan="3">8 bit value extraction of global variable</td></tr><tr><td align="right" width="1%"><code>0x2a</code></td><td align="left" width="1%"><code>read_global16</code></td><td align="center" colspan="3">16 bit value extraction of global variable</td></tr><tr><td align="right" width="1%"><code>0x2b</code></td><td align="left" width="1%"><code>read_global32</code></td><td align="center" colspan="3">32 bit value extraction of global variable</td></tr><tr><td align="right" width="1%"><code>0x2c</code></td><td align="left" width="1%"><code>read_global64</code></td><td align="center" colspan="3">64 bit value extraction of global variable</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">write_global<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">store <em>n</em> bits of the register desiganted by <code>x</code> into the global <code>g</code></td>
-    </tr>
-    <tr><td>g</td><td><code>I</code></td></tr><tr><td>x</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x2d</code></td><td align="left" width="1%"><code>write_global8</code></td><td align="center" colspan="3">8 bit value replacement of global variable</td></tr><tr><td align="right" width="1%"><code>0x2e</code></td><td align="left" width="1%"><code>write_global16</code></td><td align="center" colspan="3">16 bit value replacement of global variable</td></tr><tr><td align="right" width="1%"><code>0x2f</code></td><td align="left" width="1%"><code>write_global32</code></td><td align="center" colspan="3">32 bit value replacement of global variable</td></tr><tr><td align="right" width="1%"><code>0x30</code></td><td align="left" width="1%"><code>write_global64</code></td><td align="center" colspan="3">64 bit value replacement of global variable</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">read_upvalue<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">load <em>n</em> bits of the upvalue designated by <code>g</code> into <code>x</code></td>
-    </tr>
-    <tr><td>u</td><td><code>I</code></td></tr><tr><td>x</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x31</code></td><td align="left" width="1%"><code>read_upvalue8</code></td><td align="center" colspan="3">8 bit value extraction of upvalue register</td></tr><tr><td align="right" width="1%"><code>0x32</code></td><td align="left" width="1%"><code>read_upvalue16</code></td><td align="center" colspan="3">16 bit value extraction of upvalue register</td></tr><tr><td align="right" width="1%"><code>0x33</code></td><td align="left" width="1%"><code>read_upvalue32</code></td><td align="center" colspan="3">32 bit value extraction of upvalue register</td></tr><tr><td align="right" width="1%"><code>0x34</code></td><td align="left" width="1%"><code>read_upvalue64</code></td><td align="center" colspan="3">64 bit value extraction of upvalue register</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">write_upvalue<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">store <em>n</em> bits of the register desiganted by <code>x</code> into the upvalue <code>g</code></td>
-    </tr>
-    <tr><td>u</td><td><code>I</code></td></tr><tr><td>x</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x35</code></td><td align="left" width="1%"><code>write_upvalue8</code></td><td align="center" colspan="3">8 bit value replacement of upvalue register</td></tr><tr><td align="right" width="1%"><code>0x36</code></td><td align="left" width="1%"><code>write_upvalue16</code></td><td align="center" colspan="3">16 bit value replacement of upvalue register</td></tr><tr><td align="right" width="1%"><code>0x37</code></td><td align="left" width="1%"><code>write_upvalue32</code></td><td align="center" colspan="3">32 bit value replacement of upvalue register</td></tr><tr><td align="right" width="1%"><code>0x38</code></td><td align="left" width="1%"><code>write_upvalue64</code></td><td align="center" colspan="3">64 bit value replacement of upvalue register</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">load<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">copy <em>n</em> aligned bits from the address stored in <code>x</code> into <code>y</code><br>the address must be located in the operand stack or global memory</td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x39</code></td><td align="left" width="1%"><code>load8</code></td><td align="center" colspan="3">8 bit read from address</td></tr><tr><td align="right" width="1%"><code>0x3a</code></td><td align="left" width="1%"><code>load16</code></td><td align="center" colspan="3">16 bit read from address</td></tr><tr><td align="right" width="1%"><code>0x3b</code></td><td align="left" width="1%"><code>load32</code></td><td align="center" colspan="3">32 bit read from address</td></tr><tr><td align="right" width="1%"><code>0x3c</code></td><td align="left" width="1%"><code>load64</code></td><td align="center" colspan="3">64 bit read from address</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">store<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">copy <em>n</em> aligned bits from <code>x</code> to the address stored in <code>y</code><br>the address must be located in the operand stack or global memory</td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x3d</code></td><td align="left" width="1%"><code>store8</code></td><td align="center" colspan="3">8 bit write to address</td></tr><tr><td align="right" width="1%"><code>0x3e</code></td><td align="left" width="1%"><code>store16</code></td><td align="center" colspan="3">16 bit write to address</td></tr><tr><td align="right" width="1%"><code>0x3f</code></td><td align="left" width="1%"><code>store32</code></td><td align="center" colspan="3">32 bit write to address</td></tr><tr><td align="right" width="1%"><code>0x40</code></td><td align="left" width="1%"><code>store64</code></td><td align="center" colspan="3">64 bit write to address</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">clear<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="2" width="100%" align="center">clear <em>n</em> aligned bits of <code>x</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x41</code></td><td align="left" width="1%"><code>clear8</code></td><td align="center" colspan="3">8 bit zeroing</td></tr><tr><td align="right" width="1%"><code>0x42</code></td><td align="left" width="1%"><code>clear16</code></td><td align="center" colspan="3">16 bit zeroing</td></tr><tr><td align="right" width="1%"><code>0x43</code></td><td align="left" width="1%"><code>clear32</code></td><td align="center" colspan="3">32 bit zeroing</td></tr><tr><td align="right" width="1%"><code>0x44</code></td><td align="left" width="1%"><code>clear64</code></td><td align="center" colspan="3">64 bit zeroing</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">swap<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">swap <em>n</em> aligned bits stored in <code>x</code> and <code>y</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x45</code></td><td align="left" width="1%"><code>swap8</code></td><td align="center" colspan="3">8 bit value swap</td></tr><tr><td align="right" width="1%"><code>0x46</code></td><td align="left" width="1%"><code>swap16</code></td><td align="center" colspan="3">16 bit value swap</td></tr><tr><td align="right" width="1%"><code>0x47</code></td><td align="left" width="1%"><code>swap32</code></td><td align="center" colspan="3">32 bit value swap</td></tr><tr><td align="right" width="1%"><code>0x48</code></td><td align="left" width="1%"><code>swap64</code></td><td align="center" colspan="3">64 bit value swap</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">copy<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">copy <em>n</em> aligned bits from <code>x</code> into <code>y</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x49</code></td><td align="left" width="1%"><code>copy8</code></td><td align="center" colspan="3">8 bit value copy</td></tr><tr><td align="right" width="1%"><code>0x4a</code></td><td align="left" width="1%"><code>copy16</code></td><td align="center" colspan="3">16 bit value copy</td></tr><tr><td align="right" width="1%"><code>0x4b</code></td><td align="left" width="1%"><code>copy32</code></td><td align="center" colspan="3">32 bit value copy</td></tr><tr><td align="right" width="1%"><code>0x4c</code></td><td align="left" width="1%"><code>copy64</code></td><td align="center" colspan="3">64 bit value copy</td></tr>
-</table>
+Instructions for memory access and manipulation
++ [addr](#addr)
++ [read_global](#read_global)
++ [read_upvalue](#read_upvalue)
++ [write_global](#write_global)
++ [write_upvalue](#write_upvalue)
++ [load](#load)
++ [store](#store)
++ [clear](#clear)
++ [swap](#swap)
++ [copy](#copy)
+##### addr
+Place the address of the value designated by the first operand into the register provided in the second operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `0d01` | addr_global | Place the address of the global into the register | `G`,&nbsp;`R` |
+| `0d02` | addr_upvalue | Place the address of the upvalue into the register | `U`,&nbsp;`R` |
+| `0d03` | addr_local | Place the address of the first register into the second register | `R`,&nbsp;`R` |
+
+##### read_global
+Copy a number of bits from the global designated by the first operand into the register provided in the second operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `0e01` | read_global_8 | Copy 8 bits from the global into the register | `G`,&nbsp;`R` |
+| `0e02` | read_global_16 | Copy 16 bits from the global into the register | `G`,&nbsp;`R` |
+| `0e03` | read_global_32 | Copy 32 bits from the global into the register | `G`,&nbsp;`R` |
+| `0e04` | read_global_64 | Copy 64 bits from the global into the register | `G`,&nbsp;`R` |
+
+##### read_upvalue
+Copy a number of bits from the upvalue designated by the first operand into the register provided in the second operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `0f01` | read_upvalue_8 | Copy 8 bits from the upvalue into the register | `R`,&nbsp;`R` |
+| `0f02` | read_upvalue_16 | Copy 16 bits from the upvalue into the register | `R`,&nbsp;`R` |
+| `0f03` | read_upvalue_32 | Copy 32 bits from the upvalue into the register | `R`,&nbsp;`R` |
+| `0f04` | read_upvalue_64 | Copy 64 bits from the upvalue into the register | `R`,&nbsp;`R` |
+
+##### write_global
+Copy a number of bits from the value designated by the first operand into the global provided in the second operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `1001` | write_global_8 | Copy 8 bits from the register into the global | `R`,&nbsp;`G` |
+| `1002` | write_global_16 | Copy 16 bits from the register into the global | `R`,&nbsp;`G` |
+| `1003` | write_global_32 | Copy 32 bits from the register into the global | `R`,&nbsp;`G` |
+| `1004` | write_global_64 | Copy 64 bits from the register into the global | `R`,&nbsp;`G` |
+| `1005` | im_write_global_8 | Copy 8 bits from the immediate into the global | `I`,&nbsp;`G` |
+| `1006` | im_write_global_16 | Copy 16 bits from the immediate into the global | `I`,&nbsp;`G` |
+| `1007` | im_write_global_32 | Copy 32 bits from the immediate into the global | `R`,&nbsp;`G` |
+| `1008` | im_write_global_64 | Copy 64 bits from the immediate into the global | `G`&nbsp;+&nbsp;`W` |
+
+##### write_upvalue
+Copy a number of bits from the value designated by the first operand into the upvalue provided in the second operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `1101` | write_upvalue_8 | Copy 8 bits from the register into the designated upvalue | `R`,&nbsp;`R` |
+| `1102` | write_upvalue_16 | Copy 16 bits from the register into the designated upvalue | `R`,&nbsp;`R` |
+| `1103` | write_upvalue_32 | Copy 32 bits from the register into the designated upvalue | `R`,&nbsp;`R` |
+| `1104` | write_upvalue_64 | Copy 64 bits from the register into the designated upvalue | `R`,&nbsp;`R` |
+| `1105` | im_write_upvalue_8 | Copy 8 bits from the immediate into the designated upvalue | `I`,&nbsp;`R` |
+| `1106` | im_write_upvalue_16 | Copy 16 bits from the immediate into the designated upvalue | `I`,&nbsp;`R` |
+| `1107` | im_write_upvalue_32 | Copy 32 bits from the register into the designated upvalue | `I`,&nbsp;`R` |
+| `1108` | im_write_upvalue_64 | Copy 64 bits from the immediate into the designated upvalue | `R`&nbsp;+&nbsp;`W` |
+
+##### load
+Copy a number of bits from the memory address designated by the first operand into the register provided in the second operand
+
+The address must be located on the stack or global memory
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `1201` | load_8 | Copy 8 bits from the memory address in the first register into the second register | `R`,&nbsp;`R` |
+| `1202` | load_16 | Copy 16 bits from the memory address in the first register into the second register | `R`,&nbsp;`R` |
+| `1203` | load_32 | Copy 32 bits from the memory address in the first register into the second register | `R`,&nbsp;`R` |
+| `1204` | load_64 | Copy 64 bits from the memory address in the first register into the second register | `R`,&nbsp;`R` |
+
+##### store
+Copy a number of bits from the value designated by the first operand into the memory address in the register provided in the second operand
+
+The address must be located on the stack or global memory
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `1301` | store_8 | Copy 8 bits from the first register into the memory address in the second register | `R`,&nbsp;`R` |
+| `1302` | store_16 | Copy 16 bits from the first register into the memory address in the second register | `R`,&nbsp;`R` |
+| `1303` | store_32 | Copy 32 bits from the first register into the memory address in the second register | `R`,&nbsp;`R` |
+| `1304` | store_64 | Copy 64 bits from the first register into the memory address in the second register | `R`,&nbsp;`R` |
+| `1305` | im_store_8 | Copy 8 bits from the immediate into the memory address in the register | `I`,&nbsp;`R` |
+| `1306` | im_store_16 | Copy 16 bits from the immediate into the memory address in the register | `I`,&nbsp;`R` |
+| `1307` | im_store_32 | Copy 32 bits from the immediate into the memory address in the register | `I`,&nbsp;`R` |
+| `1308` | im_store_64 | Copy 64 bits from the immediate into the memory address in the register | `R`&nbsp;+&nbsp;`W` |
+
+##### clear
+Clear a number of bits in the designated register
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `1401` | clear_8 | Clear 8 bits from the register | `R` |
+| `1402` | clear_16 | Clear 16 bits from the register | `R` |
+| `1403` | clear_32 | Clear 32 bits from the register | `R` |
+| `1404` | clear_64 | Clear 64 bits from the register | `R` |
+
+##### swap
+Swap a number of bits in the two designated registers
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `1501` | swap_8 | Swap 8 bits between the two registers | `R`,&nbsp;`R` |
+| `1502` | swap_16 | Swap 16 bits between the two registers | `R`,&nbsp;`R` |
+| `1503` | swap_32 | Swap 32 bits between the two registers | `R`,&nbsp;`R` |
+| `1504` | swap_64 | Swap 64 bits between the two registers | `R`,&nbsp;`R` |
+
+##### copy
+Copy a number of bits from the first register into the second register
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `1601` | copy_8 | Copy 8 bits from the first register into the second register | `R`,&nbsp;`R` |
+| `1602` | copy_16 | Copy 16 bits from the first register into the second register | `R`,&nbsp;`R` |
+| `1603` | copy_32 | Copy 32 bits from the first register into the second register | `R`,&nbsp;`R` |
+| `1604` | copy_64 | Copy 64 bits from the first register into the second register | `R`,&nbsp;`R` |
+| `1605` | im_copy_8 | Copy 8-bits from an immediate value into the register | `I`,&nbsp;`R` |
+| `1606` | im_copy_16 | Copy 16-bits from an immediate value into the register | `I`,&nbsp;`R` |
+| `1607` | im_copy_32 | Copy 32-bits from an immediate value into the register | `I`,&nbsp;`R` |
+| `1608` | im_copy_64 | Copy 64-bits from an immediate value into the register | `R`&nbsp;+&nbsp;`W` |
+
 
 #### Arithmetic
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">add<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="4" width="100%" align="center">perform <em>addition</em> on the values designated by <code>x</code> and <code>y</code><br>store the result in <code>z</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr><tr><td>z</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x4d</code></td><td align="left" width="1%"><code>i_add8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer addition</td></tr><tr><td align="right" width="1%"><code>0x4e</code></td><td align="left" width="1%"><code>i_add16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer addition</td></tr><tr><td align="right" width="1%"><code>0x4f</code></td><td align="left" width="1%"><code>i_add32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer addition</td></tr><tr><td align="right" width="1%"><code>0x50</code></td><td align="left" width="1%"><code>i_add64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer addition</td></tr> <tr><td align="right" width="1%"><code>0x51</code></td><td align="left" width="1%"><code>f_add32</code></td><td align="center" colspan="3">32 bit floating point addition</td></tr><tr><td align="right" width="1%"><code>0x52</code></td><td align="left" width="1%"><code>f_add64</code></td><td align="center" colspan="3">64 bit floating point addition</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">sub<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="4" width="100%" align="center">perform <em>subtraction</em> on the values designated by <code>x</code> and <code>y</code><br>store the result in <code>z</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr><tr><td>z</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x53</code></td><td align="left" width="1%"><code>i_sub8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer subtraction</td></tr><tr><td align="right" width="1%"><code>0x54</code></td><td align="left" width="1%"><code>i_sub16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer subtraction</td></tr><tr><td align="right" width="1%"><code>0x55</code></td><td align="left" width="1%"><code>i_sub32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer subtraction</td></tr><tr><td align="right" width="1%"><code>0x56</code></td><td align="left" width="1%"><code>i_sub64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer subtraction</td></tr> <tr><td align="right" width="1%"><code>0x57</code></td><td align="left" width="1%"><code>f_sub32</code></td><td align="center" colspan="3">32 bit floating point subtraction</td></tr><tr><td align="right" width="1%"><code>0x58</code></td><td align="left" width="1%"><code>f_sub64</code></td><td align="center" colspan="3">64 bit floating point subtraction</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">mul<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="4" width="100%" align="center">perform <em>multiplication</em> on the values designated by <code>x</code> and <code>y</code><br>store the result in <code>z</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr><tr><td>z</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x59</code></td><td align="left" width="1%"><code>i_mul8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer multiplication</td></tr><tr><td align="right" width="1%"><code>0x5a</code></td><td align="left" width="1%"><code>i_mul16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer multiplication</td></tr><tr><td align="right" width="1%"><code>0x5b</code></td><td align="left" width="1%"><code>i_mul32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer multiplication</td></tr><tr><td align="right" width="1%"><code>0x5c</code></td><td align="left" width="1%"><code>i_mul64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer multiplication</td></tr> <tr><td align="right" width="1%"><code>0x5d</code></td><td align="left" width="1%"><code>f_mul32</code></td><td align="center" colspan="3">32 bit floating point multiplication</td></tr><tr><td align="right" width="1%"><code>0x5e</code></td><td align="left" width="1%"><code>f_mul64</code></td><td align="center" colspan="3">64 bit floating point multiplication</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">div<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="4" width="100%" align="center">perform <em>division</em> on the values designated by <code>x</code> and <code>y</code><br>store the result in <code>z</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr><tr><td>z</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x5f</code></td><td align="left" width="1%"><code>u_div8</code></td><td align="center" colspan="3">8 bit unsigned integer division</td></tr><tr><td align="right" width="1%"><code>0x60</code></td><td align="left" width="1%"><code>s_div8</code></td><td align="center" colspan="3">8 bit signed integer division</td></tr><tr><td align="right" width="1%"><code>0x61</code></td><td align="left" width="1%"><code>u_div16</code></td><td align="center" colspan="3">16 bit unsigned integer division</td></tr><tr><td align="right" width="1%"><code>0x62</code></td><td align="left" width="1%"><code>s_div16</code></td><td align="center" colspan="3">16 bit signed integer division</td></tr><tr><td align="right" width="1%"><code>0x63</code></td><td align="left" width="1%"><code>u_div32</code></td><td align="center" colspan="3">32 bit unsigned integer division</td></tr><tr><td align="right" width="1%"><code>0x64</code></td><td align="left" width="1%"><code>s_div32</code></td><td align="center" colspan="3">32 bit signed integer division</td></tr><tr><td align="right" width="1%"><code>0x65</code></td><td align="left" width="1%"><code>u_div64</code></td><td align="center" colspan="3">64 bit unsigned integer division</td></tr><tr><td align="right" width="1%"><code>0x66</code></td><td align="left" width="1%"><code>s_div64</code></td><td align="center" colspan="3">64 bit signed integer division</td></tr> <tr><td align="right" width="1%"><code>0x67</code></td><td align="left" width="1%"><code>f_div32</code></td><td align="center" colspan="3">32 bit floating point division</td></tr><tr><td align="right" width="1%"><code>0x68</code></td><td align="left" width="1%"><code>f_div64</code></td><td align="center" colspan="3">64 bit floating point division</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">rem<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="4" width="100%" align="center">perform <em>remainder division</em> on the values designated by <code>x</code> and <code>y</code><br>store the result in <code>z</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr><tr><td>z</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x69</code></td><td align="left" width="1%"><code>u_rem8</code></td><td align="center" colspan="3">8 bit unsigned integer remainder division</td></tr><tr><td align="right" width="1%"><code>0x6a</code></td><td align="left" width="1%"><code>s_rem8</code></td><td align="center" colspan="3">8 bit signed integer remainder division</td></tr><tr><td align="right" width="1%"><code>0x6b</code></td><td align="left" width="1%"><code>u_rem16</code></td><td align="center" colspan="3">16 bit unsigned integer remainder division</td></tr><tr><td align="right" width="1%"><code>0x6c</code></td><td align="left" width="1%"><code>s_rem16</code></td><td align="center" colspan="3">16 bit signed integer remainder division</td></tr><tr><td align="right" width="1%"><code>0x6d</code></td><td align="left" width="1%"><code>u_rem32</code></td><td align="center" colspan="3">32 bit unsigned integer remainder division</td></tr><tr><td align="right" width="1%"><code>0x6e</code></td><td align="left" width="1%"><code>s_rem32</code></td><td align="center" colspan="3">32 bit signed integer remainder division</td></tr><tr><td align="right" width="1%"><code>0x6f</code></td><td align="left" width="1%"><code>u_rem64</code></td><td align="center" colspan="3">64 bit unsigned integer remainder division</td></tr><tr><td align="right" width="1%"><code>0x70</code></td><td align="left" width="1%"><code>s_rem64</code></td><td align="center" colspan="3">64 bit signed integer remainder division</td></tr> <tr><td align="right" width="1%"><code>0x71</code></td><td align="left" width="1%"><code>f_rem32</code></td><td align="center" colspan="3">32 bit floating point remainder division</td></tr><tr><td align="right" width="1%"><code>0x72</code></td><td align="left" width="1%"><code>f_rem64</code></td><td align="center" colspan="3">64 bit floating point remainder division</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">neg<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">perform <em>negation</em> on the value designated by <code>x</code><br>store the result in <code>y</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x73</code></td><td align="left" width="1%"><code>s_neg8</code></td><td align="center" colspan="3">8 bit signed integer negation</td></tr><tr><td align="right" width="1%"><code>0x74</code></td><td align="left" width="1%"><code>s_neg16</code></td><td align="center" colspan="3">16 bit signed integer negation</td></tr><tr><td align="right" width="1%"><code>0x75</code></td><td align="left" width="1%"><code>s_neg32</code></td><td align="center" colspan="3">32 bit signed integer negation</td></tr><tr><td align="right" width="1%"><code>0x76</code></td><td align="left" width="1%"><code>s_neg64</code></td><td align="center" colspan="3">64 bit signed integer negation</td></tr> <tr><td align="right" width="1%"><code>0x77</code></td><td align="left" width="1%"><code>f_neg32</code></td><td align="center" colspan="3">32 bit floating point negation</td></tr><tr><td align="right" width="1%"><code>0x78</code></td><td align="left" width="1%"><code>f_neg64</code></td><td align="center" colspan="3">64 bit floating point negation</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">bitnot<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">perform <em>bitwise not</em> on the value designated by <code>x</code><br>store the result in <code>y</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x79</code></td><td align="left" width="1%"><code>i_bitnot8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer bitwise not</td></tr><tr><td align="right" width="1%"><code>0x7a</code></td><td align="left" width="1%"><code>i_bitnot16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer bitwise not</td></tr><tr><td align="right" width="1%"><code>0x7b</code></td><td align="left" width="1%"><code>i_bitnot32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer bitwise not</td></tr><tr><td align="right" width="1%"><code>0x7c</code></td><td align="left" width="1%"><code>i_bitnot64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer bitwise not</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">bitand<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="4" width="100%" align="center">perform <em>bitwise and</em> on the values designated by <code>x</code> and <code>y</code><br>store the result in <code>z</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr><tr><td>z</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x7d</code></td><td align="left" width="1%"><code>i_bitand8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer bitwise and</td></tr><tr><td align="right" width="1%"><code>0x7e</code></td><td align="left" width="1%"><code>i_bitand16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer bitwise and</td></tr><tr><td align="right" width="1%"><code>0x7f</code></td><td align="left" width="1%"><code>i_bitand32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer bitwise and</td></tr><tr><td align="right" width="1%"><code>0x80</code></td><td align="left" width="1%"><code>i_bitand64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer bitwise and</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">bitor<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="4" width="100%" align="center">perform <em>bitwise or</em> on the values designated by <code>x</code> and <code>y</code><br>store the result in <code>z</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr><tr><td>z</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x81</code></td><td align="left" width="1%"><code>i_bitor8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer bitwise or</td></tr><tr><td align="right" width="1%"><code>0x82</code></td><td align="left" width="1%"><code>i_bitor16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer bitwise or</td></tr><tr><td align="right" width="1%"><code>0x83</code></td><td align="left" width="1%"><code>i_bitor32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer bitwise or</td></tr><tr><td align="right" width="1%"><code>0x84</code></td><td align="left" width="1%"><code>i_bitor64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer bitwise or</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">bitxor<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="4" width="100%" align="center">perform <em>bitwise xor</em> on the values designated by <code>x</code> and <code>y</code><br>store the result in <code>z</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr><tr><td>z</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x85</code></td><td align="left" width="1%"><code>i_bitxor8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer bitwise exclusive or</td></tr><tr><td align="right" width="1%"><code>0x86</code></td><td align="left" width="1%"><code>i_bitxor16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer bitwise exclusive or</td></tr><tr><td align="right" width="1%"><code>0x87</code></td><td align="left" width="1%"><code>i_bitxor32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer bitwise exclusive or</td></tr><tr><td align="right" width="1%"><code>0x88</code></td><td align="left" width="1%"><code>i_bitxor64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer bitwise exclusive or</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">shiftl<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="4" width="100%" align="center">perform <em>bitwise left shift</em> on the values designated by <code>x</code> and <code>y</code><br>store the result in <code>z</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr><tr><td>z</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x89</code></td><td align="left" width="1%"><code>i_shiftl8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer left shift</td></tr><tr><td align="right" width="1%"><code>0x8a</code></td><td align="left" width="1%"><code>i_shiftl16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer left shift</td></tr><tr><td align="right" width="1%"><code>0x8b</code></td><td align="left" width="1%"><code>i_shiftl32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer left shift</td></tr><tr><td align="right" width="1%"><code>0x8c</code></td><td align="left" width="1%"><code>i_shiftl64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer left shift</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">shiftr<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="4" width="100%" align="center">perform <em>bitwise right shift</em> on the values designated by <code>x</code> and <code>y</code><br>store the result in <code>z</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr><tr><td>z</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x8d</code></td><td align="left" width="1%"><code>u_shiftr8</code></td><td align="center" colspan="3">8 bit logical right shift</td></tr><tr><td align="right" width="1%"><code>0x8e</code></td><td align="left" width="1%"><code>s_shiftr8</code></td><td align="center" colspan="3">8 bit arithmetic right shift</td></tr><tr><td align="right" width="1%"><code>0x8f</code></td><td align="left" width="1%"><code>u_shiftr16</code></td><td align="center" colspan="3">16 bit logical right shift</td></tr><tr><td align="right" width="1%"><code>0x90</code></td><td align="left" width="1%"><code>s_shiftr16</code></td><td align="center" colspan="3">16 bit arithmetic right shift</td></tr><tr><td align="right" width="1%"><code>0x91</code></td><td align="left" width="1%"><code>u_shiftr32</code></td><td align="center" colspan="3">32 bit logical right shift</td></tr><tr><td align="right" width="1%"><code>0x92</code></td><td align="left" width="1%"><code>s_shiftr32</code></td><td align="center" colspan="3">32 bit arithmetic right shift</td></tr><tr><td align="right" width="1%"><code>0x93</code></td><td align="left" width="1%"><code>u_shiftr64</code></td><td align="center" colspan="3">64 bit logical right shift</td></tr><tr><td align="right" width="1%"><code>0x94</code></td><td align="left" width="1%"><code>s_shiftr64</code></td><td align="center" colspan="3">64 bit arithmetic right shift</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">eq<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="4" width="100%" align="center">perform <em>equality comparison</em> on the values designated by <code>x</code> and <code>y</code><br>store the result in <code>z</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr><tr><td>z</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x95</code></td><td align="left" width="1%"><code>i_eq8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer equality comparison</td></tr><tr><td align="right" width="1%"><code>0x96</code></td><td align="left" width="1%"><code>i_eq16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer equality comparison</td></tr><tr><td align="right" width="1%"><code>0x97</code></td><td align="left" width="1%"><code>i_eq32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer equality comparison</td></tr><tr><td align="right" width="1%"><code>0x98</code></td><td align="left" width="1%"><code>i_eq64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer equality comparison</td></tr> <tr><td align="right" width="1%"><code>0x99</code></td><td align="left" width="1%"><code>f_eq32</code></td><td align="center" colspan="3">32 bit floating point equality comparison</td></tr><tr><td align="right" width="1%"><code>0x9a</code></td><td align="left" width="1%"><code>f_eq64</code></td><td align="center" colspan="3">64 bit floating point equality comparison</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">ne<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="4" width="100%" align="center">perform <em>inequality comparison</em> on the values designated by <code>x</code> and <code>y</code><br>store the result in <code>z</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr><tr><td>z</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0x9b</code></td><td align="left" width="1%"><code>i_ne8</code></td><td align="center" colspan="3">8 bit sign-agnostic integer inequality comparison</td></tr><tr><td align="right" width="1%"><code>0x9c</code></td><td align="left" width="1%"><code>i_ne16</code></td><td align="center" colspan="3">16 bit sign-agnostic integer inequality comparison</td></tr><tr><td align="right" width="1%"><code>0x9d</code></td><td align="left" width="1%"><code>i_ne32</code></td><td align="center" colspan="3">32 bit sign-agnostic integer inequality comparison</td></tr><tr><td align="right" width="1%"><code>0x9e</code></td><td align="left" width="1%"><code>i_ne64</code></td><td align="center" colspan="3">64 bit sign-agnostic integer inequality comparison</td></tr> <tr><td align="right" width="1%"><code>0x9f</code></td><td align="left" width="1%"><code>f_ne32</code></td><td align="center" colspan="3">32 bit floating point inequality comparison</td></tr><tr><td align="right" width="1%"><code>0xa0</code></td><td align="left" width="1%"><code>f_ne64</code></td><td align="center" colspan="3">64 bit floating point inequality comparison</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">lt<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="4" width="100%" align="center">perform <em>less than comparison</em> on the values designated by <code>x</code> and <code>y</code><br>store the result in <code>z</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr><tr><td>z</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0xa1</code></td><td align="left" width="1%"><code>u_lt8</code></td><td align="center" colspan="3">8 bit unsigned integer less than comparison</td></tr><tr><td align="right" width="1%"><code>0xa2</code></td><td align="left" width="1%"><code>s_lt8</code></td><td align="center" colspan="3">8 bit signed integer less than comparison</td></tr><tr><td align="right" width="1%"><code>0xa3</code></td><td align="left" width="1%"><code>u_lt16</code></td><td align="center" colspan="3">16 bit unsigned integer less than comparison</td></tr><tr><td align="right" width="1%"><code>0xa4</code></td><td align="left" width="1%"><code>s_lt16</code></td><td align="center" colspan="3">16 bit signed integer less than comparison</td></tr><tr><td align="right" width="1%"><code>0xa5</code></td><td align="left" width="1%"><code>u_lt32</code></td><td align="center" colspan="3">32 bit unsigned integer less than comparison</td></tr><tr><td align="right" width="1%"><code>0xa6</code></td><td align="left" width="1%"><code>s_lt32</code></td><td align="center" colspan="3">32 bit signed integer less than comparison</td></tr><tr><td align="right" width="1%"><code>0xa7</code></td><td align="left" width="1%"><code>u_lt64</code></td><td align="center" colspan="3">64 bit unsigned integer less than comparison</td></tr><tr><td align="right" width="1%"><code>0xa8</code></td><td align="left" width="1%"><code>s_lt64</code></td><td align="center" colspan="3">64 bit signed integer less than comparison</td></tr> <tr><td align="right" width="1%"><code>0xa9</code></td><td align="left" width="1%"><code>f_lt32</code></td><td align="center" colspan="3">32 bit floating point less than comparison</td></tr><tr><td align="right" width="1%"><code>0xaa</code></td><td align="left" width="1%"><code>f_lt64</code></td><td align="center" colspan="3">64 bit floating point less than comparison</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">le<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="4" width="100%" align="center">perform <em>less than or equal comparison</em> on the values designated by <code>x</code> and <code>y</code><br>store the result in <code>z</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr><tr><td>z</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0xab</code></td><td align="left" width="1%"><code>u_le8</code></td><td align="center" colspan="3">8 bit unsigned integer less than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0xac</code></td><td align="left" width="1%"><code>s_le8</code></td><td align="center" colspan="3">8 bit signed integer less than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0xad</code></td><td align="left" width="1%"><code>u_le16</code></td><td align="center" colspan="3">16 bit unsigned integer less than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0xae</code></td><td align="left" width="1%"><code>s_le16</code></td><td align="center" colspan="3">16 bit signed integer less than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0xaf</code></td><td align="left" width="1%"><code>u_le32</code></td><td align="center" colspan="3">32 bit unsigned integer less than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0xb0</code></td><td align="left" width="1%"><code>s_le32</code></td><td align="center" colspan="3">32 bit signed integer less than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0xb1</code></td><td align="left" width="1%"><code>u_le64</code></td><td align="center" colspan="3">64 bit unsigned integer less than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0xb2</code></td><td align="left" width="1%"><code>s_le64</code></td><td align="center" colspan="3">64 bit signed integer less than or equal comparison</td></tr> <tr><td align="right" width="1%"><code>0xb3</code></td><td align="left" width="1%"><code>f_le32</code></td><td align="center" colspan="3">32 bit floating point less than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0xb4</code></td><td align="left" width="1%"><code>f_le64</code></td><td align="center" colspan="3">64 bit floating point less than or equal comparison</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">gt<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="4" width="100%" align="center">perform <em>greater than comparison</em> on the values designated by <code>x</code> and <code>y</code><br>store the result in <code>z</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr><tr><td>z</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0xb5</code></td><td align="left" width="1%"><code>u_gt8</code></td><td align="center" colspan="3">8 bit unsigned integer greater than comparison</td></tr><tr><td align="right" width="1%"><code>0xb6</code></td><td align="left" width="1%"><code>s_gt8</code></td><td align="center" colspan="3">8 bit signed integer greater than comparison</td></tr><tr><td align="right" width="1%"><code>0xb7</code></td><td align="left" width="1%"><code>u_gt16</code></td><td align="center" colspan="3">16 bit unsigned integer greater than comparison</td></tr><tr><td align="right" width="1%"><code>0xb8</code></td><td align="left" width="1%"><code>s_gt16</code></td><td align="center" colspan="3">16 bit signed integer greater than comparison</td></tr><tr><td align="right" width="1%"><code>0xb9</code></td><td align="left" width="1%"><code>u_gt32</code></td><td align="center" colspan="3">32 bit unsigned integer greater than comparison</td></tr><tr><td align="right" width="1%"><code>0xba</code></td><td align="left" width="1%"><code>s_gt32</code></td><td align="center" colspan="3">32 bit signed integer greater than comparison</td></tr><tr><td align="right" width="1%"><code>0xbb</code></td><td align="left" width="1%"><code>u_gt64</code></td><td align="center" colspan="3">64 bit unsigned integer greater than comparison</td></tr><tr><td align="right" width="1%"><code>0xbc</code></td><td align="left" width="1%"><code>s_gt64</code></td><td align="center" colspan="3">64 bit signed integer greater than comparison</td></tr> <tr><td align="right" width="1%"><code>0xbd</code></td><td align="left" width="1%"><code>f_gt32</code></td><td align="center" colspan="3">32 bit floating point greater than comparison</td></tr><tr><td align="right" width="1%"><code>0xbe</code></td><td align="left" width="1%"><code>f_gt64</code></td><td align="center" colspan="3">64 bit floating point greater than comparison</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">ge<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="4" width="100%" align="center">perform <em>greater than or equal comparison</em> on the values designated by <code>x</code> and <code>y</code><br>store the result in <code>z</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr><tr><td>z</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0xbf</code></td><td align="left" width="1%"><code>u_ge8</code></td><td align="center" colspan="3">8 bit unsigned integer greater than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0xc0</code></td><td align="left" width="1%"><code>s_ge8</code></td><td align="center" colspan="3">8 bit signed integer greater than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0xc1</code></td><td align="left" width="1%"><code>u_ge16</code></td><td align="center" colspan="3">16 bit unsigned integer greater than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0xc2</code></td><td align="left" width="1%"><code>s_ge16</code></td><td align="center" colspan="3">16 bit signed integer greater than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0xc3</code></td><td align="left" width="1%"><code>u_ge32</code></td><td align="center" colspan="3">32 bit unsigned integer greater than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0xc4</code></td><td align="left" width="1%"><code>s_ge32</code></td><td align="center" colspan="3">32 bit signed integer greater than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0xc5</code></td><td align="left" width="1%"><code>u_ge64</code></td><td align="center" colspan="3">64 bit unsigned integer greater than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0xc6</code></td><td align="left" width="1%"><code>s_ge64</code></td><td align="center" colspan="3">64 bit signed integer greater than or equal comparison</td></tr> <tr><td align="right" width="1%"><code>0xc7</code></td><td align="left" width="1%"><code>f_ge32</code></td><td align="center" colspan="3">32 bit floating point greater than or equal comparison</td></tr><tr><td align="right" width="1%"><code>0xc8</code></td><td align="left" width="1%"><code>f_ge64</code></td><td align="center" colspan="3">64 bit floating point greater than or equal comparison</td></tr>
-</table>
+Basic arithmetic operations
++ [add](#add)
++ [sub](#sub)
++ [mul](#mul)
++ [div](#div)
++ [rem](#rem)
++ [neg](#neg)
+##### add
+Addition on two operands, with the result placed in a register designated by the third operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `1701` | i_add_8 | Sign-agnostic addition on 8-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1702` | i_add_16 | Sign-agnostic addition on 16-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1703` | i_add_32 | Sign-agnostic addition on 32-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1704` | i_add_64 | Sign-agnostic addition on 64-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1705` | im_i_add_8 | Sign-agnostic addition on 8-bit integers; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1706` | im_i_add_16 | Sign-agnostic addition on 16-bit integers; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1707` | im_i_add_32 | Sign-agnostic addition on 32-bit integers; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1708` | im_i_add_64 | Sign-agnostic addition on 64-bit integers; one immediate, one in a register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `1709` | f_add_32 | Addition on 32-bit floats in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `170a` | f_add_64 | Addition on 64-bit floats in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `170b` | im_f_add_32 | Addition on 32-bit floats; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `170c` | im_f_add_64 | Addition on 64-bit floats; one immediate, one in a register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
 
-#### Boolean
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">b_and<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="4" width="100%" align="center">perform <em>logical and</em> on the values designated by <code>x</code> and <code>y</code><br>store the result in <code>z</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr><tr><td>z</td><td><code>I</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0xc9</code></td>
-        <td align="left" width="1%"><code>b_and</code></td>
-        <td align="center" colspan="3">logical and</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">b_or<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="4" width="100%" align="center">perform <em>logical or</em> on the values designated by <code>x</code> and <code>y</code><br>store the result in <code>z</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr><tr><td>z</td><td><code>I</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0xca</code></td>
-        <td align="left" width="1%"><code>b_or</code></td>
-        <td align="center" colspan="3">logical or</td>
-    </tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">b_not<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">perform <em>logical not</em> on the value designated by <code>x</code><br>store the result in <code>y</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr>
-    <tr>
-        <td align="right" width="1%"><code>0xcb</code></td>
-        <td align="left" width="1%"><code>b_not</code></td>
-        <td align="center" colspan="3">logical not</td>
-    </tr>
-</table>
+##### sub
+Subtraction on two operands, with the result placed in a register designated by the third operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `1801` | i_sub_8 | Sign-agnostic subtraction on 8-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1802` | i_sub_16 | Sign-agnostic subtraction on 16-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1803` | i_sub_32 | Sign-agnostic subtraction on 32-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1804` | i_sub_64 | Sign-agnostic subtraction on 64-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1805` | im_a_i_sub_8 | Sign-agnostic subtraction on 8-bit integers; subtract register value from immediate value | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1806` | im_a_i_sub_16 | Sign-agnostic subtraction on 16-bit integers; subtract register value from immediate value | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1807` | im_a_i_sub_32 | Sign-agnostic subtraction on 32-bit integers; subtract register value from immediate value | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1808` | im_a_i_sub_64 | Sign-agnostic subtraction on 64-bit integers; subtract register value from immediate value | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `1809` | im_b_i_sub_8 | Sign-agnostic subtraction on 8-bit integers; subtract immediate value from register value | `R`,&nbsp;`I`,&nbsp;`R` |
+| `180a` | im_b_i_sub_16 | Sign-agnostic subtraction on 16-bit integers; subtract immediate value from register value | `R`,&nbsp;`I`,&nbsp;`R` |
+| `180b` | im_b_i_sub_32 | Sign-agnostic subtraction on 32-bit integers; subtract immediate value from register value | `R`,&nbsp;`I`,&nbsp;`R` |
+| `180c` | im_b_i_sub_64 | Sign-agnostic subtraction on 64-bit integers; subtract immediate value from register value | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `180d` | f_sub_32 | Subtraction on 32-bit floats in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `180e` | f_sub_64 | Subtraction on 64-bit floats in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `180f` | im_a_f_sub_32 | Subtraction on 32-bit floats; subtract register value from immediate value | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1810` | im_a_f_sub_64 | Subtraction on 64-bit floats; subtract register value from immediate value | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `1811` | im_b_f_sub_32 | Subtraction on 32-bit floats; subtract immediate value from register value | `R`,&nbsp;`I`,&nbsp;`R` |
+| `1812` | im_b_f_sub_64 | Subtraction on 64-bit floats; subtract immediate value from register value | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
 
-#### Size Cast Int
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">u_ext<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">perform <em>integer zero-extension</em> on the value designated by <code>x</code><br>store the result in <code>y</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0xcc</code></td><td align="left" width="1%"><code>u_ext8x16</code></td><td align="center" colspan="3">8 bit to 16 bit unsigned integer extension</td></tr><tr><td align="right" width="1%"><code>0xcd</code></td><td align="left" width="1%"><code>u_ext8x32</code></td><td align="center" colspan="3">8 bit to 32 bit unsigned integer extension</td></tr><tr><td align="right" width="1%"><code>0xce</code></td><td align="left" width="1%"><code>u_ext8x64</code></td><td align="center" colspan="3">8 bit to 64 bit unsigned integer extension</td></tr><tr><td align="right" width="1%"><code>0xcf</code></td><td align="left" width="1%"><code>u_ext16x32</code></td><td align="center" colspan="3">16 bit to 32 bit unsigned integer extension</td></tr><tr><td align="right" width="1%"><code>0xd0</code></td><td align="left" width="1%"><code>u_ext16x64</code></td><td align="center" colspan="3">16 bit to 64 bit unsigned integer extension</td></tr><tr><td align="right" width="1%"><code>0xd1</code></td><td align="left" width="1%"><code>u_ext32x64</code></td><td align="center" colspan="3">32 bit to 64 bit unsigned integer extension</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">s_ext<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">perform <em>integer sign-extension</em> on the value designated by <code>x</code><br>store the result in <code>y</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0xd2</code></td><td align="left" width="1%"><code>s_ext8x16</code></td><td align="center" colspan="3">8 bit to 16 bit signed integer extension</td></tr><tr><td align="right" width="1%"><code>0xd3</code></td><td align="left" width="1%"><code>s_ext8x32</code></td><td align="center" colspan="3">8 bit to 32 bit signed integer extension</td></tr><tr><td align="right" width="1%"><code>0xd4</code></td><td align="left" width="1%"><code>s_ext8x64</code></td><td align="center" colspan="3">8 bit to 64 bit signed integer extension</td></tr><tr><td align="right" width="1%"><code>0xd5</code></td><td align="left" width="1%"><code>s_ext16x32</code></td><td align="center" colspan="3">16 bit to 32 bit signed integer extension</td></tr><tr><td align="right" width="1%"><code>0xd6</code></td><td align="left" width="1%"><code>s_ext16x64</code></td><td align="center" colspan="3">16 bit to 64 bit signed integer extension</td></tr><tr><td align="right" width="1%"><code>0xd7</code></td><td align="left" width="1%"><code>s_ext32x64</code></td><td align="center" colspan="3">32 bit to 64 bit signed integer extension</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">i_trunc<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">perform <em>integer truncation</em> on the value designated by <code>x</code><br>store the result in <code>y</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0xd8</code></td><td align="left" width="1%"><code>i_trunc64x32</code></td><td align="center" colspan="3">64 bit to 32 bit sign-agnostic integer truncation</td></tr><tr><td align="right" width="1%"><code>0xd9</code></td><td align="left" width="1%"><code>i_trunc64x16</code></td><td align="center" colspan="3">64 bit to 16 bit sign-agnostic integer truncation</td></tr><tr><td align="right" width="1%"><code>0xda</code></td><td align="left" width="1%"><code>i_trunc64x8</code></td><td align="center" colspan="3">64 bit to 8 bit sign-agnostic integer truncation</td></tr><tr><td align="right" width="1%"><code>0xdb</code></td><td align="left" width="1%"><code>i_trunc32x16</code></td><td align="center" colspan="3">32 bit to 16 bit sign-agnostic integer truncation</td></tr><tr><td align="right" width="1%"><code>0xdc</code></td><td align="left" width="1%"><code>i_trunc32x8</code></td><td align="center" colspan="3">32 bit to 8 bit sign-agnostic integer truncation</td></tr><tr><td align="right" width="1%"><code>0xdd</code></td><td align="left" width="1%"><code>i_trunc16x8</code></td><td align="center" colspan="3">16 bit to 8 bit sign-agnostic integer truncation</td></tr>
-</table>
+##### mul
+Multiplication on two operands, with the result placed in a register designated by the third operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `1901` | i_mul_8 | Sign-agnostic multiplication on 8-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1902` | i_mul_16 | Sign-agnostic multiplication on 16-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1903` | i_mul_32 | Sign-agnostic multiplication on 32-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1904` | i_mul_64 | Sign-agnostic multiplication on 64-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1905` | im_i_mul_8 | Sign-agnostic multiplication on 8-bit integers; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1906` | im_i_mul_16 | Sign-agnostic multiplication on 16-bit integers; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1907` | im_i_mul_32 | Sign-agnostic multiplication on 32-bit integers; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1908` | im_i_mul_64 | Sign-agnostic multiplication on 64-bit integers; one immediate, one in a register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `1909` | f_mul_32 | Multiplication on 32-bit floats in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `190a` | f_mul_64 | Multiplication on 64-bit floats in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `190b` | im_f_mul_32 | Multiplication on 32-bit floats; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `190c` | im_f_mul_64 | Multiplication on 64-bit floats; one immediate, one in a register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
 
-#### Size Cast Float
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">f_ext<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">perform <em>floating point extension</em> on the value designated by <code>x</code><br>store the result in <code>y</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0xde</code></td><td align="left" width="1%"><code>f_ext32x64</code></td><td align="center" colspan="3">32 bit to 64 bit floating point extension</td></tr>
-</table>
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">f_trunc<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" width="100%" align="center">perform <em>floating point truncation</em> on the value designated by <code>x</code><br>store the result in <code>y</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0xdf</code></td><td align="left" width="1%"><code>f_trunc64x32</code></td><td align="center" colspan="3">64 bit to 32 bit floating point truncation</td></tr>
-</table>
+##### div
+Division on two operands, with the result placed in a register designated by the third operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `1a01` | u_div_8 | Unsigned division on 8-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1a02` | u_div_16 | Unsigned division on 16-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1a03` | u_div_32 | Unsigned division on 32-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1a04` | u_div_64 | Unsigned division on 64-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1a05` | im_a_u_div_8 | Unsigned division on 8-bit integers; immediate dividend, register divisor | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1a06` | im_a_u_div_16 | Unsigned division on 16-bit integers; immediate dividend, register divisor | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1a07` | im_a_u_div_32 | Unsigned division on 32-bit integers; immediate dividend, register divisor | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1a08` | im_a_u_div_64 | Unsigned division on 64-bit integers; immediate dividend, register divisor | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `1a09` | im_b_u_div_8 | Unsigned division on 8-bit integers; register dividend, immediate divisor | `R`,&nbsp;`I`,&nbsp;`R` |
+| `1a0a` | im_b_u_div_16 | Unsigned division on 16-bit integers; register dividend, immediate divisor | `R`,&nbsp;`I`,&nbsp;`R` |
+| `1a0b` | im_b_u_div_32 | Unsigned division on 32-bit integers; register dividend, immediate divisor | `R`,&nbsp;`I`,&nbsp;`R` |
+| `1a0c` | im_b_u_div_64 | Unsigned division on 64-bit integers; register dividend, immediate divisor | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `1a0d` | s_div_8 | Signed division on 8-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1a0e` | s_div_16 | Signed division on 16-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1a0f` | s_div_32 | Signed division on 32-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1a10` | s_div_64 | Signed division on 64-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1a11` | im_a_s_div_8 | Signed division on 8-bit integers; immediate dividend, register divisor | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1a12` | im_a_s_div_16 | Signed division on 16-bit integers; immediate dividend, register divisor | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1a13` | im_a_s_div_32 | Signed division on 32-bit integers; immediate dividend, register divisor | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1a14` | im_a_s_div_64 | Signed division on 64-bit integers; immediate dividend, register divisor | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `1a15` | im_b_s_div_8 | Signed division on 8-bit integers; register dividend, immediate divisor | `R`,&nbsp;`I`,&nbsp;`R` |
+| `1a16` | im_b_s_div_16 | Signed division on 16-bit integers; register dividend, immediate divisor | `R`,&nbsp;`I`,&nbsp;`R` |
+| `1a17` | im_b_s_div_32 | Signed division on 32-bit integers; register dividend, immediate divisor | `R`,&nbsp;`I`,&nbsp;`R` |
+| `1a18` | im_b_s_div_64 | Signed division on 64-bit integers; register dividend, immediate divisor | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `1a19` | f_div_32 | Division on 32-bit floats in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1a1a` | f_div_64 | Division on 64-bit floats in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1a1b` | im_a_f_div_32 | Division on 32-bit floats; immediate dividend, register divisor | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1a1c` | im_a_f_div_64 | Division on 64-bit floats; immediate dividend, register divisor | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `1a1d` | im_b_f_div_32 | Division on 32-bit floats; register dividend, immediate divisor | `R`,&nbsp;`I`,&nbsp;`R` |
+| `1a1e` | im_b_f_div_64 | Division on 64-bit floats; register dividend, immediate divisor | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
 
-#### Int <-> Float Cast
-<table>
-    <tr>
-        <th colspan="3" align="left" width="100%">a_to_b<img width="960px" height="1" align="right"></th>
-        <td colspan="2">Params</td>
-    </tr>
-    <tr>
-        <td colspan="3" rowspan="3" align="center">perform <em>int <-> float conversion</em> on the value designated by <code>x</code><br>store the result in <code>y</code></td>
-    </tr>
-    <tr><td>x</td><td><code>I</code></td></tr><tr><td>y</td><td><code>I</code></td></tr>
-    <tr><td align="right" width="1%"><code>0xe0</code></td><td align="left" width="1%"><code>u8_to_f32</code></td><td align="center" colspan="3">8 bit unsigned integer to 32 bit floating point conversion</td></tr><tr><td align="right" width="1%"><code>0xe0</code></td><td align="left" width="1%"><code>f32_to_u8</code></td><td align="center" colspan="3">32 bit floating point to 8 bit unsigned integer conversion</td></tr><tr><td align="right" width="1%"><code>0xe2</code></td><td align="left" width="1%"><code>u8_to_f64</code></td><td align="center" colspan="3">8 bit unsigned integer to 64 bit floating point conversion</td></tr><tr><td align="right" width="1%"><code>0xe2</code></td><td align="left" width="1%"><code>f64_to_u8</code></td><td align="center" colspan="3">64 bit floating point to 8 bit unsigned integer conversion</td></tr><tr><td align="right" width="1%"><code>0xe4</code></td><td align="left" width="1%"><code>u16_to_f32</code></td><td align="center" colspan="3">16 bit unsigned integer to 32 bit floating point conversion</td></tr><tr><td align="right" width="1%"><code>0xe4</code></td><td align="left" width="1%"><code>f32_to_u16</code></td><td align="center" colspan="3">32 bit floating point to 16 bit unsigned integer conversion</td></tr><tr><td align="right" width="1%"><code>0xe6</code></td><td align="left" width="1%"><code>u16_to_f64</code></td><td align="center" colspan="3">16 bit unsigned integer to 64 bit floating point conversion</td></tr><tr><td align="right" width="1%"><code>0xe6</code></td><td align="left" width="1%"><code>f64_to_u16</code></td><td align="center" colspan="3">64 bit floating point to 16 bit unsigned integer conversion</td></tr><tr><td align="right" width="1%"><code>0xe8</code></td><td align="left" width="1%"><code>u32_to_f32</code></td><td align="center" colspan="3">32 bit unsigned integer to 32 bit floating point conversion</td></tr><tr><td align="right" width="1%"><code>0xe8</code></td><td align="left" width="1%"><code>f32_to_u32</code></td><td align="center" colspan="3">32 bit floating point to 32 bit unsigned integer conversion</td></tr><tr><td align="right" width="1%"><code>0xea</code></td><td align="left" width="1%"><code>u32_to_f64</code></td><td align="center" colspan="3">32 bit unsigned integer to 64 bit floating point conversion</td></tr><tr><td align="right" width="1%"><code>0xea</code></td><td align="left" width="1%"><code>f64_to_u32</code></td><td align="center" colspan="3">64 bit floating point to 32 bit unsigned integer conversion</td></tr><tr><td align="right" width="1%"><code>0xec</code></td><td align="left" width="1%"><code>u64_to_f32</code></td><td align="center" colspan="3">64 bit unsigned integer to 32 bit floating point conversion</td></tr><tr><td align="right" width="1%"><code>0xec</code></td><td align="left" width="1%"><code>f32_to_u64</code></td><td align="center" colspan="3">32 bit floating point to 64 bit unsigned integer conversion</td></tr><tr><td align="right" width="1%"><code>0xee</code></td><td align="left" width="1%"><code>u64_to_f64</code></td><td align="center" colspan="3">64 bit unsigned integer to 64 bit floating point conversion</td></tr><tr><td align="right" width="1%"><code>0xee</code></td><td align="left" width="1%"><code>f64_to_u64</code></td><td align="center" colspan="3">64 bit floating point to 64 bit unsigned integer conversion</td></tr><tr><td align="right" width="1%"><code>0xf0</code></td><td align="left" width="1%"><code>s8_to_f32</code></td><td align="center" colspan="3">8 bit signed integer to 32 bit floating point conversion</td></tr><tr><td align="right" width="1%"><code>0xf0</code></td><td align="left" width="1%"><code>f32_to_s8</code></td><td align="center" colspan="3">32 bit floating point to 8 bit signed integer conversion</td></tr><tr><td align="right" width="1%"><code>0xf2</code></td><td align="left" width="1%"><code>s8_to_f64</code></td><td align="center" colspan="3">8 bit signed integer to 64 bit floating point conversion</td></tr><tr><td align="right" width="1%"><code>0xf2</code></td><td align="left" width="1%"><code>f64_to_s8</code></td><td align="center" colspan="3">64 bit floating point to 8 bit signed integer conversion</td></tr><tr><td align="right" width="1%"><code>0xf4</code></td><td align="left" width="1%"><code>s16_to_f32</code></td><td align="center" colspan="3">16 bit signed integer to 32 bit floating point conversion</td></tr><tr><td align="right" width="1%"><code>0xf4</code></td><td align="left" width="1%"><code>f32_to_s16</code></td><td align="center" colspan="3">32 bit floating point to 16 bit signed integer conversion</td></tr><tr><td align="right" width="1%"><code>0xf6</code></td><td align="left" width="1%"><code>s16_to_f64</code></td><td align="center" colspan="3">16 bit signed integer to 64 bit floating point conversion</td></tr><tr><td align="right" width="1%"><code>0xf6</code></td><td align="left" width="1%"><code>f64_to_s16</code></td><td align="center" colspan="3">64 bit floating point to 16 bit signed integer conversion</td></tr><tr><td align="right" width="1%"><code>0xf8</code></td><td align="left" width="1%"><code>s32_to_f32</code></td><td align="center" colspan="3">32 bit signed integer to 32 bit floating point conversion</td></tr><tr><td align="right" width="1%"><code>0xf8</code></td><td align="left" width="1%"><code>f32_to_s32</code></td><td align="center" colspan="3">32 bit floating point to 32 bit signed integer conversion</td></tr><tr><td align="right" width="1%"><code>0xfa</code></td><td align="left" width="1%"><code>s32_to_f64</code></td><td align="center" colspan="3">32 bit signed integer to 64 bit floating point conversion</td></tr><tr><td align="right" width="1%"><code>0xfa</code></td><td align="left" width="1%"><code>f64_to_s32</code></td><td align="center" colspan="3">64 bit floating point to 32 bit signed integer conversion</td></tr><tr><td align="right" width="1%"><code>0xfc</code></td><td align="left" width="1%"><code>s64_to_f32</code></td><td align="center" colspan="3">64 bit signed integer to 32 bit floating point conversion</td></tr><tr><td align="right" width="1%"><code>0xfc</code></td><td align="left" width="1%"><code>f32_to_s64</code></td><td align="center" colspan="3">32 bit floating point to 64 bit signed integer conversion</td></tr><tr><td align="right" width="1%"><code>0xfe</code></td><td align="left" width="1%"><code>s64_to_f64</code></td><td align="center" colspan="3">64 bit signed integer to 64 bit floating point conversion</td></tr><tr><td align="right" width="1%"><code>0xfe</code></td><td align="left" width="1%"><code>f64_to_s64</code></td><td align="center" colspan="3">64 bit floating point to 64 bit signed integer conversion</td></tr>
-</table>
+##### rem
+Remainder division on two operands, with the result placed in a register designated by the third operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `1b01` | u_rem_8 | Unsigned remainder division on 8-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1b02` | u_rem_16 | Unsigned remainder division on 16-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1b03` | u_rem_32 | Unsigned remainder division on 32-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1b04` | u_rem_64 | Unsigned remainder division on 64-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1b05` | im_a_u_rem_8 | Unsigned remainder division on 8-bit integers; immediate dividend, register divisor | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1b06` | im_a_u_rem_16 | Unsigned remainder division on 16-bit integers; immediate dividend, register divisor | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1b07` | im_a_u_rem_32 | Unsigned remainder division on 32-bit integers; immediate dividend, register divisor | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1b08` | im_a_u_rem_64 | Unsigned remainder division on 64-bit integers; immediate dividend, register divisor | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `1b09` | im_b_u_rem_8 | Unsigned remainder division on 8-bit integers; register dividend, immediate divisor | `R`,&nbsp;`I`,&nbsp;`R` |
+| `1b0a` | im_b_u_rem_16 | Unsigned remainder division on 16-bit integers; register dividend, immediate divisor | `R`,&nbsp;`I`,&nbsp;`R` |
+| `1b0b` | im_b_u_rem_32 | Unsigned remainder division on 32-bit integers; register dividend, immediate divisor | `R`,&nbsp;`I`,&nbsp;`R` |
+| `1b0c` | im_b_u_rem_64 | Unsigned remainder division on 64-bit integers; register dividend, immediate divisor | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `1b0d` | s_rem_8 | Signed remainder division on 8-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1b0e` | s_rem_16 | Signed remainder division on 16-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1b0f` | s_rem_32 | Signed remainder division on 32-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1b10` | s_rem_64 | Signed remainder division on 64-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1b11` | im_a_s_rem_8 | Signed remainder division on 8-bit integers; immediate dividend, register divisor | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1b12` | im_a_s_rem_16 | Signed remainder division on 16-bit integers; immediate dividend, register divisor | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1b13` | im_a_s_rem_32 | Signed remainder division on 32-bit integers; immediate dividend, register divisor | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1b14` | im_a_s_rem_64 | Signed remainder division on 64-bit integers; immediate dividend, register divisor | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `1b15` | im_b_s_rem_8 | Signed remainder division on 8-bit integers; register dividend, immediate divisor | `R`,&nbsp;`I`,&nbsp;`R` |
+| `1b16` | im_b_s_rem_16 | Signed remainder division on 16-bit integers; register dividend, immediate divisor | `R`,&nbsp;`I`,&nbsp;`R` |
+| `1b17` | im_b_s_rem_32 | Signed remainder division on 32-bit integers; register dividend, immediate divisor | `R`,&nbsp;`I`,&nbsp;`R` |
+| `1b18` | im_b_s_rem_64 | Signed remainder division on 64-bit integers; register dividend, immediate divisor | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `1b19` | f_rem_32 | Remainder division on 32-bit floats in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1b1a` | f_rem_64 | Remainder division on 64-bit floats in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1b1b` | im_a_f_rem_32 | Remainder division on 32-bit floats; immediate dividend, register divisor | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1b1c` | im_a_f_rem_64 | Remainder division on 64-bit floats; immediate dividend, register divisor | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `1b1d` | im_b_f_rem_32 | Remainder division on 32-bit floats; register dividend, immediate divisor | `R`,&nbsp;`I`,&nbsp;`R` |
+| `1b1e` | im_b_f_rem_64 | Remainder division on 64-bit floats; register dividend, immediate divisor | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+
+##### neg
+Negation of a single operand, with the result placed in a register designated by the second operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `1c01` | s_neg_8 | Negation of an 8-bit integer | `R`,&nbsp;`R` |
+| `1c02` | s_neg_16 | Negation of a 16-bit integer | `R`,&nbsp;`R` |
+| `1c03` | s_neg_32 | Negation of a 32-bit integer | `R`,&nbsp;`R` |
+| `1c04` | s_neg_64 | Negation of a 64-bit integer | `R`,&nbsp;`R` |
+| `1c05` | f_neg_32 | Negation of a 32-bit float | `R`,&nbsp;`R` |
+| `1c06` | f_neg_64 | Negation of a 64-bit float | `R`,&nbsp;`R` |
+
+
+#### Bitwise
+Basic bitwise operations
++ [band](#band)
++ [bor](#bor)
++ [bxor](#bxor)
++ [bnot](#bnot)
++ [bshiftl](#bshiftl)
++ [bshiftr](#bshiftr)
+##### band
+Bitwise AND on two operands, with the result placed in a register designated by the third operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `1d01` | band_8 | Bitwise AND on 8-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1d02` | band_16 | Bitwise AND on 16-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1d03` | band_32 | Bitwise AND on 32-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1d04` | band_64 | Bitwise AND on 64-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1d05` | im_band_8 | Bitwise AND on 8-bit integers; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1d06` | im_band_16 | Bitwise AND on 16-bit integers; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1d07` | im_band_32 | Bitwise AND on 32-bit integers; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1d08` | im_band_64 | Bitwise AND on 64-bit integers; one immediate, one in a register | `R`,&nbsp;`R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+
+##### bor
+Bitwise OR on two operands, with the result placed in a register designated by the third operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `1e01` | bor_8 | Bitwise OR on 8-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1e02` | bor_16 | Bitwise OR on 16-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1e03` | bor_32 | Bitwise OR on 32-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1e04` | bor_64 | Bitwise OR on 64-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1e05` | im_bor_8 | Bitwise OR on 8-bit integers; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1e06` | im_bor_16 | Bitwise OR on 16-bit integers; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1e07` | im_bor_32 | Bitwise OR on 32-bit integers; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1e08` | im_bor_64 | Bitwise OR on 64-bit integers; one immediate, one in a register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+
+##### bxor
+Bitwise XOR on two operands, with the result placed in a register designated by the third operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `1f01` | bxor_8 | Bitwise XOR on 8-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1f02` | bxor_16 | Bitwise XOR on 16-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1f03` | bxor_32 | Bitwise XOR on 32-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1f04` | bxor_64 | Bitwise XOR on 64-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `1f05` | im_bxor_8 | Bitwise XOR on 8-bit integers; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1f06` | im_bxor_16 | Bitwise XOR on 16-bit integers; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1f07` | im_bxor_32 | Bitwise XOR on 32-bit integers; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `1f08` | im_bxor_64 | Bitwise XOR on 64-bit integers; one immediate, one in a register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+
+##### bnot
+Bitwise NOT on a single operand, with the result placed in a register designated by the second operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `2001` | bnot_8 | Bitwise NOT on an 8-bit integer in a register | `R`,&nbsp;`R` |
+| `2002` | bnot_16 | Bitwise NOT on a 16-bit integer in registers | `R`,&nbsp;`R` |
+| `2003` | bnot_32 | Bitwise NOT on a 32-bit integer in a register | `R`,&nbsp;`R` |
+| `2004` | bnot_64 | Bitwise NOT on a 64-bit integer in a register | `R`,&nbsp;`R` |
+
+##### bshiftl
+Bitwise left shift on two operands, with the result placed in a register designated by the third operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `2101` | bshiftl_8 | Bitwise left shift on 8-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2102` | bshiftl_16 | Bitwise left shift on 16-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2103` | bshiftl_32 | Bitwise left shift on 32-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2104` | bshiftl_64 | Bitwise left shift on 64-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2105` | im_a_bshiftl_8 | Bitwise left shift on 8-bit integers; the shifted value is immediate, the shift count is in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2106` | im_a_bshiftl_16 | Bitwise left shift on 16-bit integers; the shifted value is immediate, the shift count is in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2107` | im_a_bshiftl_32 | Bitwise left shift on 32-bit integers; the shifted value is immediate, the shift count is in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2108` | im_a_bshiftl_64 | Bitwise left shift on 64-bit integers; the shifted value is immediate, the shift count is in a register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `2109` | im_b_bshiftl_8 | Bitwise left shift on 8-bit integers; the shifted value is in a register, the shift count is immediate | `R`,&nbsp;`I`,&nbsp;`R` |
+| `210a` | im_b_bshiftl_16 | Bitwise left shift on 16-bit integers; the shifted value is in a register, the shift count is immediate | `R`,&nbsp;`I`,&nbsp;`R` |
+| `210b` | im_b_bshiftl_32 | Bitwise left shift on 32-bit integers; the shifted value is in a register, the shift count is immediate | `R`,&nbsp;`I`,&nbsp;`R` |
+| `210c` | im_b_bshiftl_64 | Bitwise left shift on 64-bit integers; the shifted value is in a register, the shift count is immediate | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+
+##### bshiftr
+Bitwise right shift on two operands, with the result placed in a register designated by the third operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `2201` | u_bshiftr_8 | Logical bitwise right shift on 8-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2202` | u_bshiftr_16 | Logical bitwise right shift on 16-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2203` | u_bshiftr_32 | Logical bitwise right shift on 32-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2204` | u_bshiftr_64 | Logical bitwise right shift on 64-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2205` | im_a_u_bshiftr_8 | Logical bitwise right shift on 8-bit integers; the shifted value is immediate, the shift count is in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2206` | im_a_u_bshiftr_16 | Logical bitwise right shift on 16-bit integers; the shifted value is immediate, the shift count is in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2207` | im_a_u_bshiftr_32 | Logical bitwise right shift on 32-bit integers; the shifted value is immediate, the shift count is in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2208` | im_a_u_bshiftr_64 | Logical bitwise right shift on 64-bit integers; the shifted value is immediate, the shift count is in a register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `2209` | im_b_u_bshiftr_8 | Logical bitwise right shift on 8-bit integers; the shifted value is in a register, the shift count is immediate | `R`,&nbsp;`I`,&nbsp;`R` |
+| `220a` | im_b_u_bshiftr_16 | Logical bitwise right shift on 16-bit integers; the shifted value is in a register, the shift count is immediate | `R`,&nbsp;`I`,&nbsp;`R` |
+| `220b` | im_b_u_bshiftr_32 | Logical bitwise right shift on 32-bit integers; the shifted value is in a register, the shift count is immediate | `R`,&nbsp;`I`,&nbsp;`R` |
+| `220c` | im_b_u_bshiftr_64 | Logical bitwise right shift on 64-bit integers; the shifted value is in a register, the shift count is immediate | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `220d` | s_bshiftr_8 | Arithmetic bitwise right shift on 8-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `220e` | s_bshiftr_16 | Arithmetic bitwise right shift on 16-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `220f` | s_bshiftr_32 | Arithmetic bitwise right shift on 32-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2210` | s_bshiftr_64 | Arithmetic bitwise right shift on 64-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2211` | im_a_s_bshiftr_8 | Arithmetic bitwise right shift on 8-bit integers; the shifted value is immediate, the shift count is in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2212` | im_a_s_bshiftr_16 | Arithmetic bitwise right shift on 16-bit integers; the shifted value is immediate, the shift count is in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2213` | im_a_s_bshiftr_32 | Arithmetic bitwise right shift on 32-bit integers; the shifted value is immediate, the shift count is in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2214` | im_a_s_bshiftr_64 | Arithmetic bitwise right shift on 64-bit integers; the shifted value is immediate, the shift count is in a register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `2215` | im_b_s_bshiftr_8 | Arithmetic bitwise right shift on 8-bit integers; the shifted value is in a register, the shift count is immediate | `R`,&nbsp;`I`,&nbsp;`R` |
+| `2216` | im_b_s_bshiftr_16 | Arithmetic bitwise right shift on 16-bit integers; the shifted value is in a register, the shift count is immediate | `R`,&nbsp;`I`,&nbsp;`R` |
+| `2217` | im_b_s_bshiftr_32 | Arithmetic bitwise right shift on 32-bit integers; the shifted value is in a register, the shift count is immediate | `R`,&nbsp;`I`,&nbsp;`R` |
+| `2218` | im_b_s_bshiftr_64 | Arithmetic bitwise right shift on 64-bit integers; the shifted value is in a register, the shift count is immediate | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+
+
+#### Comparison
+Value comparison operations
++ [eq](#eq)
++ [ne](#ne)
++ [lt](#lt)
++ [gt](#gt)
++ [le](#le)
++ [ge](#ge)
+##### eq
+Equality comparison on two operands, with the result placed in a register designated by the third operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `2301` | i_eq_8 | Sign-agnostic equality comparison on 8-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2302` | i_eq_16 | Sign-agnostic equality comparison on 16-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2303` | i_eq_32 | Sign-agnostic equality comparison on 32-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2304` | i_eq_64 | Sign-agnostic equality comparison on 64-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2305` | im_i_eq_8 | Sign-agnostic equality comparison on 8-bit integers; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2306` | im_i_eq_16 | Sign-agnostic equality comparison on 16-bit integers; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2307` | im_i_eq_32 | Sign-agnostic equality comparison on 32-bit integers; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2308` | im_i_eq_64 | Sign-agnostic equality comparison on 64-bit integers; one immediate, one in a register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `2309` | f_eq_32 | Equality comparison on 32-bit floats in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `230a` | f_eq_64 | Equality comparison on 64-bit floats in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `230b` | im_f_eq_32 | Equality comparison on 32-bit floats; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `230c` | im_f_eq_64 | Equality comparison on 64-bit floats; one immediate, one in a register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+
+##### ne
+Inequality comparison on two operands, with the result placed in a register designated by the third operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `2401` | i_ne_8 | Sign-agnostic inequality comparison on 8-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2402` | i_ne_16 | Sign-agnostic inequality comparison on 16-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2403` | i_ne_32 | Sign-agnostic inequality comparison on 32-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2404` | i_ne_64 | Sign-agnostic inequality comparison on 64-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2405` | im_i_ne_8 | Sign-agnostic inequality comparison on 8-bit integers; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2406` | im_i_ne_16 | Sign-agnostic inequality comparison on 16-bit integers; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2407` | im_i_ne_32 | Sign-agnostic inequality comparison on 32-bit integers; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2408` | im_i_ne_64 | Sign-agnostic inequality comparison on 64-bit integers; one immediate, one in a register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `2409` | f_ne_32 | Inequality comparison on 32-bit floats in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `240a` | f_ne_64 | Inequality comparison on 64-bit floats in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `240b` | im_f_ne_32 | Inequality comparison on 32-bit floats; one immediate, one in a register | `I`,&nbsp;`R`,&nbsp;`R` |
+| `240c` | im_f_ne_64 | Inequality comparison on 64-bit floats; one immediate, one in a register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+
+##### lt
+Less than comparison on two operands, with the result placed in a register designated by the third operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `2501` | u_lt_8 | Unsigned less than comparison on 8-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2502` | u_lt_16 | Unsigned less than comparison on 16-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2503` | u_lt_32 | Unsigned less than comparison on 32-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2504` | u_lt_64 | Unsigned less than comparison on 64-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2505` | im_a_u_lt_8 | Unsigned less than comparison on 8-bit integers; check register less than immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2506` | im_a_u_lt_16 | Unsigned less than comparison on 16-bit integers; check register less than immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2507` | im_a_u_lt_32 | Unsigned less than comparison on 32-bit integers; check register less than immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2508` | im_a_u_lt_64 | Unsigned less than comparison on 64-bit integers; check register less than immediate | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `2509` | im_b_u_lt_8 | Unsigned less than comparison on 8-bit integers; check immediate less than register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `250a` | im_b_u_lt_16 | Unsigned less than comparison on 16-bit integers; check immediate less than register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `250b` | im_b_u_lt_32 | Unsigned less than comparison on 32-bit integers; check immediate less than register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `250c` | im_b_u_lt_64 | Unsigned less than comparison on 64-bit integers; check immediate less than register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `250d` | s_lt_8 | Signed less than comparison on 8-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `250e` | s_lt_16 | Signed less than comparison on 16-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `250f` | s_lt_32 | Signed less than comparison on 32-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2510` | s_lt_64 | Signed less than comparison on 64-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2511` | im_a_s_lt_8 | Signed less than comparison on 8-bit integers; check register less than immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2512` | im_a_s_lt_16 | Signed less than comparison on 16-bit integers; check register less than immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2513` | im_a_s_lt_32 | Signed less than comparison on 32-bit integers; check register less than immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2514` | im_a_s_lt_64 | Signed less than comparison on 64-bit integers; check register less than immediate | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `2515` | im_b_s_lt_8 | Signed less than comparison on 8-bit integers; check immediate less than register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `2516` | im_b_s_lt_16 | Signed less than comparison on 16-bit integers; check immediate less than register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `2517` | im_b_s_lt_32 | Signed less than comparison on 32-bit integers; check immediate less than register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `2518` | im_b_s_lt_64 | Signed less than comparison on 64-bit integers; check immediate less than register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `2519` | f_lt_32 | Less than comparison on 32-bit floats in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `251a` | f_lt_64 | Less than comparison on 64-bit floats in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `251b` | im_a_f_lt_32 | Less than comparison on 32-bit floats; one immediate; check register less than immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `251c` | im_a_f_lt_64 | Less than comparison on 64-bit floats; one immediate; check register less than immediate | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `251d` | im_b_f_lt_32 | Less than comparison on 32-bit floats; check immediate less than register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `251e` | im_b_f_lt_64 | Less than comparison on 64-bit floats; check immediate less than register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+
+##### gt
+Greater than comparison on two operands, with the result placed in a register designated by the third operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `2601` | u_gt_8 | Unsigned greater than comparison on 8-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2602` | u_gt_16 | Unsigned greater than comparison on 16-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2603` | u_gt_32 | Unsigned greater than comparison on 32-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2604` | u_gt_64 | Unsigned greater than comparison on 64-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2605` | im_a_u_gt_8 | Unsigned greater than comparison on 8-bit integers; check register greater than immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2606` | im_a_u_gt_16 | Unsigned greater than comparison on 16-bit integers; check register greater than immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2607` | im_a_u_gt_32 | Unsigned greater than comparison on 32-bit integers; check register greater than immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2608` | im_a_u_gt_64 | Unsigned greater than comparison on 64-bit integers; check register greater than immediate | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `2609` | im_b_u_gt_8 | Unsigned greater than comparison on 8-bit integers; check immediate greater than register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `260a` | im_b_u_gt_16 | Unsigned greater than comparison on 16-bit integers; check immediate greater than register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `260b` | im_b_u_gt_32 | Unsigned greater than comparison on 32-bit integers; check immediate greater than register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `260c` | im_b_u_gt_64 | Unsigned greater than comparison on 64-bit integers; check immediate greater than register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `260d` | s_gt_8 | Signed greater than comparison on 8-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `260e` | s_gt_16 | Signed greater than comparison on 16-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `260f` | s_gt_32 | Signed greater than comparison on 32-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2610` | s_gt_64 | Signed greater than comparison on 64-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2611` | im_a_s_gt_8 | Signed greater than comparison on 8-bit integers; check register greater than immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2612` | im_a_s_gt_16 | Signed greater than comparison on 16-bit integers; check register greater than immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2613` | im_a_s_gt_32 | Signed greater than comparison on 32-bit integers; check register greater than immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2614` | im_a_s_gt_64 | Signed greater than comparison on 64-bit integers; check register greater than immediate | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `2615` | im_b_s_gt_8 | Signed greater than comparison on 8-bit integers; check immediate greater than register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `2616` | im_b_s_gt_16 | Signed greater than comparison on 16-bit integers; check immediate greater than register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `2617` | im_b_s_gt_32 | Signed greater than comparison on 32-bit integers; check immediate greater than register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `2618` | im_b_s_gt_64 | Signed greater than comparison on 64-bit integers; check immediate greater than register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `2619` | f_gt_32 | Greater than comparison on 32-bit floats in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `261a` | f_gt_64 | Greater than comparison on 64-bit floats in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `261b` | im_a_f_gt_32 | Greater than comparison on 32-bit floats; one immediate; check register less than immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `261c` | im_a_f_gt_64 | Greater than comparison on 64-bit floats; one immediate; check register less than immediate | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `261d` | im_b_f_gt_32 | Greater than comparison on 32-bit floats; check immediate less than register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `261e` | im_b_f_gt_64 | Greater than comparison on 64-bit floats; check immediate less than register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+
+##### le
+Less than or equal comparison on two operands, with the result placed in a register designated by the third operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `2701` | u_le_8 | Unsigned less than or equal comparison on 8-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2702` | u_le_16 | Unsigned less than or equal comparison on 16-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2703` | u_le_32 | Unsigned less than or equal comparison on 32-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2704` | u_le_64 | Unsigned less than or equal comparison on 64-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2705` | im_a_u_le_8 | Unsigned less than or equal comparison on 8-bit integers; check register less than or equal immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2706` | im_a_u_le_16 | Unsigned less than or equal comparison on 16-bit integers; check register less than or equal immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2707` | im_a_u_le_32 | Unsigned less than or equal comparison on 32-bit integers; check register less than or equal immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2708` | im_a_u_le_64 | Unsigned less than or equal comparison on 64-bit integers; check register less than or equal immediate | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `2709` | im_b_u_le_8 | Unsigned less than or equal comparison on 8-bit integers; check immediate less than or equal register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `270a` | im_b_u_le_16 | Unsigned less than or equal comparison on 16-bit integers; check immediate less than or equal register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `270b` | im_b_u_le_32 | Unsigned less than or equal comparison on 32-bit integers; check immediate less than or equal register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `270c` | im_b_u_le_64 | Unsigned less than or equal comparison on 64-bit integers; check immediate less than or equal register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `270d` | s_le_8 | Signed less than or equal comparison on 8-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `270e` | s_le_16 | Signed less than or equal comparison on 16-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `270f` | s_le_32 | Signed less than or equal comparison on 32-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2710` | s_le_64 | Signed less than or equal comparison on 64-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2711` | im_a_s_le_8 | Signed less than or equal comparison on 8-bit integers; check register less than or equal immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2712` | im_a_s_le_16 | Signed less than or equal comparison on 16-bit integers; check register less than or equal immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2713` | im_a_s_le_32 | Signed less than or equal comparison on 32-bit integers; check register less than or equal immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2714` | im_a_s_le_64 | Signed less than or equal comparison on 64-bit integers; check register less than or equal immediate | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `2715` | im_b_s_le_8 | Signed less than or equal comparison on 8-bit integers; check immediate less than or equal register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `2716` | im_b_s_le_16 | Signed less than or equal comparison on 16-bit integers; check immediate less than or equal register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `2717` | im_b_s_le_32 | Signed less than or equal comparison on 32-bit integers; check immediate less than or equal register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `2718` | im_b_s_le_64 | Signed less than or equal comparison on 64-bit integers; check immediate less than or equal register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `2719` | f_le_32 | Less than or equal comparison on 32-bit floats in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `271a` | f_le_64 | Less than or equal comparison on 64-bit floats in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `271b` | im_a_f_le_32 | Less than or equal comparison on 32-bit floats; one immediate; check register less than or equal immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `271c` | im_a_f_le_64 | Less than or equal comparison on 64-bit floats; one immediate; check register less than or equal immediate | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `271d` | im_b_f_le_32 | Less than or equal comparison on 32-bit floats; check immediate less than or equal register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `271e` | im_b_f_le_64 | Less than or equal comparison on 64-bit floats; check immediate less than or equal register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+
+##### ge
+Greater than or equal comparison on two operands, with the result placed in a register designated by the third operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `2801` | u_ge_8 | Unsigned greater than or equal comparison on 8-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2802` | u_ge_16 | Unsigned greater than or equal comparison on 16-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2803` | u_ge_32 | Unsigned greater than or equal comparison on 32-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2804` | u_ge_64 | Unsigned greater than or equal comparison on 64-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2805` | im_a_u_ge_8 | Unsigned greater than or equal comparison on 8-bit integers; check register greater than or equal immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2806` | im_a_u_ge_16 | Unsigned greater than or equal comparison on 16-bit integers; check register greater than or equal immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2807` | im_a_u_ge_32 | Unsigned greater than or equal comparison on 32-bit integers; check register greater than or equal immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2808` | im_a_u_ge_64 | Unsigned greater than or equal comparison on 64-bit integers; check register greater than or equal immediate | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `2809` | im_b_u_ge_8 | Unsigned greater than or equal comparison on 8-bit integers; check immediate greater than or equal register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `280a` | im_b_u_ge_16 | Unsigned greater than or equal comparison on 16-bit integers; check immediate greater than or equal register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `280b` | im_b_u_ge_32 | Unsigned greater than or equal comparison on 32-bit integers; check immediate greater than or equal register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `280c` | im_b_u_ge_64 | Unsigned greater than or equal comparison on 64-bit integers; check immediate greater than or equal register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `280d` | s_ge_8 | Signed greater than or equal comparison on 8-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `280e` | s_ge_16 | Signed greater than or equal comparison on 16-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `280f` | s_ge_32 | Signed greater than or equal comparison on 32-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2810` | s_ge_64 | Signed greater than or equal comparison on 64-bit integers in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `2811` | im_a_s_ge_8 | Signed greater than or equal comparison on 8-bit integers; check register greater than or equal immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2812` | im_a_s_ge_16 | Signed greater than or equal comparison on 16-bit integers; check register greater than or equal immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2813` | im_a_s_ge_32 | Signed greater than or equal comparison on 32-bit integers; check register greater than or equal immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `2814` | im_a_s_ge_64 | Signed greater than or equal comparison on 64-bit integers; check register greater than or equal immediate | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `2815` | im_b_s_ge_8 | Signed greater than or equal comparison on 8-bit integers; check immediate greater than or equal register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `2816` | im_b_s_ge_16 | Signed greater than or equal comparison on 16-bit integers; check immediate greater than or equal register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `2817` | im_b_s_ge_32 | Signed greater than or equal comparison on 32-bit integers; check immediate greater than or equal register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `2818` | im_b_s_ge_64 | Signed greater than or equal comparison on 64-bit integers; check immediate greater than or equal register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `2819` | f_ge_32 | Greater than or equal comparison on 32-bit floats in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `281a` | f_ge_64 | Greater than or equal comparison on 64-bit floats in registers | `R`,&nbsp;`R`,&nbsp;`R` |
+| `281b` | im_a_f_ge_32 | Greater than or equal comparison on 32-bit floats; one immediate; check register less than or equal immediate | `I`,&nbsp;`R`,&nbsp;`R` |
+| `281c` | im_a_f_ge_64 | Greater than or equal comparison on 64-bit floats; one immediate; check register less than or equal immediate | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+| `281d` | im_b_f_ge_32 | Greater than or equal comparison on 32-bit floats; check immediate less than or equal register | `R`,&nbsp;`I`,&nbsp;`R` |
+| `281e` | im_b_f_ge_64 | Greater than or equal comparison on 64-bit floats; check immediate less than or equal register | `R`,&nbsp;`R`&nbsp;+&nbsp;`W` |
+
+
+#### Conversion
+Convert between different types and sizes of values
++ [ext](#ext)
++ [trunc](#trunc)
++ [to](#to)
+##### ext
+Convert a value in a register to a larger size, with the result placed in a register designated by the second operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `2901` | u_ext_8_16 | Zero-extend an 8-bit integer to a 16-bit integer | `R`,&nbsp;`R` |
+| `2902` | u_ext_8_32 | Zero-extend an 8-bit integer to a 32-bit integer | `R`,&nbsp;`R` |
+| `2903` | u_ext_8_64 | Zero-extend an 8-bit integer to a 64-bit integer | `R`,&nbsp;`R` |
+| `2904` | u_ext_16_32 | Zero-extend a 16-bit integer to a 32-bit integer | `R`,&nbsp;`R` |
+| `2905` | u_ext_16_64 | Zero-extend a 16-bit integer to a 64-bit integer | `R`,&nbsp;`R` |
+| `2906` | u_ext_32_64 | Zero-extend a 32-bit integer to a 64-bit integer | `R`,&nbsp;`R` |
+| `2907` | s_ext_8_16 | Sign-extend an 8-bit integer to a 16-bit integer | `R`,&nbsp;`R` |
+| `2908` | s_ext_8_32 | Sign-extend an 8-bit integer to a 32-bit integer | `R`,&nbsp;`R` |
+| `2909` | s_ext_8_64 | Sign-extend an 8-bit integer to a 64-bit integer | `R`,&nbsp;`R` |
+| `290a` | s_ext_16_32 | Sign-extend a 16-bit integer to a 32-bit integer | `R`,&nbsp;`R` |
+| `290b` | s_ext_16_64 | Sign-extend a 16-bit integer to a 64-bit integer | `R`,&nbsp;`R` |
+| `290c` | s_ext_32_64 | Sign-extend a 32-bit integer to a 64-bit integer | `R`,&nbsp;`R` |
+| `290d` | f_ext_32_64 | Convert a 32-bit float to a 64-bit float | `R`,&nbsp;`R` |
+
+##### trunc
+Convert a value in a register to a smaller size, with the result placed in a register designated by the second operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `2a01` | i_trunc_64_32 | Truncate a 64-bit integer to a 32-bit integer | `R`,&nbsp;`R` |
+| `2a02` | i_trunc_64_16 | Truncate a 64-bit integer to a 16-bit integer | `R`,&nbsp;`R` |
+| `2a03` | i_trunc_64_8 | Truncate a 64-bit integer to an 8-bit integer | `R`,&nbsp;`R` |
+| `2a04` | i_trunc_32_16 | Truncate a 32-bit integer to a 16-bit integer | `R`,&nbsp;`R` |
+| `2a05` | i_trunc_32_8 | Truncate a 32-bit integer to an 8-bit integer | `R`,&nbsp;`R` |
+| `2a06` | i_trunc_16_8 | Truncate a 16-bit integer to an 8-bit integer | `R`,&nbsp;`R` |
+| `2a07` | f_trunc_64_32 | Convert a 64-bit float to a 32-bit float | `R`,&nbsp;`R` |
+
+##### to
+Convert a value in a register to a different type, with the result placed in a register designated by the second operand
+| Op code | Name | Description | Operands |
+| ------- | ---- | ----------- | -------- |
+| `2b01` | u8_to_f32 | Convert an 8-bit unsigned integer to a 32-bit float | `R`,&nbsp;`R` |
+| `2b02` | u16_to_f32 | Convert a 16-bit unsigned integer to a 32-bit float | `R`,&nbsp;`R` |
+| `2b03` | u32_to_f32 | Convert a 32-bit unsigned integer to a 32-bit float | `R`,&nbsp;`R` |
+| `2b04` | u64_to_f32 | Convert a 64-bit unsigned integer to a 32-bit float | `R`,&nbsp;`R` |
+| `2b05` | s8_to_f32 | Convert an 8-bit signed integer to a 32-bit float | `R`,&nbsp;`R` |
+| `2b06` | s16_to_f32 | Convert a 16-bit signed integer to a 32-bit float | `R`,&nbsp;`R` |
+| `2b07` | s32_to_f32 | Convert a 32-bit signed integer to a 32-bit float | `R`,&nbsp;`R` |
+| `2b08` | s64_to_f32 | Convert a 64-bit signed integer to a 32-bit float | `R`,&nbsp;`R` |
+| `2b09` | f32_to_u8 | Convert a 32-bit float to an 8-bit unsigned integer | `R`,&nbsp;`R` |
+| `2b0a` | f32_to_u16 | Convert a 32-bit float to a 16-bit unsigned integer | `R`,&nbsp;`R` |
+| `2b0b` | f32_to_u32 | Convert a 32-bit float to a 32-bit unsigned integer | `R`,&nbsp;`R` |
+| `2b0c` | f32_to_u64 | Convert a 32-bit float to a 64-bit unsigned integer | `R`,&nbsp;`R` |
+| `2b0d` | f32_to_s8 | Convert a 32-bit float to an 8-bit signed integer | `R`,&nbsp;`R` |
+| `2b0e` | f32_to_s16 | Convert a 32-bit float to a 16-bit signed integer | `R`,&nbsp;`R` |
+| `2b0f` | f32_to_s32 | Convert a 32-bit float to a 32-bit signed integer | `R`,&nbsp;`R` |
+| `2b10` | f32_to_s64 | Convert a 32-bit float to a 64-bit signed integer | `R`,&nbsp;`R` |
+| `2b11` | u8_to_f64 | Convert an 8-bit unsigned integer to a 64-bit float | `R`,&nbsp;`R` |
+| `2b12` | u16_to_f64 | Convert a 16-bit unsigned integer to a 64-bit float | `R`,&nbsp;`R` |
+| `2b13` | u32_to_f64 | Convert a 32-bit unsigned integer to a 64-bit float | `R`,&nbsp;`R` |
+| `2b14` | u64_to_f64 | Convert a 64-bit unsigned integer to a 64-bit float | `R`,&nbsp;`R` |
+| `2b15` | s8_to_f64 | Convert an 8-bit signed integer to a 64-bit float | `R`,&nbsp;`R` |
+| `2b16` | s16_to_f64 | Convert a 16-bit signed integer to a 64-bit float | `R`,&nbsp;`R` |
+| `2b17` | s32_to_f64 | Convert a 32-bit signed integer to a 64-bit float | `R`,&nbsp;`R` |
+| `2b18` | s64_to_f64 | Convert a 64-bit signed integer to a 64-bit float | `R`,&nbsp;`R` |
+| `2b19` | f64_to_u8 | Convert a 64-bit float to an 8-bit unsigned integer | `R`,&nbsp;`R` |
+| `2b1a` | f64_to_u16 | Convert a 64-bit float to a 16-bit unsigned integer | `R`,&nbsp;`R` |
+| `2b1b` | f64_to_u32 | Convert a 64-bit float to a 32-bit unsigned integer | `R`,&nbsp;`R` |
+| `2b1c` | f64_to_u64 | Convert a 64-bit float to a 64-bit unsigned integer | `R`,&nbsp;`R` |
+| `2b1d` | f64_to_s8 | Convert a 64-bit float to an 8-bit signed integer | `R`,&nbsp;`R` |
+| `2b1e` | f64_to_s16 | Convert a 64-bit float to a 16-bit signed integer | `R`,&nbsp;`R` |
+| `2b1f` | f64_to_s32 | Convert a 64-bit float to a 32-bit signed integer | `R`,&nbsp;`R` |
+| `2b20` | f64_to_s64 | Convert a 64-bit float to a 64-bit signed integer | `R`,&nbsp;`R` |
+
+
 
