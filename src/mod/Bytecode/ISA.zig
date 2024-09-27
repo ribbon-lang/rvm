@@ -148,25 +148,21 @@ pub const Instructions = &[_]InstructionCategory {
              , .operands = &[_]OperandDescriptor { .block_index, .register, .register }
             },
 
-            .{ .prefix = "im"
-             , .suffix = "v"
+            .{ .suffix = "v_im"
              , .description = "Exit the designated block, yielding an immediate up to 32 bits"
              , .operands = &[_]OperandDescriptor { .block_index, .immediate }
             },
-            .{ .prefix = "im_w"
-             , .suffix = "v"
+            .{ .suffix = "v_im_w"
              , .description = "Exit the designated block, yielding an immediate up to 64 bits"
              , .operands = &[_]OperandDescriptor { .block_index }
              , .wide_immediate = true
             },
-            .{ .prefix = "im"
-             , .suffix = "nz_v"
+            .{ .suffix = "nz_v_im"
              , .description = "Exit the designated block, if the condition is non-zero; yield an immediate"
              , .operands = &[_]OperandDescriptor { .block_index, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "im"
-             , .suffix = "z_v"
+            .{ .suffix = "z_v_im"
              , .description = "Exit the designated block, if the condition is zero; yield an immediate"
              , .operands = &[_]OperandDescriptor { .block_index, .register }
              , .wide_immediate = true
@@ -177,22 +173,19 @@ pub const Instructions = &[_]InstructionCategory {
          , .description =
             \\Call the function designated by the function operand; expect a number of arguments, designated by the byte value operand, to follow this instruction
          , .instructions = &[_]InstructionDescriptor {
-            .{ .prefix = "im"
+            .{ .suffix = "im"
              , .description = "Call a static function, expecting no return value (discards the result, if there is one)"
              , .operands = &[_]OperandDescriptor { .function_index, .byte }
             },
-            .{ .prefix = "im"
-             , .suffix = "v"
+            .{ .suffix = "v_im"
              , .description = "Call a static function, and place the return value in the designated register"
              , .operands = &[_]OperandDescriptor { .function_index, .byte, .register }
             },
-            .{ .prefix = "im"
-             , .suffix = "tail"
+            .{ .suffix = "tail_im"
              , .description = "Call a static function in tail position, expecting no return value (discards the result, if there is one)"
              , .operands = &[_]OperandDescriptor { .function_index, .byte }
             },
-            .{ .prefix = "im"
-             , .suffix = "tail_v"
+            .{ .suffix = "tail_v_im"
              , .description = "Call a static function in tail position, expecting a return value (places the result in the caller's return register)"
              , .operands = &[_]OperandDescriptor { .function_index, .byte }
             },
@@ -245,13 +238,11 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Return from the current function, yielding the value in the designated register"
              , .operands = &[_]OperandDescriptor { .register }
             },
-            .{ .prefix = "im"
-             , .suffix = "v"
+            .{ .suffix = "v_im"
              , .description = "Return from the current function, yielding an immediate value up to 32 bits"
              , .operands = &[_]OperandDescriptor { .immediate }
             },
-            .{ .prefix = "im_w"
-             , .suffix = "v"
+            .{ .suffix = "v_im_w"
              , .description = "Return from the current function, yielding an immediate value up to 64 bits"
              , .wide_immediate = true
             },
@@ -267,13 +258,11 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Terminate the current effect handler, yielding the value in the designated register"
              , .operands = &[_]OperandDescriptor { .register }
             },
-            .{ .prefix = "im"
-             , .suffix = "v"
+            .{ .suffix = "v_im"
              , .description = "Terminate the current effect handler, yielding an immediate value up to 32 bits"
              , .operands = &[_]OperandDescriptor { .immediate }
             },
-            .{ .prefix = "im_w"
-             , .suffix = "v"
+            .{ .suffix = "v_im_w"
              , .description = "Terminate the current effect handler, yielding an immediate value up to 64 bits"
              , .wide_immediate = true
             },
@@ -284,6 +273,15 @@ pub const Instructions = &[_]InstructionCategory {
     .{ .name = "Memory"
      , .description = "Instructions for memory access and manipulation"
      , .kinds = &[_]InstructionKind {
+        .{ .base_name = "alloca"
+         , .description =
+            \\Allocate a number of bytes on the stack, placing the address in the designated register
+         , .instructions = &[_]InstructionDescriptor {
+            .{ .description = "Allocate a number of bytes (up to 65k) on the stack, placing the address in the register"
+             , .operands = &[_]OperandDescriptor { .short, .register }
+            },
+         }
+        },
         .{ .base_name = "addr"
          , .description =
             \\Place the address of the value designated by the first operand into the register provided in the second operand
@@ -366,23 +364,19 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Copy 64 bits from the register into the global"
              , .operands = &[_]OperandDescriptor { .register, .global_index }
             },
-            .{ .prefix = "im"
-             , .suffix = "8"
+            .{ .suffix = "8_im"
              , .description = "Copy 8 bits from the immediate into the global"
-             , .operands = &[_]OperandDescriptor { .immediate, .global_index }
+             , .operands = &[_]OperandDescriptor { .byte, .global_index }
             },
-            .{ .prefix = "im"
-             , .suffix = "16"
+            .{ .suffix = "16_im"
              , .description = "Copy 16 bits from the immediate into the global"
+             , .operands = &[_]OperandDescriptor { .short, .global_index }
+            },
+            .{ .suffix = "32_im"
+             , .description = "Copy 32 bits from the immediate into the global"
              , .operands = &[_]OperandDescriptor { .immediate, .global_index }
             },
-            .{ .prefix = "im"
-             , .suffix = "32"
-             , .description = "Copy 32 bits from the immediate into the global"
-             , .operands = &[_]OperandDescriptor { .register, .global_index }
-            },
-            .{ .prefix = "im"
-             , .suffix = "64"
+            .{ .suffix = "64_im"
              , .description = "Copy 64 bits from the immediate into the global"
              , .operands = &[_]OperandDescriptor { .global_index }
              , .wide_immediate = true
@@ -409,23 +403,19 @@ pub const Instructions = &[_]InstructionCategory {
               , .description = "Copy 64 bits from the register into the designated upvalue"
               , .operands = &[_]OperandDescriptor { .register, .register }
              },
-             .{ .prefix = "im"
-              , .suffix = "8"
+             .{ .suffix = "8_im"
               , .description = "Copy 8 bits from the immediate into the designated upvalue"
-              , .operands = &[_]OperandDescriptor { .immediate, .register }
+              , .operands = &[_]OperandDescriptor { .byte, .register }
              },
-             .{ .prefix = "im"
-              , .suffix = "16"
+             .{ .suffix = "16_im"
               , .description = "Copy 16 bits from the immediate into the designated upvalue"
-              , .operands = &[_]OperandDescriptor { .immediate, .register }
+              , .operands = &[_]OperandDescriptor { .short, .register }
              },
-             .{ .prefix = "im"
-              , .suffix = "32"
+             .{ .suffix = "32_im"
               , .description = "Copy 32 bits from the register into the designated upvalue"
               , .operands = &[_]OperandDescriptor { .immediate, .register }
              },
-             .{ .prefix = "im"
-              , .suffix = "64"
+             .{ .suffix = "64_im"
               , .description = "Copy 64 bits from the immediate into the designated upvalue"
               , .operands = &[_]OperandDescriptor { .register }
               , .wide_immediate = true
@@ -478,23 +468,19 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Copy 64 bits from the first register into the memory address in the second register"
              , .operands = &[_]OperandDescriptor { .register, .register }
             },
-            .{ .prefix = "im"
-             , .suffix = "8"
+            .{ .suffix = "8_im"
              , .description = "Copy 8 bits from the immediate into the memory address in the register"
-             , .operands = &[_]OperandDescriptor { .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register }
             },
-            .{ .prefix = "im"
-             , .suffix = "16"
+            .{ .suffix = "16_im"
              , .description = "Copy 16 bits from the immediate into the memory address in the register"
-             , .operands = &[_]OperandDescriptor { .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register }
             },
-            .{ .prefix = "im"
-             , .suffix = "32"
+            .{ .suffix = "32_im"
              , .description = "Copy 32 bits from the immediate into the memory address in the register"
              , .operands = &[_]OperandDescriptor { .immediate, .register }
             },
-            .{ .prefix = "im"
-             , .suffix = "64"
+            .{ .suffix = "64_im"
              , .description = "Copy 64 bits from the immediate into the memory address in the register"
              , .operands = &[_]OperandDescriptor { .register }
              , .wide_immediate = true
@@ -565,23 +551,19 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Copy 64 bits from the first register into the second register"
              , .operands = &[_]OperandDescriptor { .register, .register }
             },
-            .{ .prefix = "im"
-             , .suffix = "8"
+            .{ .suffix = "8_im"
              , .description = "Copy 8-bits from an immediate value into the register"
-             , .operands = &[_]OperandDescriptor { .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register }
             },
-            .{ .prefix = "im"
-             , .suffix = "16"
+            .{ .suffix = "16_im"
              , .description = "Copy 16-bits from an immediate value into the register"
-             , .operands = &[_]OperandDescriptor { .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register }
             },
-            .{ .prefix = "im"
-             , .suffix = "32"
+            .{ .suffix = "32_im"
              , .description = "Copy 32-bits from an immediate value into the register"
              , .operands = &[_]OperandDescriptor { .immediate, .register }
             },
-            .{ .prefix = "im"
-             , .suffix = "64"
+            .{ .suffix = "64_im"
              , .description = "Copy 64-bits from an immediate value into the register"
              , .operands = &[_]OperandDescriptor { .register }
              , .wide_immediate = true
@@ -617,23 +599,23 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Sign-agnostic addition on 64-bit integers in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_i"
-             , .suffix = "8"
+            .{ .prefix = "i"
+             , .suffix = "8_im"
              , .description = "Sign-agnostic addition on 8-bit integers; one immediate, one in a register"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register, .register }
             },
-            .{ .prefix = "im_i"
-             , .suffix = "16"
+            .{ .prefix = "i"
+             , .suffix = "16_im"
              , .description = "Sign-agnostic addition on 16-bit integers; one immediate, one in a register"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register, .register }
             },
-            .{ .prefix = "im_i"
-             , .suffix = "32"
+            .{ .prefix = "i"
+             , .suffix = "32_im"
              , .description = "Sign-agnostic addition on 32-bit integers; one immediate, one in a register"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_i"
-             , .suffix = "64"
+            .{ .prefix = "i"
+             , .suffix = "64_im"
              , .description = "Sign-agnostic addition on 64-bit integers; one immediate, one in a register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -649,13 +631,13 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Addition on 64-bit floats in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_f"
-             , .suffix = "32"
+            .{ .prefix = "f"
+             , .suffix = "32_im"
              , .description = "Addition on 32-bit floats; one immediate, one in a register"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_f"
-             , .suffix = "64"
+            .{ .prefix = "f"
+             , .suffix = "64_im"
              , .description = "Addition on 64-bit floats; one immediate, one in a register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -686,44 +668,44 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Sign-agnostic subtraction on 64-bit integers in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_a_i"
-             , .suffix = "8"
+            .{ .prefix = "i"
+             , .suffix = "8_im_a"
              , .description = "Sign-agnostic subtraction on 8-bit integers; subtract register value from immediate value"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register, .register }
             },
-            .{ .prefix = "im_a_i"
-             , .suffix = "16"
+            .{ .prefix = "i"
+             , .suffix = "16_im_a"
              , .description = "Sign-agnostic subtraction on 16-bit integers; subtract register value from immediate value"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register, .register }
             },
-            .{ .prefix = "im_a_i"
-             , .suffix = "32"
+            .{ .prefix = "i"
+             , .suffix = "32_im_a"
              , .description = "Sign-agnostic subtraction on 32-bit integers; subtract register value from immediate value"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_a_i"
-             , .suffix = "64"
+            .{ .prefix = "i"
+             , .suffix = "64_im_a"
              , .description = "Sign-agnostic subtraction on 64-bit integers; subtract register value from immediate value"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "im_b_i"
-             , .suffix = "8"
+            .{ .prefix = "i"
+             , .suffix = "8_im_b"
              , .description = "Sign-agnostic subtraction on 8-bit integers; subtract immediate value from register value"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .byte, .register }
             },
-            .{ .prefix = "im_b_i"
-             , .suffix = "16"
+            .{ .prefix = "i"
+             , .suffix = "16_im_b"
              , .description = "Sign-agnostic subtraction on 16-bit integers; subtract immediate value from register value"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .short, .register }
             },
-            .{ .prefix = "im_b_i"
-             , .suffix = "32"
+            .{ .prefix = "i"
+             , .suffix = "32_im_b"
              , .description = "Sign-agnostic subtraction on 32-bit integers; subtract immediate value from register value"
              , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
             },
-            .{ .prefix = "im_b_i"
-             , .suffix = "64"
+            .{ .prefix = "i"
+             , .suffix = "64_im_b"
              , .description = "Sign-agnostic subtraction on 64-bit integers; subtract immediate value from register value"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -739,24 +721,24 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Subtraction on 64-bit floats in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_a_f"
-             , .suffix = "32"
+            .{ .prefix = "f"
+             , .suffix = "32_im_a"
              , .description = "Subtraction on 32-bit floats; subtract register value from immediate value"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_a_f"
-             , .suffix = "64"
+            .{ .prefix = "f"
+             , .suffix = "64_im_a"
              , .description = "Subtraction on 64-bit floats; subtract register value from immediate value"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "im_b_f"
-             , .suffix = "32"
+            .{ .prefix = "f"
+             , .suffix = "32_im_b"
              , .description = "Subtraction on 32-bit floats; subtract immediate value from register value"
              , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
             },
-            .{ .prefix = "im_b_f"
-             , .suffix = "64"
+            .{ .prefix = "f"
+             , .suffix = "64_im_b"
              , .description = "Subtraction on 64-bit floats; subtract immediate value from register value"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -787,23 +769,23 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Sign-agnostic multiplication on 64-bit integers in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_i"
-             , .suffix = "8"
+            .{ .prefix = "i"
+             , .suffix = "8_im"
              , .description = "Sign-agnostic multiplication on 8-bit integers; one immediate, one in a register"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register, .register }
             },
-            .{ .prefix = "im_i"
-             , .suffix = "16"
+            .{ .prefix = "i"
+             , .suffix = "16_im"
              , .description = "Sign-agnostic multiplication on 16-bit integers; one immediate, one in a register"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register, .register }
             },
-            .{ .prefix = "im_i"
-             , .suffix = "32"
+            .{ .prefix = "i"
+             , .suffix = "32_im"
              , .description = "Sign-agnostic multiplication on 32-bit integers; one immediate, one in a register"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_i"
-             , .suffix = "64"
+            .{ .prefix = "i"
+             , .suffix = "64_im"
              , .description = "Sign-agnostic multiplication on 64-bit integers; one immediate, one in a register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -819,13 +801,13 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Multiplication on 64-bit floats in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_f"
-             , .suffix = "32"
+            .{ .prefix = "f"
+             , .suffix = "32_im"
              , .description = "Multiplication on 32-bit floats; one immediate, one in a register"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_f"
-             , .suffix = "64"
+            .{ .prefix = "f"
+             , .suffix = "64_im"
              , .description = "Multiplication on 64-bit floats; one immediate, one in a register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -856,44 +838,44 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Unsigned division on 64-bit integers in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "8"
+            .{ .prefix = "u"
+             , .suffix = "8_im_a"
              , .description = "Unsigned division on 8-bit integers; immediate dividend, register divisor"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "16"
+            .{ .prefix = "u"
+             , .suffix = "16_im_a"
              , .description = "Unsigned division on 16-bit integers; immediate dividend, register divisor"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "32"
+            .{ .prefix = "u"
+             , .suffix = "32_im_a"
              , .description = "Unsigned division on 32-bit integers; immediate dividend, register divisor"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "64"
+            .{ .prefix = "u"
+             , .suffix = "64_im_a"
              , .description = "Unsigned division on 64-bit integers; immediate dividend, register divisor"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "8"
+            .{ .prefix = "u"
+             , .suffix = "8_im_b"
              , .description = "Unsigned division on 8-bit integers; register dividend, immediate divisor"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .byte, .register }
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "16"
+            .{ .prefix = "u"
+             , .suffix = "16_im_b"
              , .description = "Unsigned division on 16-bit integers; register dividend, immediate divisor"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .short, .register }
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "32"
+            .{ .prefix = "u"
+             , .suffix = "32_im_b"
              , .description = "Unsigned division on 32-bit integers; register dividend, immediate divisor"
              , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "64"
+            .{ .prefix = "u"
+             , .suffix = "64_im_b"
              , .description = "Unsigned division on 64-bit integers; register dividend, immediate divisor"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -919,44 +901,44 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Signed division on 64-bit integers in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "8"
+            .{ .prefix = "s"
+             , .suffix = "8_im_a"
              , .description = "Signed division on 8-bit integers; immediate dividend, register divisor"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "16"
+            .{ .prefix = "s"
+             , .suffix = "16_im_a"
              , .description = "Signed division on 16-bit integers; immediate dividend, register divisor"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "32"
+            .{ .prefix = "s"
+             , .suffix = "32_im_a"
              , .description = "Signed division on 32-bit integers; immediate dividend, register divisor"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "64"
+            .{ .prefix = "s"
+             , .suffix = "64_im_a"
              , .description = "Signed division on 64-bit integers; immediate dividend, register divisor"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "8"
+            .{ .prefix = "s"
+             , .suffix = "8_im_b"
              , .description = "Signed division on 8-bit integers; register dividend, immediate divisor"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .immediate, .register }
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "16"
+            .{ .prefix = "s"
+             , .suffix = "16_im_b"
              , .description = "Signed division on 16-bit integers; register dividend, immediate divisor"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .short, .immediate, .register }
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "32"
+            .{ .prefix = "s"
+             , .suffix = "32_im_b"
              , .description = "Signed division on 32-bit integers; register dividend, immediate divisor"
              , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "64"
+            .{ .prefix = "s"
+             , .suffix = "64_im_b"
              , .description = "Signed division on 64-bit integers; register dividend, immediate divisor"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -972,24 +954,24 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Division on 64-bit floats in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_a_f"
-             , .suffix = "32"
+            .{ .prefix = "f"
+             , .suffix = "32_im_a"
              , .description = "Division on 32-bit floats; immediate dividend, register divisor"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_a_f"
-             , .suffix = "64"
+            .{ .prefix = "f"
+             , .suffix = "64_im_a"
              , .description = "Division on 64-bit floats; immediate dividend, register divisor"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "im_b_f"
-             , .suffix = "32"
+            .{ .prefix = "f"
+             , .suffix = "32_im_b"
              , .description = "Division on 32-bit floats; register dividend, immediate divisor"
              , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
             },
-            .{ .prefix = "im_b_f"
-             , .suffix = "64"
+            .{ .prefix = "f"
+             , .suffix = "64_im_b"
              , .description = "Division on 64-bit floats; register dividend, immediate divisor"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -1020,44 +1002,44 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Unsigned remainder division on 64-bit integers in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "8"
+            .{ .prefix = "u"
+             , .suffix = "8_im_a"
              , .description = "Unsigned remainder division on 8-bit integers; immediate dividend, register divisor"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "16"
+            .{ .prefix = "u"
+             , .suffix = "16_im_a"
              , .description = "Unsigned remainder division on 16-bit integers; immediate dividend, register divisor"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "32"
+            .{ .prefix = "u"
+             , .suffix = "32_im_a"
              , .description = "Unsigned remainder division on 32-bit integers; immediate dividend, register divisor"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "64"
+            .{ .prefix = "u"
+             , .suffix = "64_im_a"
              , .description = "Unsigned remainder division on 64-bit integers; immediate dividend, register divisor"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "8"
+            .{ .prefix = "u"
+             , .suffix = "8_im_b"
              , .description = "Unsigned remainder division on 8-bit integers; register dividend, immediate divisor"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .byte, .register }
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "16"
+            .{ .prefix = "u"
+             , .suffix = "16_im_b"
              , .description = "Unsigned remainder division on 16-bit integers; register dividend, immediate divisor"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .short, .register }
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "32"
+            .{ .prefix = "u"
+             , .suffix = "32_im_b"
              , .description = "Unsigned remainder division on 32-bit integers; register dividend, immediate divisor"
              , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "64"
+            .{ .prefix = "u"
+             , .suffix = "64_im_b"
              , .description = "Unsigned remainder division on 64-bit integers; register dividend, immediate divisor"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -1083,44 +1065,44 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Signed remainder division on 64-bit integers in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "8"
+            .{ .prefix = "s"
+             , .suffix = "8_im_a"
              , .description = "Signed remainder division on 8-bit integers; immediate dividend, register divisor"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "16"
+            .{ .prefix = "s"
+             , .suffix = "16_im_a"
              , .description = "Signed remainder division on 16-bit integers; immediate dividend, register divisor"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "32"
+            .{ .prefix = "s"
+             , .suffix = "32_im_a"
              , .description = "Signed remainder division on 32-bit integers; immediate dividend, register divisor"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "64"
+            .{ .prefix = "s"
+             , .suffix = "64_im_a"
              , .description = "Signed remainder division on 64-bit integers; immediate dividend, register divisor"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "8"
+            .{ .prefix = "s"
+             , .suffix = "8_im_b"
              , .description = "Signed remainder division on 8-bit integers; register dividend, immediate divisor"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .byte, .register }
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "16"
+            .{ .prefix = "s"
+             , .suffix = "16_im_b"
              , .description = "Signed remainder division on 16-bit integers; register dividend, immediate divisor"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .short, .register }
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "32"
+            .{ .prefix = "s"
+             , .suffix = "32_im_b"
              , .description = "Signed remainder division on 32-bit integers; register dividend, immediate divisor"
              , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "64"
+            .{ .prefix = "s"
+             , .suffix = "64_im_b"
              , .description = "Signed remainder division on 64-bit integers; register dividend, immediate divisor"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -1136,24 +1118,24 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Remainder division on 64-bit floats in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_a_f"
-             , .suffix = "32"
+            .{ .prefix = "f"
+             , .suffix = "32_im_a"
              , .description = "Remainder division on 32-bit floats; immediate dividend, register divisor"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_a_f"
-             , .suffix = "64"
+            .{ .prefix = "f"
+             , .suffix = "64_im_a"
              , .description = "Remainder division on 64-bit floats; immediate dividend, register divisor"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "im_b_f"
-             , .suffix = "32"
+            .{ .prefix = "f"
+             , .suffix = "32_im_b"
              , .description = "Remainder division on 32-bit floats; register dividend, immediate divisor"
              , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
             },
-            .{ .prefix = "im_b_f"
-             , .suffix = "64"
+            .{ .prefix = "f"
+             , .suffix = "64_im_b"
              , .description = "Remainder division on 64-bit floats; register dividend, immediate divisor"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -1221,25 +1203,21 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Bitwise AND on 64-bit integers in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im"
-             , .suffix = "8"
+            .{ .suffix = "8_im"
              , .description = "Bitwise AND on 8-bit integers; one immediate, one in a register"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register, .register }
             },
-            .{ .prefix = "im"
-             , .suffix = "16"
+            .{ .suffix = "16_im"
              , .description = "Bitwise AND on 16-bit integers; one immediate, one in a register"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register, .register }
             },
-            .{ .prefix = "im"
-             , .suffix = "32"
+            .{ .suffix = "32_im"
              , .description = "Bitwise AND on 32-bit integers; one immediate, one in a register"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im"
-             , .suffix = "64"
+            .{ .suffix = "64_im"
              , .description = "Bitwise AND on 64-bit integers; one immediate, one in a register"
-             , .operands = &[_]OperandDescriptor { .register, .register, .register }
+             , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
          }
@@ -1264,23 +1242,19 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Bitwise OR on 64-bit integers in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im"
-             , .suffix = "8"
+            .{ .suffix = "8_im"
              , .description = "Bitwise OR on 8-bit integers; one immediate, one in a register"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register, .register }
             },
-            .{ .prefix = "im"
-             , .suffix = "16"
+            .{ .suffix = "16_im"
              , .description = "Bitwise OR on 16-bit integers; one immediate, one in a register"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register, .register }
             },
-            .{ .prefix = "im"
-             , .suffix = "32"
+            .{ .suffix = "32_im"
              , .description = "Bitwise OR on 32-bit integers; one immediate, one in a register"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im"
-             , .suffix = "64"
+            .{ .suffix = "64_im"
              , .description = "Bitwise OR on 64-bit integers; one immediate, one in a register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -1307,23 +1281,19 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Bitwise XOR on 64-bit integers in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im"
-             , .suffix = "8"
+            .{ .suffix = "8_im"
              , .description = "Bitwise XOR on 8-bit integers; one immediate, one in a register"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register, .register }
             },
-            .{ .prefix = "im"
-             , .suffix = "16"
+            .{ .suffix = "16_im"
              , .description = "Bitwise XOR on 16-bit integers; one immediate, one in a register"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register, .register }
             },
-            .{ .prefix = "im"
-             , .suffix = "32"
+            .{ .suffix = "32_im"
              , .description = "Bitwise XOR on 32-bit integers; one immediate, one in a register"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im"
-             , .suffix = "64"
+            .{ .suffix = "64_im"
              , .description = "Bitwise XOR on 64-bit integers; one immediate, one in a register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -1372,44 +1342,44 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Bitwise left shift on 64-bit integers in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_a"
-             , .suffix = "8"
+            .{ .prefix = "a"
+             , .suffix = "8_im"
              , .description = "Bitwise left shift on 8-bit integers; the shifted value is immediate, the shift count is in a register"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register, .register }
             },
-            .{ .prefix = "im_a"
-             , .suffix = "16"
+            .{ .prefix = "a"
+             , .suffix = "16_im"
              , .description = "Bitwise left shift on 16-bit integers; the shifted value is immediate, the shift count is in a register"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register, .register }
             },
-            .{ .prefix = "im_a"
-             , .suffix = "32"
+            .{ .prefix = "a"
+             , .suffix = "32_im"
              , .description = "Bitwise left shift on 32-bit integers; the shifted value is immediate, the shift count is in a register"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_a"
-             , .suffix = "64"
+            .{ .prefix = "a"
+             , .suffix = "64_im"
              , .description = "Bitwise left shift on 64-bit integers; the shifted value is immediate, the shift count is in a register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "im_b"
-             , .suffix = "8"
+            .{ .prefix = "b"
+             , .suffix = "8_im"
              , .description = "Bitwise left shift on 8-bit integers; the shifted value is in a register, the shift count is immediate"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .byte, .register }
             },
-            .{ .prefix = "im_b"
-             , .suffix = "16"
+            .{ .prefix = "b"
+             , .suffix = "16_im"
              , .description = "Bitwise left shift on 16-bit integers; the shifted value is in a register, the shift count is immediate"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .short, .register }
             },
-            .{ .prefix = "im_b"
-             , .suffix = "32"
+            .{ .prefix = "b"
+             , .suffix = "32_im"
              , .description = "Bitwise left shift on 32-bit integers; the shifted value is in a register, the shift count is immediate"
              , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
             },
-            .{ .prefix = "im_b"
-             , .suffix = "64"
+            .{ .prefix = "b"
+             , .suffix = "64_im"
              , .description = "Bitwise left shift on 64-bit integers; the shifted value is in a register, the shift count is immediate"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -1440,44 +1410,44 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Logical bitwise right shift on 64-bit integers in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "8"
+            .{ .prefix = "u"
+             , .suffix = "8_im_a"
              , .description = "Logical bitwise right shift on 8-bit integers; the shifted value is immediate, the shift count is in a register"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "16"
+            .{ .prefix = "u"
+             , .suffix = "16_im_a"
              , .description = "Logical bitwise right shift on 16-bit integers; the shifted value is immediate, the shift count is in a register"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "32"
+            .{ .prefix = "u"
+             , .suffix = "32_im_a"
              , .description = "Logical bitwise right shift on 32-bit integers; the shifted value is immediate, the shift count is in a register"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "64"
+            .{ .prefix = "u"
+             , .suffix = "64_im_a"
              , .description = "Logical bitwise right shift on 64-bit integers; the shifted value is immediate, the shift count is in a register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "8"
+            .{ .prefix = "u"
+             , .suffix = "8_im_b"
              , .description = "Logical bitwise right shift on 8-bit integers; the shifted value is in a register, the shift count is immediate"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .byte, .register }
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "16"
+            .{ .prefix = "u"
+             , .suffix = "16_im_b"
              , .description = "Logical bitwise right shift on 16-bit integers; the shifted value is in a register, the shift count is immediate"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .short, .register }
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "32"
+            .{ .prefix = "u"
+             , .suffix = "32_im_b"
              , .description = "Logical bitwise right shift on 32-bit integers; the shifted value is in a register, the shift count is immediate"
              , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "64"
+            .{ .prefix = "u"
+             , .suffix = "64_im_b"
              , .description = "Logical bitwise right shift on 64-bit integers; the shifted value is in a register, the shift count is immediate"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -1503,44 +1473,44 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Arithmetic bitwise right shift on 64-bit integers in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "8"
+            .{ .prefix = "s"
+             , .suffix = "8_im_a"
              , .description = "Arithmetic bitwise right shift on 8-bit integers; the shifted value is immediate, the shift count is in a register"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "16"
+            .{ .prefix = "s"
+             , .suffix = "16_im_a"
              , .description = "Arithmetic bitwise right shift on 16-bit integers; the shifted value is immediate, the shift count is in a register"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "32"
+            .{ .prefix = "s"
+             , .suffix = "32_im_a"
              , .description = "Arithmetic bitwise right shift on 32-bit integers; the shifted value is immediate, the shift count is in a register"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "64"
+            .{ .prefix = "s"
+             , .suffix = "64_im_a"
              , .description = "Arithmetic bitwise right shift on 64-bit integers; the shifted value is immediate, the shift count is in a register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "8"
+            .{ .prefix = "s"
+             , .suffix = "8_im_b"
              , .description = "Arithmetic bitwise right shift on 8-bit integers; the shifted value is in a register, the shift count is immediate"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .byte, .register }
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "16"
+            .{ .prefix = "s"
+             , .suffix = "16_im_b"
              , .description = "Arithmetic bitwise right shift on 16-bit integers; the shifted value is in a register, the shift count is immediate"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .short, .register }
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "32"
+            .{ .prefix = "s"
+             , .suffix = "32_im_b"
              , .description = "Arithmetic bitwise right shift on 32-bit integers; the shifted value is in a register, the shift count is immediate"
              , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "64"
+            .{ .prefix = "s"
+             , .suffix = "64_im_b"
              , .description = "Arithmetic bitwise right shift on 64-bit integers; the shifted value is in a register, the shift count is immediate"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -1576,23 +1546,23 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Sign-agnostic equality comparison on 64-bit integers in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_i"
-             , .suffix = "8"
+            .{ .prefix = "i"
+             , .suffix = "8_im"
              , .description = "Sign-agnostic equality comparison on 8-bit integers; one immediate, one in a register"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register, .register }
             },
-            .{ .prefix = "im_i"
-             , .suffix = "16"
+            .{ .prefix = "i"
+             , .suffix = "16_im"
              , .description = "Sign-agnostic equality comparison on 16-bit integers; one immediate, one in a register"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register, .register }
             },
-            .{ .prefix = "im_i"
-             , .suffix = "32"
+            .{ .prefix = "i"
+             , .suffix = "32_im"
              , .description = "Sign-agnostic equality comparison on 32-bit integers; one immediate, one in a register"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_i"
-             , .suffix = "64"
+            .{ .prefix = "i"
+             , .suffix = "64_im"
              , .description = "Sign-agnostic equality comparison on 64-bit integers; one immediate, one in a register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -1608,13 +1578,13 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Equality comparison on 64-bit floats in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_f"
-             , .suffix = "32"
+            .{ .prefix = "f"
+             , .suffix = "32_im"
              , .description = "Equality comparison on 32-bit floats; one immediate, one in a register"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_f"
-             , .suffix = "64"
+            .{ .prefix = "f"
+             , .suffix = "64_im"
              , .description = "Equality comparison on 64-bit floats; one immediate, one in a register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -1645,23 +1615,23 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Sign-agnostic inequality comparison on 64-bit integers in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_i"
-             , .suffix = "8"
+            .{ .prefix = "i"
+             , .suffix = "8_im"
              , .description = "Sign-agnostic inequality comparison on 8-bit integers; one immediate, one in a register"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register, .register }
             },
-            .{ .prefix = "im_i"
-             , .suffix = "16"
+            .{ .prefix = "i"
+             , .suffix = "16_im"
              , .description = "Sign-agnostic inequality comparison on 16-bit integers; one immediate, one in a register"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register, .register }
             },
-            .{ .prefix = "im_i"
-             , .suffix = "32"
+            .{ .prefix = "i"
+             , .suffix = "32_im"
              , .description = "Sign-agnostic inequality comparison on 32-bit integers; one immediate, one in a register"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_i"
-             , .suffix = "64"
+            .{ .prefix = "i"
+             , .suffix = "64_im"
              , .description = "Sign-agnostic inequality comparison on 64-bit integers; one immediate, one in a register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -1677,13 +1647,13 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Inequality comparison on 64-bit floats in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_f"
-             , .suffix = "32"
+            .{ .prefix = "f"
+             , .suffix = "32_im"
              , .description = "Inequality comparison on 32-bit floats; one immediate, one in a register"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_f"
-             , .suffix = "64"
+            .{ .prefix = "f"
+             , .suffix = "64_im"
              , .description = "Inequality comparison on 64-bit floats; one immediate, one in a register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -1714,44 +1684,44 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Unsigned less than comparison on 64-bit integers in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "8"
+            .{ .prefix = "u"
+             , .suffix = "8_im_a"
              , .description = "Unsigned less than comparison on 8-bit integers; check register less than immediate"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "16"
+            .{ .prefix = "u"
+             , .suffix = "16_im_a"
              , .description = "Unsigned less than comparison on 16-bit integers; check register less than immediate"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "32"
+            .{ .prefix = "u"
+             , .suffix = "32_im_a"
              , .description = "Unsigned less than comparison on 32-bit integers; check register less than immediate"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "64"
+            .{ .prefix = "u"
+             , .suffix = "64_im_a"
              , .description = "Unsigned less than comparison on 64-bit integers; check register less than immediate"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "8"
+            .{ .prefix = "u"
+             , .suffix = "8_im_b"
              , .description = "Unsigned less than comparison on 8-bit integers; check immediate less than register"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .byte, .register }
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "16"
+            .{ .prefix = "u"
+             , .suffix = "16_im_b"
              , .description = "Unsigned less than comparison on 16-bit integers; check immediate less than register"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .short, .register }
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "32"
+            .{ .prefix = "u"
+             , .suffix = "32_im_b"
              , .description = "Unsigned less than comparison on 32-bit integers; check immediate less than register"
              , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "64"
+            .{ .prefix = "u"
+             , .suffix = "64_im_b"
              , .description = "Unsigned less than comparison on 64-bit integers; check immediate less than register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -1777,44 +1747,44 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Signed less than comparison on 64-bit integers in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "8"
+            .{ .prefix = "s"
+             , .suffix = "8_im_a"
              , .description = "Signed less than comparison on 8-bit integers; check register less than immediate"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "16"
+            .{ .prefix = "s"
+             , .suffix = "16_im_a"
              , .description = "Signed less than comparison on 16-bit integers; check register less than immediate"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "32"
+            .{ .prefix = "s"
+             , .suffix = "32_im_a"
              , .description = "Signed less than comparison on 32-bit integers; check register less than immediate"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "64"
+            .{ .prefix = "s"
+             , .suffix = "64_im_a"
              , .description = "Signed less than comparison on 64-bit integers; check register less than immediate"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "8"
+            .{ .prefix = "s"
+             , .suffix = "8_im_b"
              , .description = "Signed less than comparison on 8-bit integers; check immediate less than register"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .byte, .register }
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "16"
+            .{ .prefix = "s"
+             , .suffix = "16_im_b"
              , .description = "Signed less than comparison on 16-bit integers; check immediate less than register"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .short, .register }
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "32"
+            .{ .prefix = "s"
+             , .suffix = "32_im_b"
              , .description = "Signed less than comparison on 32-bit integers; check immediate less than register"
              , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "64"
+            .{ .prefix = "s"
+             , .suffix = "64_im_b"
              , .description = "Signed less than comparison on 64-bit integers; check immediate less than register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -1830,24 +1800,24 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Less than comparison on 64-bit floats in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_a_f"
-             , .suffix = "32"
+            .{ .prefix = "f"
+             , .suffix = "32_im_a"
              , .description = "Less than comparison on 32-bit floats; one immediate; check register less than immediate"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_a_f"
-             , .suffix = "64"
+            .{ .prefix = "f"
+             , .suffix = "64_im_a"
              , .description = "Less than comparison on 64-bit floats; one immediate; check register less than immediate"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "im_b_f"
-             , .suffix = "32"
+            .{ .prefix = "f"
+             , .suffix = "32_im_b"
              , .description = "Less than comparison on 32-bit floats; check immediate less than register"
              , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
             },
-            .{ .prefix = "im_b_f"
-             , .suffix = "64"
+            .{ .prefix = "f"
+             , .suffix = "64_im_b"
              , .description = "Less than comparison on 64-bit floats; check immediate less than register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -1878,44 +1848,44 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Unsigned greater than comparison on 64-bit integers in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "8"
+            .{ .prefix = "u"
+             , .suffix = "8_im_a"
              , .description = "Unsigned greater than comparison on 8-bit integers; check register greater than immediate"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "16"
+            .{ .prefix = "u"
+             , .suffix = "16_im_a"
              , .description = "Unsigned greater than comparison on 16-bit integers; check register greater than immediate"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "32"
+            .{ .prefix = "u"
+             , .suffix = "32_im_a"
              , .description = "Unsigned greater than comparison on 32-bit integers; check register greater than immediate"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "64"
+            .{ .prefix = "u"
+             , .suffix = "64_im_a"
              , .description = "Unsigned greater than comparison on 64-bit integers; check register greater than immediate"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "8"
+            .{ .prefix = "u"
+             , .suffix = "8_im_b"
              , .description = "Unsigned greater than comparison on 8-bit integers; check immediate greater than register"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .byte, .register }
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "16"
+            .{ .prefix = "u"
+             , .suffix = "16_im_b"
              , .description = "Unsigned greater than comparison on 16-bit integers; check immediate greater than register"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .short, .register }
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "32"
+            .{ .prefix = "u"
+             , .suffix = "32_im_b"
              , .description = "Unsigned greater than comparison on 32-bit integers; check immediate greater than register"
              , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "64"
+            .{ .prefix = "u"
+             , .suffix = "64_im_b"
              , .description = "Unsigned greater than comparison on 64-bit integers; check immediate greater than register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -1941,44 +1911,44 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Signed greater than comparison on 64-bit integers in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "8"
+            .{ .prefix = "s"
+             , .suffix = "8_im_a"
              , .description = "Signed greater than comparison on 8-bit integers; check register greater than immediate"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "16"
+            .{ .prefix = "s"
+             , .suffix = "16_im_a"
              , .description = "Signed greater than comparison on 16-bit integers; check register greater than immediate"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "32"
+            .{ .prefix = "s"
+             , .suffix = "32_im_a"
              , .description = "Signed greater than comparison on 32-bit integers; check register greater than immediate"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "64"
+            .{ .prefix = "s"
+             , .suffix = "64_im_a"
              , .description = "Signed greater than comparison on 64-bit integers; check register greater than immediate"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "8"
+            .{ .prefix = "s"
+             , .suffix = "8_im_b"
              , .description = "Signed greater than comparison on 8-bit integers; check immediate greater than register"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .byte, .register }
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "16"
+            .{ .prefix = "s"
+             , .suffix = "16_im_b"
              , .description = "Signed greater than comparison on 16-bit integers; check immediate greater than register"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .short, .register }
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "32"
+            .{ .prefix = "s"
+             , .suffix = "32_im_b"
              , .description = "Signed greater than comparison on 32-bit integers; check immediate greater than register"
              , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "64"
+            .{ .prefix = "s"
+             , .suffix = "64_im_b"
              , .description = "Signed greater than comparison on 64-bit integers; check immediate greater than register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -1994,24 +1964,24 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Greater than comparison on 64-bit floats in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_a_f"
-             , .suffix = "32"
+            .{ .prefix = "f"
+             , .suffix = "32_im_a"
              , .description = "Greater than comparison on 32-bit floats; one immediate; check register less than immediate"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_a_f"
-             , .suffix = "64"
+            .{ .prefix = "f"
+             , .suffix = "64_im_a"
              , .description = "Greater than comparison on 64-bit floats; one immediate; check register less than immediate"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "im_b_f"
-             , .suffix = "32"
+            .{ .prefix = "f"
+             , .suffix = "32_im_b"
              , .description = "Greater than comparison on 32-bit floats; check immediate less than register"
              , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
             },
-            .{ .prefix = "im_b_f"
-             , .suffix = "64"
+            .{ .prefix = "f"
+             , .suffix = "64_im_b"
              , .description = "Greater than comparison on 64-bit floats; check immediate less than register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -2042,44 +2012,44 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Unsigned less than or equal comparison on 64-bit integers in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "8"
+            .{ .prefix = "u"
+             , .suffix = "8_im_a"
              , .description = "Unsigned less than or equal comparison on 8-bit integers; check register less than or equal immediate"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "16"
+            .{ .prefix = "u"
+             , .suffix = "16_im_a"
              , .description = "Unsigned less than or equal comparison on 16-bit integers; check register less than or equal immediate"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "32"
+            .{ .prefix = "u"
+             , .suffix = "32_im_a"
              , .description = "Unsigned less than or equal comparison on 32-bit integers; check register less than or equal immediate"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "64"
+            .{ .prefix = "u"
+             , .suffix = "64_im_a"
              , .description = "Unsigned less than or equal comparison on 64-bit integers; check register less than or equal immediate"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "8"
+            .{ .prefix = "u"
+             , .suffix = "8_im_b"
              , .description = "Unsigned less than or equal comparison on 8-bit integers; check immediate less than or equal register"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .byte, .register }
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "16"
+            .{ .prefix = "u"
+             , .suffix = "16_im_b"
              , .description = "Unsigned less than or equal comparison on 16-bit integers; check immediate less than or equal register"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .short, .register }
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "32"
+            .{ .prefix = "u"
+             , .suffix = "32_im_b"
              , .description = "Unsigned less than or equal comparison on 32-bit integers; check immediate less than or equal register"
              , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "64"
+            .{ .prefix = "u"
+             , .suffix = "64_im_b"
              , .description = "Unsigned less than or equal comparison on 64-bit integers; check immediate less than or equal register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -2105,44 +2075,44 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Signed less than or equal comparison on 64-bit integers in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "8"
+            .{ .prefix = "s"
+             , .suffix = "8_im_a"
              , .description = "Signed less than or equal comparison on 8-bit integers; check register less than or equal immediate"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "16"
+            .{ .prefix = "s"
+             , .suffix = "16_im_a"
              , .description = "Signed less than or equal comparison on 16-bit integers; check register less than or equal immediate"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "32"
+            .{ .prefix = "s"
+             , .suffix = "32_im_a"
              , .description = "Signed less than or equal comparison on 32-bit integers; check register less than or equal immediate"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "64"
+            .{ .prefix = "s"
+             , .suffix = "64_im_a"
              , .description = "Signed less than or equal comparison on 64-bit integers; check register less than or equal immediate"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "8"
+            .{ .prefix = "s"
+             , .suffix = "8_im_b"
              , .description = "Signed less than or equal comparison on 8-bit integers; check immediate less than or equal register"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .byte, .register }
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "16"
+            .{ .prefix = "s"
+             , .suffix = "16_im_b"
              , .description = "Signed less than or equal comparison on 16-bit integers; check immediate less than or equal register"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .short, .register }
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "32"
+            .{ .prefix = "s"
+             , .suffix = "32_im_b"
              , .description = "Signed less than or equal comparison on 32-bit integers; check immediate less than or equal register"
              , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "64"
+            .{ .prefix = "s"
+             , .suffix = "64_im_b"
              , .description = "Signed less than or equal comparison on 64-bit integers; check immediate less than or equal register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -2158,24 +2128,24 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Less than or equal comparison on 64-bit floats in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_a_f"
-             , .suffix = "32"
+            .{ .prefix = "f"
+             , .suffix = "32_im_a"
              , .description = "Less than or equal comparison on 32-bit floats; one immediate; check register less than or equal immediate"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_a_f"
-             , .suffix = "64"
+            .{ .prefix = "f"
+             , .suffix = "64_im_a"
              , .description = "Less than or equal comparison on 64-bit floats; one immediate; check register less than or equal immediate"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "im_b_f"
-             , .suffix = "32"
+            .{ .prefix = "f"
+             , .suffix = "32_im_b"
              , .description = "Less than or equal comparison on 32-bit floats; check immediate less than or equal register"
              , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
             },
-            .{ .prefix = "im_b_f"
-             , .suffix = "64"
+            .{ .prefix = "f"
+             , .suffix = "64_im_b"
              , .description = "Less than or equal comparison on 64-bit floats; check immediate less than or equal register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -2206,44 +2176,44 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Unsigned greater than or equal comparison on 64-bit integers in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "8"
+            .{ .prefix = "u"
+             , .suffix = "8_im_a"
              , .description = "Unsigned greater than or equal comparison on 8-bit integers; check register greater than or equal immediate"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "16"
+            .{ .prefix = "u"
+             , .suffix = "16_im_a"
              , .description = "Unsigned greater than or equal comparison on 16-bit integers; check register greater than or equal immediate"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "32"
+            .{ .prefix = "u"
+             , .suffix = "32_im_a"
              , .description = "Unsigned greater than or equal comparison on 32-bit integers; check register greater than or equal immediate"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_a_u"
-             , .suffix = "64"
+            .{ .prefix = "u"
+             , .suffix = "64_im_a"
              , .description = "Unsigned greater than or equal comparison on 64-bit integers; check register greater than or equal immediate"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "8"
+            .{ .prefix = "u"
+             , .suffix = "8_im_b"
              , .description = "Unsigned greater than or equal comparison on 8-bit integers; check immediate greater than or equal register"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .byte, .register }
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "16"
+            .{ .prefix = "u"
+             , .suffix = "16_im_b"
              , .description = "Unsigned greater than or equal comparison on 16-bit integers; check immediate greater than or equal register"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .short, .register }
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "32"
+            .{ .prefix = "u"
+             , .suffix = "32_im_b"
              , .description = "Unsigned greater than or equal comparison on 32-bit integers; check immediate greater than or equal register"
              , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
             },
-            .{ .prefix = "im_b_u"
-             , .suffix = "64"
+            .{ .prefix = "u"
+             , .suffix = "64_im_b"
              , .description = "Unsigned greater than or equal comparison on 64-bit integers; check immediate greater than or equal register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -2269,44 +2239,44 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Signed greater than or equal comparison on 64-bit integers in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "8"
+            .{ .prefix = "s"
+             , .suffix = "8_im_a"
              , .description = "Signed greater than or equal comparison on 8-bit integers; check register greater than or equal immediate"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .byte, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "16"
+            .{ .prefix = "s"
+             , .suffix = "16_im_a"
              , .description = "Signed greater than or equal comparison on 16-bit integers; check register greater than or equal immediate"
-             , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
+             , .operands = &[_]OperandDescriptor { .short, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "32"
+            .{ .prefix = "s"
+             , .suffix = "32_im_a"
              , .description = "Signed greater than or equal comparison on 32-bit integers; check register greater than or equal immediate"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_a_s"
-             , .suffix = "64"
+            .{ .prefix = "s"
+             , .suffix = "64_im_a"
              , .description = "Signed greater than or equal comparison on 64-bit integers; check register greater than or equal immediate"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "8"
+            .{ .prefix = "s"
+             , .suffix = "8_im_b"
              , .description = "Signed greater than or equal comparison on 8-bit integers; check immediate greater than or equal register"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .byte, .register }
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "16"
+            .{ .prefix = "s"
+             , .suffix = "16_im_b"
              , .description = "Signed greater than or equal comparison on 16-bit integers; check immediate greater than or equal register"
-             , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .short, .register }
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "32"
+            .{ .prefix = "s"
+             , .suffix = "32_im_b"
              , .description = "Signed greater than or equal comparison on 32-bit integers; check immediate greater than or equal register"
              , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
             },
-            .{ .prefix = "im_b_s"
-             , .suffix = "64"
+            .{ .prefix = "s"
+             , .suffix = "64_im_b"
              , .description = "Signed greater than or equal comparison on 64-bit integers; check immediate greater than or equal register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -2322,24 +2292,24 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Greater than or equal comparison on 64-bit floats in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "im_a_f"
-             , .suffix = "32"
+            .{ .prefix = "f"
+             , .suffix = "32_im_a"
              , .description = "Greater than or equal comparison on 32-bit floats; one immediate; check register less than or equal immediate"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "im_a_f"
-             , .suffix = "64"
+            .{ .prefix = "f"
+             , .suffix = "64_im_a"
              , .description = "Greater than or equal comparison on 64-bit floats; one immediate; check register less than or equal immediate"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "im_b_f"
-             , .suffix = "32"
+            .{ .prefix = "f"
+             , .suffix = "32_im_b"
              , .description = "Greater than or equal comparison on 32-bit floats; check immediate less than or equal register"
              , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
             },
-            .{ .prefix = "im_b_f"
-             , .suffix = "64"
+            .{ .prefix = "f"
+             , .suffix = "64_im_b"
              , .description = "Greater than or equal comparison on 64-bit floats; check immediate less than or equal register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
@@ -2666,6 +2636,7 @@ pub const InstructionDescriptor = struct {
 pub const OperandDescriptor = enum {
     register,
     byte,
+    short,
     immediate,
     handler_set_index,
     evidence_index,

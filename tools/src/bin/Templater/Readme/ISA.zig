@@ -96,13 +96,14 @@ fn body(out: anytype) !void {
             try out.writeAll("| ------- | ---- | ----------- | -------- |\n");
 
             inline for (kind.instructions) |instr| {
-                try out.print("| `{x:0>4}` | {s} | {s} | ", .{ opcodeFields[i].value, opcodeFields[i].name, instr.description });
+                try out.print("| `{x:0>4}` | **{s}** | {s} | ", .{ opcodeFields[i].value, opcodeFields[i].name, instr.description });
 
                 inline for (instr.operands, 0..) |operand, n| {
                     switch (operand) {
                         .register => try out.writeAll("`R`"),
                         .byte => try out.writeAll("`b`"),
-                        .immediate => try out.writeAll("`I`"),
+                        .short => try out.writeAll("`s`"),
+                        .immediate => try out.writeAll("`i`"),
                         .handler_set_index => try out.writeAll("`H`"),
                         .evidence_index => try out.writeAll("`E`"),
                         .global_index => try out.writeAll("`G`"),
@@ -120,7 +121,7 @@ fn body(out: anytype) !void {
                         try out.writeAll("&nbsp;+&nbsp;");
                     }
 
-                    try out.writeAll("`W`");
+                    try out.writeAll("`w`");
                 }
 
                 comptime i += 1;

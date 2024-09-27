@@ -121,7 +121,10 @@ but here is a preliminary rundown.
 
 ### High level properties
 
++ 64-bit instructions
 + Little-endian encoding
++ Instruction suffixes for extra large immediates and variable-length operand sets
++ 64-bit registers + stack allocation
 + Separated address spaces for global data, executable, and working memory
 + Heap access controlled by host environment
 + 16-bit indexed spaces for:
@@ -136,6 +139,7 @@ but here is a preliminary rundown.
 + Integers are fixed width, in sizes `8`, `16`, `32`, and `64`
 + Sign of integers is not a property of types; only instructions
 + Structured control flow
++ Expression-oriented
 + Effects-aware
 + Tail recursion
 
@@ -150,9 +154,10 @@ but here is a preliminary rundown.
 | `U` | UpvalueIndex | Designates a register in the enclosing scope of an effect handler | `8` |
 | `F` | FunctionIndex | Designates a specific function | `16` |
 | `B` | BlockIndex | Designates a specific block; may be either relative to the function (called absolute below) or relative to the block the instruction is in, depending on instruction type | `16` |
-| `b` | Byte Immediate | Number designating the amount of values to follow the instruction; ie the count of register operands for a call | `8` |
-| `I` | Immediate | Immediate value encoded directly within the instruction | `32` |
-| `W`| Wide Immediate | Immediate value encoded after the instruction | `64` |
+| `b` | Immediate | Immediate value encoded within the instruction | `8` |
+| `s` | Immediate | Immediate value encoded within the instruction | `16` |
+| `i` | Immediate | Immediate value encoded within the instruction | `32` |
+| `w` | Immediate | Immediate value encoded after the instruction | `64` |
 
 
 ### Op codes

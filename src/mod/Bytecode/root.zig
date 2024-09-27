@@ -63,6 +63,7 @@ pub const OpData = op_data: {
                         const opType = switch (operand) {
                             .register => RegisterIndex,
                             .byte => u8,
+                            .short => u16,
                             .immediate => u32,
                             .handler_set_index => HandlerSetIndex,
                             .evidence_index => EvidenceIndex,
