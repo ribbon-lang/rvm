@@ -603,8 +603,8 @@ Division on two operands, with the result placed in a register designated by the
 | `1b12` | **s_div_16_im_a** | Signed division on 16-bit integers; immediate dividend, register divisor | `s`,&nbsp;`R`,&nbsp;`R` |
 | `1b13` | **s_div_32_im_a** | Signed division on 32-bit integers; immediate dividend, register divisor | `i`,&nbsp;`R`,&nbsp;`R` |
 | `1b14` | **s_div_64_im_a** | Signed division on 64-bit integers; immediate dividend, register divisor | `R`,&nbsp;`R`&nbsp;+&nbsp;`w` |
-| `1b15` | **s_div_8_im_b** | Signed division on 8-bit integers; register dividend, immediate divisor | `b`,&nbsp;`i`,&nbsp;`R` |
-| `1b16` | **s_div_16_im_b** | Signed division on 16-bit integers; register dividend, immediate divisor | `s`,&nbsp;`i`,&nbsp;`R` |
+| `1b15` | **s_div_8_im_b** | Signed division on 8-bit integers; register dividend, immediate divisor | `R`,&nbsp;`b`,&nbsp;`R` |
+| `1b16` | **s_div_16_im_b** | Signed division on 16-bit integers; register dividend, immediate divisor | `R`,&nbsp;`s`,&nbsp;`R` |
 | `1b17` | **s_div_32_im_b** | Signed division on 32-bit integers; register dividend, immediate divisor | `R`,&nbsp;`i`,&nbsp;`R` |
 | `1b18` | **s_div_64_im_b** | Signed division on 64-bit integers; register dividend, immediate divisor | `R`,&nbsp;`R`&nbsp;+&nbsp;`w` |
 | `1b19` | **f_div_32** | Division on 32-bit floats in registers | `R`,&nbsp;`R`,&nbsp;`R` |

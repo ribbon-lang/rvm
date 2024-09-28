@@ -925,12 +925,12 @@ pub const Instructions = &[_]InstructionCategory {
             .{ .prefix = "s"
              , .suffix = "8_im_b"
              , .description = "Signed division on 8-bit integers; register dividend, immediate divisor"
-             , .operands = &[_]OperandDescriptor { .byte, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .byte, .register }
             },
             .{ .prefix = "s"
              , .suffix = "16_im_b"
              , .description = "Signed division on 16-bit integers; register dividend, immediate divisor"
-             , .operands = &[_]OperandDescriptor { .short, .immediate, .register }
+             , .operands = &[_]OperandDescriptor { .register, .short, .register }
             },
             .{ .prefix = "s"
              , .suffix = "32_im_b"
