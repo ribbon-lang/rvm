@@ -5,7 +5,9 @@ const TypeUtils = @import("ZigTypeUtils");
 
 const Bytecode = @import("Bytecode");
 const OpCode = Bytecode.OpCode;
-const Instructions = Bytecode.ISA.Instructions;
+
+const ISA = @import("ISA");
+const Instructions = ISA.Instructions;
 
 
 pub const std_options = std.Options{

@@ -142,16 +142,16 @@ pub fn Stack(comptime T: type, comptime PRE_INCR: bool) type {
             if (comptime PRE_INCR) {
                 self.top_ptr += 1;
                 self.top_ptr[0] = value;
-                return self.top_ptr;
+                return @ptrCast(self.top_ptr);
             } else {
                 self.top_ptr[0] = value;
                 self.top_ptr += 1;
-                return self.top_ptr - 1;
+                return @ptrCast(self.top_ptr - 1);
             }
         }
 
         pub inline fn top(self: *Self) *T {
-            return &self.top_ptr[0];
+            return @ptrCast(self.top_ptr);
         }
 
         pub inline fn incr(self: *Self, count: usize) void {
@@ -165,7 +165,7 @@ pub fn Stack(comptime T: type, comptime PRE_INCR: bool) type {
             } else {
                 const out = self.top_ptr;
                 self.top_ptr += count;
-                return out;
+                return @ptrCast(out);
             }
         }
 
@@ -177,18 +177,18 @@ pub fn Stack(comptime T: type, comptime PRE_INCR: bool) type {
             if (comptime PRE_INCR) {
                 const out = self.top_ptr;
                 self.top_ptr -= 1;
-                return out;
+                return @ptrCast(out);
             } else {
                 self.top_ptr -= 1;
-                return self.top_ptr;
+                return @ptrCast(self.top_ptr);
             }
         }
 
         pub inline fn hasSpace(self: *Self, count: usize) bool {
-            return self.top_ptr + count < self.max_ptr;
+            return @intFromPtr(self.top_ptr + count) < @intFromPtr(self.max_ptr);
         }
 
-        pub inline fn hasSpaceI1(self: *Self, count: usize) i1 {
+        pub inline fn hasSpaceU1(self: *Self, count: usize) u1 {
             return @intFromBool(self.hasSpace(count));
         }
     };
@@ -309,14 +309,14 @@ pub inline fn removeHandlerSet(self: *Fiber, handlerSet: *const Bytecode.Handler
 pub fn invoke(self: *Core.Fiber, comptime T: type, functionIndex: Bytecode.FunctionIndex, arguments: anytype) Trap!T {
     const function = &self.program.functions[functionIndex];
 
-    if (( self.calls.hasSpaceI1(1)
-        & self.data.hasSpaceI1(function.num_registers + 1)
+    if (( self.calls.hasSpaceU1(1)
+        & self.data.hasSpaceU1(function.num_registers + 1)
         ) != 1) {
         return Trap.Overflow;
     }
 
-    const wrapperInstructions = [_]u8 {
-        @intFromEnum(Bytecode.OpCode.halt),
+    const wrapperInstructions = [_]Bytecode.Instruction {
+        .{ .code = .halt, .data = .{ .halt = {} } },
     };
 
     const wrapper = Bytecode.Function {
@@ -338,27 +338,27 @@ pub fn invoke(self: *Core.Fiber, comptime T: type, functionIndex: Bytecode.Funct
         .handler_set = null,
     });
 
-    self.calls.prePush(CallFrame {
+    self.calls.push(CallFrame {
         .function = &wrapper,
         .evidence = undefined,
         .block = wrapperBlock,
-        .data = dataBase,
+        .data = @ptrCast(dataBase),
     });
 
     dataBase = self.data.incrGet(function.num_registers);
 
     const block = self.blocks.pushGet(BlockFrame {
-        .index = function.value.bytecode.blocks[0],
+        .base = function.value.bytecode.blocks[0],
         .ip = function.value.bytecode.blocks[0],
         .out = 0,
         .handler_set = null,
     });
 
-    self.calls.prePush(CallFrame {
+    self.calls.push(CallFrame {
         .function = function,
         .evidence = undefined,
         .block = block,
-        .stack = dataBase,
+        .data = @ptrCast(dataBase),
     });
 
     inline for (0..arguments.len) |i| {
@@ -370,7 +370,7 @@ pub fn invoke(self: *Core.Fiber, comptime T: type, functionIndex: Bytecode.Funct
     const result = self.readLocal(T, 0);
 
     const frame = self.calls.popGet();
-    self.data.top_ptr = frame.stack;
+    self.data.top_ptr = frame.data;
 
     self.blocks.pop();
 

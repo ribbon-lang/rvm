@@ -97,42 +97,34 @@ pub fn main() Error!void {
 
     // const out_global = try builder.globalNative(@as(i64, 0));
 
-
-    const main_t = try builder.typeId(.{.function = .{
-        .result = Bytecode.Type.i64_t,
-        .term = Bytecode.Type.void_t,
-        .evidence = &[0]Bytecode.EvidenceIndex {},
-        .params = &[_]Bytecode.TypeIndex {Bytecode.Type.i64_t},
-    }});
-
     const one = try builder.globalNative(@as(i64, 1));
     const two = try builder.globalNative(@as(i64, 2));
 
-    const func = try builder.main(main_t);
+    const func = try builder.main();
 
 
 
-    const cond = try func.local(Bytecode.Type.bool_t);
-    const two_loaded = try func.local(Bytecode.Type.i64_t);
-    const one_loaded = try func.local(Bytecode.Type.i64_t);
-    try func.entry.read_global64(two, two_loaded);
-    try func.entry.read_global64(one, one_loaded);
-    try func.entry.s_lt64(0, two_loaded, cond);
+    const cond = try func.local();
+    const two_loaded = try func.local();
+    const one_loaded = try func.local();
+    try func.entry.read_global_64(two, two_loaded);
+    try func.entry.read_global_64(one, one_loaded);
+    try func.entry.s_lt_64(0, two_loaded, cond);
     const thenBlock, const elseBlock = try func.entry.if_nz(cond);
 
     try func.entry.trap();
 
     try thenBlock.ret_v(0);
 
-    const a = try func.local(Bytecode.Type.i64_t);
-    try elseBlock.i_sub64(0, one_loaded, a);
-    try elseBlock.call_v(func, a, .{a});
+    const a = try func.local();
+    try elseBlock.i_sub_64(0, one_loaded, a);
+    try elseBlock.call_im_v(func, a, .{a});
 
-    const b = try func.local(Bytecode.Type.i64_t);
-    try elseBlock.i_sub64(0, two_loaded, b);
-    try elseBlock.call_v(func, b, .{b});
+    const b = try func.local();
+    try elseBlock.i_sub_64(0, two_loaded, b);
+    try elseBlock.call_im_v(func, b, .{b});
 
-    try elseBlock.i_add64(a, b, a);
+    try elseBlock.i_add_64(a, b, a);
     try elseBlock.ret_v(a);
 
     const program = try builder.assemble(arena.allocator());
@@ -147,7 +139,7 @@ pub fn main() Error!void {
 
     const start = std.time.nanoTimestamp();
 
-    const result = try fiber.invoke(i64, program.main.?, .{ n });
+    const result = try fiber.invoke(i64, program.main, .{ n });
 
     const end = std.time.nanoTimestamp();
 

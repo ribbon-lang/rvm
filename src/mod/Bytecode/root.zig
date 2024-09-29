@@ -5,12 +5,11 @@ const TextUtils = @import("ZigTextUtils");
 const TypeUtils = @import("ZigTypeUtils");
 
 const IO = @import("IO");
+const ISA = @import("ISA");
 
 
 const Bytecode = @This();
 
-
-pub const ISA = @import("ISA.zig");
 pub const Info = @import("Info.zig");
 pub const Print = @import("Print.zig");
 
@@ -46,7 +45,7 @@ pub const HANDLER_SET_SENTINEL = std.math.maxInt(HandlerSetIndex);
 pub const FUNCTION_SENTINEL = std.math.maxInt(FunctionIndex);
 
 pub const Instruction = packed struct {
-    opcode: OpCode,
+    code: OpCode,
     data: OpData,
 };
 
@@ -92,7 +91,8 @@ pub const OpData = op_data: {
 
                 if (instr.operands.len > 0) {
                     var size = 0;
-                    for (instr.operands, 0..) |operand, o| {
+                    var operandCounts = [1]u8 {0} ** std.meta.fieldNames(ISA.OperandDescriptor).len;
+                    for (instr.operands) |operand| {
                         const opType = switch (operand) {
                             .register => RegisterIndex,
                             .byte => u8,
@@ -109,12 +109,25 @@ pub const OpData = op_data: {
                         size += @bitSizeOf(opType);
 
                         operands = operands ++ [1]std.builtin.Type.StructField { .{
-                            .name = std.fmt.comptimePrint("{}", .{o}),
+                            .name = std.fmt.comptimePrint("{u}{}", .{switch (operand) {
+                                .register => 'R',
+                                .byte => 'b',
+                                .short => 's',
+                                .immediate => 'i',
+                                .handler_set_index => 'H',
+                                .evidence_index => 'E',
+                                .global_index => 'G',
+                                .upvalue_index => 'U',
+                                .function_index => 'F',
+                                .block_index => 'B',
+                            }, operandCounts[@intFromEnum(operand)]}),
                             .type = opType,
                             .is_comptime = false,
                             .default_value = null,
                             .alignment = 0,
                         } };
+
+                        operandCounts[@intFromEnum(operand)] += 1;
                     }
 
                     if (size > 48) {
@@ -123,15 +136,19 @@ pub const OpData = op_data: {
                     }
 
                     const backingType = std.meta.Int(.unsigned, size);
+                    const ty = @Type(.{ .@"struct" = .{
+                        .layout = .@"packed",
+                        .backing_integer = backingType,
+                        .fields = operands,
+                        .decls = &[0]std.builtin.Type.Declaration {},
+                        .is_tuple = false,
+                    } });
+
+                    // @compileLog(std.fmt.comptimePrint("{s} {s}", .{opCodeFields[i].name, std.meta.fieldNames(ty)}));
+
                     fields = fields ++ [1]std.builtin.Type.UnionField { .{
                         .name = opCodeFields[i].name,
-                        .type = @Type(.{ .@"struct" = .{
-                            .layout = .@"packed",
-                            .backing_integer = backingType,
-                            .fields = operands,
-                            .decls = &[0]std.builtin.Type.Declaration {},
-                            .is_tuple = false,
-                        } }),
+                        .type = ty,
                         .alignment = @alignOf(backingType),
                     } };
                 } else {

@@ -59,9 +59,7 @@ pub fn handler(self: *HandlerSetBuilder, e: Bytecode.EvidenceIndex) Error!*Funct
         return Error.EvidenceOverlap;
     }
 
-    const ev = try self.parent.getEvidence(e);
-
-    const fun = try self.parent.function(ev.type);
+    const fun = try self.parent.function();
 
     fun.evidence = e;
 
@@ -70,14 +68,12 @@ pub fn handler(self: *HandlerSetBuilder, e: Bytecode.EvidenceIndex) Error!*Funct
     return fun;
 }
 
-pub fn foreignHandler(self: *HandlerSetBuilder, e: Bytecode.EvidenceIndex) Error!*Builder.Function.Foreign {
+pub fn foreignHandler(self: *HandlerSetBuilder, e: Bytecode.EvidenceIndex, num_arguments: Bytecode.RegisterIndex, num_registers: Bytecode.RegisterIndex) Error!*Builder.Function.Foreign {
     if (self.handler_map.contains(e)) {
         return Error.EvidenceOverlap;
     }
 
-    const ev = try self.parent.getEvidence(e);
-
-    const fun = try self.parent.foreign(ev.type);
+    const fun = try self.parent.foreign(num_arguments, num_registers);
 
     fun.evidence = e;
 

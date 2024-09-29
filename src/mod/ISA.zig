@@ -1,7 +1,5 @@
 const std = @import("std");
 
-const Bytecode = @import("Bytecode");
-
 
 pub const Instructions = &[_]InstructionCategory {
     .{ .name = "Miscellaneous"
@@ -76,9 +74,17 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Enter the first block, if the condition is non-zero; otherwise, enter the second block"
              , .operands = &[_]OperandDescriptor { .block_index, .block_index, .register }
             },
+            .{ .suffix = "nz_v"
+             , .description = "Enter the first block, if the condition is non-zero; otherwise, enter the second block"
+             , .operands = &[_]OperandDescriptor { .block_index, .block_index, .register, .register }
+            },
             .{ .suffix = "z"
              , .description = "Enter the first block, if the condition is zero; otherwise, enter the second block"
              , .operands = &[_]OperandDescriptor { .block_index, .block_index, .register }
+            },
+            .{ .suffix = "z_v"
+             , .description = "Enter the first block, if the condition is zero; otherwise, enter the second block"
+             , .operands = &[_]OperandDescriptor { .block_index, .block_index, .register, .register }
             },
          }
         },
@@ -148,21 +154,21 @@ pub const Instructions = &[_]InstructionCategory {
              , .operands = &[_]OperandDescriptor { .block_index, .register, .register }
             },
 
-            .{ .suffix = "v_im"
+            .{ .suffix = "im_v"
              , .description = "Exit the designated block, yielding an immediate up to 32 bits"
              , .operands = &[_]OperandDescriptor { .block_index, .immediate }
             },
-            .{ .suffix = "v_im_w"
+            .{ .suffix = "im_v_w"
              , .description = "Exit the designated block, yielding an immediate up to 64 bits"
              , .operands = &[_]OperandDescriptor { .block_index }
              , .wide_immediate = true
             },
-            .{ .suffix = "nz_v_im"
+            .{ .suffix = "nz_im_v"
              , .description = "Exit the designated block, if the condition is non-zero; yield an immediate"
              , .operands = &[_]OperandDescriptor { .block_index, .register }
              , .wide_immediate = true
             },
-            .{ .suffix = "z_v_im"
+            .{ .suffix = "z_im_v"
              , .description = "Exit the designated block, if the condition is zero; yield an immediate"
              , .operands = &[_]OperandDescriptor { .block_index, .register }
              , .wide_immediate = true
@@ -171,60 +177,64 @@ pub const Instructions = &[_]InstructionCategory {
         },
         .{ .base_name = "call"
          , .description =
-            \\Call the function designated by the function operand; expect a number of arguments, designated by the byte value operand, to follow this instruction
+            \\Call the function designated by the function operand; expects a number of arguments matching that of the callee to follow this instruction
          , .instructions = &[_]InstructionDescriptor {
             .{ .suffix = "im"
              , .description = "Call a static function, expecting no return value (discards the result, if there is one)"
-             , .operands = &[_]OperandDescriptor { .function_index, .byte }
+             , .operands = &[_]OperandDescriptor { .function_index }
             },
-            .{ .suffix = "v_im"
+            .{ .suffix = "im_v"
              , .description = "Call a static function, and place the return value in the designated register"
-             , .operands = &[_]OperandDescriptor { .function_index, .byte, .register }
+             , .operands = &[_]OperandDescriptor { .function_index, .register }
             },
-            .{ .suffix = "tail_im"
+            .{ .prefix = "tail"
+             , .suffix = "im"
              , .description = "Call a static function in tail position, expecting no return value (discards the result, if there is one)"
-             , .operands = &[_]OperandDescriptor { .function_index, .byte }
+             , .operands = &[_]OperandDescriptor { .function_index }
             },
-            .{ .suffix = "tail_v_im"
+            .{ .prefix = "tail"
+             , .suffix = "im_v"
              , .description = "Call a static function in tail position, expecting a return value (places the result in the caller's return register)"
-             , .operands = &[_]OperandDescriptor { .function_index, .byte }
+             , .operands = &[_]OperandDescriptor { .function_index }
             },
             .{ .description = "Call a dynamic function, expecting no return value (discards the result, if there is one)"
-             , .operands = &[_]OperandDescriptor { .register, .byte }
+             , .operands = &[_]OperandDescriptor { .register }
             },
             .{ .suffix = "v"
              , .description = "Call a dynamic function, and place the return value in the designated register"
-             , .operands = &[_]OperandDescriptor { .register, .byte, .register }
+             , .operands = &[_]OperandDescriptor { .register, .register }
             },
-            .{ .suffix = "tail"
+            .{ .prefix = "tail"
              , .description = "Call a dynamic function in tail position, expecting no return value (discards the result, if there is one)"
-             , .operands = &[_]OperandDescriptor { .register, .byte }
+             , .operands = &[_]OperandDescriptor { .register }
             },
-            .{ .suffix = "tail_v"
+            .{ .prefix = "tail"
+             , .suffix = "v"
              , .description = "Call a dynamic function in tail position, and place the result in the caller's return register"
-             , .operands = &[_]OperandDescriptor { .register, .byte, .register }
+             , .operands = &[_]OperandDescriptor { .register, .register }
             },
          }
         },
         .{ .base_name = "prompt"
          , .description =
-            \\Call the effect handler designated by the evidence operand; expect a number of arguments, designated by the byte value operand, to follow this instruction
+            \\Call the effect handler designated by the evidence operand; expects a number of arguments matching that of the callee to follow this instruction
          , .instructions = &[_]InstructionDescriptor {
             .{ .description = "Call an effect handler, expecting no return value (discards the result, if there is one)"
-             , .operands = &[_]OperandDescriptor { .evidence_index, .byte }
+             , .operands = &[_]OperandDescriptor { .evidence_index }
             },
             .{ .suffix = "v"
              , .description = "Call an effect handler, and place the return value in the designated register"
-             , .operands = &[_]OperandDescriptor { .evidence_index, .byte, .register }
+             , .operands = &[_]OperandDescriptor { .evidence_index, .register }
             },
 
-            .{ .suffix = "tail"
+            .{ .prefix = "tail"
              , .description = "Call an effect handler in tail position, expecting no return value (discards the result, if there is one)"
-             , .operands = &[_]OperandDescriptor { .evidence_index, .byte }
+             , .operands = &[_]OperandDescriptor { .evidence_index }
             },
-            .{ .suffix = "tail_v"
+            .{ .prefix = "tail"
+             , .suffix = "v"
              , .description = "Call an effect handler in tail position, and place the return value in the caller's return register"
-             , .operands = &[_]OperandDescriptor { .evidence_index, .byte }
+             , .operands = &[_]OperandDescriptor { .evidence_index }
             },
          }
         },
@@ -238,11 +248,11 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Return from the current function, yielding the value in the designated register"
              , .operands = &[_]OperandDescriptor { .register }
             },
-            .{ .suffix = "v_im"
+            .{ .suffix = "im_v"
              , .description = "Return from the current function, yielding an immediate value up to 32 bits"
              , .operands = &[_]OperandDescriptor { .immediate }
             },
-            .{ .suffix = "v_im_w"
+            .{ .suffix = "im_v_w"
              , .description = "Return from the current function, yielding an immediate value up to 64 bits"
              , .wide_immediate = true
             },
@@ -258,11 +268,11 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Terminate the current effect handler, yielding the value in the designated register"
              , .operands = &[_]OperandDescriptor { .register }
             },
-            .{ .suffix = "v_im"
+            .{ .suffix = "im_v"
              , .description = "Terminate the current effect handler, yielding an immediate value up to 32 bits"
              , .operands = &[_]OperandDescriptor { .immediate }
             },
-            .{ .suffix = "v_im_w"
+            .{ .suffix = "im_v_w"
              , .description = "Terminate the current effect handler, yielding an immediate value up to 64 bits"
              , .wide_immediate = true
             },
@@ -328,19 +338,19 @@ pub const Instructions = &[_]InstructionCategory {
          , .instructions = &[_]InstructionDescriptor {
              .{ .suffix = "8"
              , .description = "Copy 8 bits from the upvalue into the register"
-             , .operands = &[_]OperandDescriptor { .register, .register },
+             , .operands = &[_]OperandDescriptor { .upvalue_index, .register },
              },
              .{ .suffix = "16"
              , .description = "Copy 16 bits from the upvalue into the register"
-             , .operands = &[_]OperandDescriptor { .register, .register },
+             , .operands = &[_]OperandDescriptor { .upvalue_index, .register },
              },
              .{ .suffix = "32"
              , .description = "Copy 32 bits from the upvalue into the register"
-             , .operands = &[_]OperandDescriptor { .register, .register },
+             , .operands = &[_]OperandDescriptor { .upvalue_index, .register },
              },
              .{ .suffix = "64"
              , .description = "Copy 64 bits from the upvalue into the register"
-             , .operands = &[_]OperandDescriptor { .register, .register },
+             , .operands = &[_]OperandDescriptor { .upvalue_index, .register },
              },
          }
         },
@@ -389,19 +399,19 @@ pub const Instructions = &[_]InstructionCategory {
          , .instructions = &[_]InstructionDescriptor {
              .{ .suffix = "8"
               , .description = "Copy 8 bits from the register into the designated upvalue"
-              , .operands = &[_]OperandDescriptor { .register, .register }
+              , .operands = &[_]OperandDescriptor { .register, .upvalue_index }
              },
              .{ .suffix = "16"
               , .description = "Copy 16 bits from the register into the designated upvalue"
-              , .operands = &[_]OperandDescriptor { .register, .register }
+              , .operands = &[_]OperandDescriptor { .register, .upvalue_index }
              },
              .{ .suffix = "32"
               , .description = "Copy 32 bits from the register into the designated upvalue"
-              , .operands = &[_]OperandDescriptor { .register, .register }
+              , .operands = &[_]OperandDescriptor { .register, .upvalue_index }
              },
              .{ .suffix = "64"
               , .description = "Copy 64 bits from the register into the designated upvalue"
-              , .operands = &[_]OperandDescriptor { .register, .register }
+              , .operands = &[_]OperandDescriptor { .register, .upvalue_index }
              },
              .{ .suffix = "8_im"
               , .description = "Copy 8 bits from the immediate into the designated upvalue"
@@ -1342,44 +1352,36 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Bitwise left shift on 64-bit integers in registers"
              , .operands = &[_]OperandDescriptor { .register, .register, .register }
             },
-            .{ .prefix = "a"
-             , .suffix = "8_im"
+            .{ .suffix = "8_im_a"
              , .description = "Bitwise left shift on 8-bit integers; the shifted value is immediate, the shift count is in a register"
              , .operands = &[_]OperandDescriptor { .byte, .register, .register }
             },
-            .{ .prefix = "a"
-             , .suffix = "16_im"
+            .{ .suffix = "16_im_a"
              , .description = "Bitwise left shift on 16-bit integers; the shifted value is immediate, the shift count is in a register"
              , .operands = &[_]OperandDescriptor { .short, .register, .register }
             },
-            .{ .prefix = "a"
-             , .suffix = "32_im"
+            .{ .suffix = "32_im_a"
              , .description = "Bitwise left shift on 32-bit integers; the shifted value is immediate, the shift count is in a register"
              , .operands = &[_]OperandDescriptor { .immediate, .register, .register }
             },
-            .{ .prefix = "a"
-             , .suffix = "64_im"
+            .{ .suffix = "64_im_a"
              , .description = "Bitwise left shift on 64-bit integers; the shifted value is immediate, the shift count is in a register"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
             },
-            .{ .prefix = "b"
-             , .suffix = "8_im"
+            .{ .suffix = "8_im_b"
              , .description = "Bitwise left shift on 8-bit integers; the shifted value is in a register, the shift count is immediate"
              , .operands = &[_]OperandDescriptor { .register, .byte, .register }
             },
-            .{ .prefix = "b"
-             , .suffix = "16_im"
+            .{ .suffix = "16_im_b"
              , .description = "Bitwise left shift on 16-bit integers; the shifted value is in a register, the shift count is immediate"
              , .operands = &[_]OperandDescriptor { .register, .short, .register }
             },
-            .{ .prefix = "b"
-             , .suffix = "32_im"
+            .{ .suffix = "32_im_b"
              , .description = "Bitwise left shift on 32-bit integers; the shifted value is in a register, the shift count is immediate"
              , .operands = &[_]OperandDescriptor { .register, .immediate, .register }
             },
-            .{ .prefix = "b"
-             , .suffix = "64_im"
+            .{ .suffix = "64_im_b"
              , .description = "Bitwise left shift on 64-bit integers; the shifted value is in a register, the shift count is immediate"
              , .operands = &[_]OperandDescriptor { .register, .register }
              , .wide_immediate = true
