@@ -158,7 +158,7 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Exit the designated block, yielding an immediate up to 32 bits"
              , .operands = &[_]OperandDescriptor { .block_index, .immediate }
             },
-            .{ .suffix = "im_v_w"
+            .{ .suffix = "im_w_v"
              , .description = "Exit the designated block, yielding an immediate up to 64 bits"
              , .operands = &[_]OperandDescriptor { .block_index }
              , .wide_immediate = true
@@ -252,7 +252,7 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Return from the current function, yielding an immediate value up to 32 bits"
              , .operands = &[_]OperandDescriptor { .immediate }
             },
-            .{ .suffix = "im_v_w"
+            .{ .suffix = "im_w_v"
              , .description = "Return from the current function, yielding an immediate value up to 64 bits"
              , .wide_immediate = true
             },
@@ -272,7 +272,7 @@ pub const Instructions = &[_]InstructionCategory {
              , .description = "Terminate the current effect handler, yielding an immediate value up to 32 bits"
              , .operands = &[_]OperandDescriptor { .immediate }
             },
-            .{ .suffix = "im_v_w"
+            .{ .suffix = "im_w_v"
              , .description = "Terminate the current effect handler, yielding an immediate value up to 64 bits"
              , .wide_immediate = true
             },
