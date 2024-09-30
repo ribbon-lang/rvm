@@ -52,21 +52,17 @@ pub const Instruction = packed struct {
 pub const OpCode = op_code: {
     var fields: []const std.builtin.Type.EnumField = &[0]std.builtin.Type.EnumField{};
 
-    var i: u8 = 0;
+    var i: u16 = 0;
     for (ISA.Instructions) |category| {
         for (category.kinds) |kind| {
-            var j: u8 = 1;
-
             for (kind.instructions) |instr| {
                 fields = fields ++ [1]std.builtin.Type.EnumField { .{
                     .name = ISA.computeInstructionName(kind, instr),
-                    .value = (@as(u16, i) << 8) | @as(u16, j),
+                    .value = i,
                 } };
 
-                j += 1;
+                i += 1;
             }
-
-            i += 1;
         }
     }
 

@@ -36,8 +36,12 @@ const ReturnStyle = enum {
     no_v
 };
 
-pub fn run(fiber: *Fiber) Fiber.Trap!void {
+pub inline fn run(fiber: *Fiber) Fiber.Trap!void {
     return stepBytecode(true, fiber);
+}
+
+pub inline fn step(fiber: *Fiber) Fiber.Trap!bool {
+    return stepBytecode(false, fiber);
 }
 
 // pub fn stepCall(fiber: *Fiber) Fiber.Trap!void {
@@ -89,6 +93,7 @@ fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (reswitch)
 
     reswitch: switch (decodeInstr(fiber, &lastData)) {
         .trap => return Fiber.Trap.Unreachable,
+
         .nop => if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData),
         .halt => if (comptime !reswitch) return false,
 
