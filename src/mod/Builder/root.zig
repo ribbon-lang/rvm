@@ -164,13 +164,13 @@ pub fn generateGlobalSet(self: *const Builder, allocator: std.mem.Allocator) Err
     var buf = std.ArrayListAlignedUnmanaged(u8, std.mem.page_size){};
     defer buf.deinit(allocator);
 
-    const memory = try buf.toOwnedSlice(allocator);
-
     for (self.globals.items) |global| {
         const padding = Support.alignmentDelta(buf.items.len, global.alignment);
         try buf.appendNTimes(allocator, 0, padding);
         try buf.appendSlice(allocator, global.initial);
     }
+
+    const memory = try buf.toOwnedSlice(allocator);
 
     var offset: usize = 0;
     for (self.globals.items, 0..) |global, i| {

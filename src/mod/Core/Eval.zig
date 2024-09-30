@@ -57,64 +57,27 @@ pub fn run(fiber: *Fiber) Fiber.Trap!void {
 //     return stepBytecode(false, fiber);
 // }
 
-inline fn updateDecoder(fiber: *Fiber, decoder: *IO.Decoder) void {
-    const currentCallFrame = fiber.stack.call.topPtrUnchecked();
-    const currentBlockFrame = fiber.stack.block.topPtrUnchecked();
-    const currentBlock = &currentCallFrame.function.value.bytecode.blocks[currentBlockFrame.index];
-
-    decoder.memory = currentCallFrame.function.value.bytecode.instructions;
-    decoder.base = currentBlock.base;
-    decoder.offset = &currentBlockFrame.ip_offset;
+inline fn decodeInstr(fiber: *Fiber, out_data: *Bytecode.OpData) Bytecode.OpCode {
+    const currentBlockFrame = fiber.blocks.top();
+    const instr = currentBlockFrame.ip[0];
+    out_data.* = instr.data;
+    // std.debug.print("{}\t|\t{s} {any}\n", .{@intFromPtr(currentBlockFrame.ip), @tagName(instr.code), @call(.never_inline, Bytecode.Info.extractInstructionInfo, .{instr})});
+    currentBlockFrame.ip += 1;
+    return instr.code;
 }
 
-inline fn decodeOpCode(decoder: *const IO.Decoder) Bytecode.OpCode {
-    const rx = decodeIndex(decoder);
+inline fn decodeArguments(fiber: *Fiber, count: usize) [*]const Bytecode.RegisterIndex {
+    const currentBlockFrame = fiber.blocks.top();
 
-    return @enumFromInt(rx);
-}
+    const out: [*]const Bytecode.RegisterIndex = @ptrCast(currentBlockFrame.ip);
 
-inline fn decodeIndex(decoder: *const IO.Decoder) u16 {
-    const start = decoder.base + decoder.offset.*;
+    const byteCount = count * @sizeOf(Bytecode.RegisterIndex);
+    const byteOffset = @divTrunc(byteCount, @sizeOf(Bytecode.Instruction));
+    const padding = @intFromBool(Support.alignmentDelta(byteCount, @sizeOf(Bytecode.Instruction)) > 0);
 
-    decoder.offset.* += 2;
+    currentBlockFrame.ip += byteOffset + padding;
 
-    return @as(*const u16, @alignCast(@ptrCast(&decoder.memory[start]))).*;
-}
-
-inline fn decodeIndex2(decoder: *const IO.Decoder) struct {u16, u16} {
-    const start = decoder.base + decoder.offset.*;
-
-    decoder.offset.* += 4;
-
-    return .{
-        @as(*const u16, @alignCast(@ptrCast(&decoder.memory[start + 0]))).*,
-        @as(*const u16, @alignCast(@ptrCast(&decoder.memory[start + 2]))).*,
-    };
-}
-
-inline fn decodeIndex3(decoder: *const IO.Decoder) struct {u16, u16, u16} {
-    const start = decoder.base + decoder.offset.*;
-
-    decoder.offset.* += 6;
-
-    return .{
-        @as(*const u16, @alignCast(@ptrCast(&decoder.memory[start + 0]))).*,
-        @as(*const u16, @alignCast(@ptrCast(&decoder.memory[start + 2]))).*,
-        @as(*const u16, @alignCast(@ptrCast(&decoder.memory[start + 4]))).*,
-    };
-}
-
-inline fn decodeIndex4(decoder: *const IO.Decoder) struct {u16,u16,u16,u16} {
-    const start = decoder.base + decoder.offset.*;
-
-    decoder.offset.* += 8;
-
-    return .{
-        @as(*const u16, @alignCast(@ptrCast(&decoder.memory[start + 0]))).*,
-        @as(*const u16, @alignCast(@ptrCast(&decoder.memory[start + 2]))).*,
-        @as(*const u16, @alignCast(@ptrCast(&decoder.memory[start + 4]))).*,
-        @as(*const u16, @alignCast(@ptrCast(&decoder.memory[start + 6]))).*,
-    };
+    return out;
 }
 
 
@@ -122,1923 +85,1294 @@ inline fn decodeIndex4(decoder: *const IO.Decoder) struct {u16,u16,u16,u16} {
 fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (reswitch) void else bool {
     @setEvalBranchQuota(Config.INLINING_BRANCH_QUOTA);
 
-    var decoder: IO.Decoder = undefined;
+    var lastData: Bytecode.OpData = undefined;
 
-    updateDecoder(fiber, &decoder);
-
-    reswitch: switch (decodeOpCode(&decoder)) {
+    reswitch: switch (decodeInstr(fiber, &lastData)) {
         .trap => return Fiber.Trap.Unreachable,
-        .nop => {
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
-        },
+        .nop => if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData),
         .halt => if (comptime !reswitch) return false,
 
         .tail_call => {
-            const rs = decodeIndex2(&decoder);
+            try callImpl_tail(fiber, fiber.readLocal(Bytecode.FunctionIndex, lastData.tail_call.R0));
 
-            try callImpl_tail(fiber, &decoder, rs[0], rs[1]);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .tail_call_v => {
-            const rs = decodeIndex2(&decoder);
+            try callImpl_tail_v(fiber, fiber.readLocal(Bytecode.FunctionIndex, lastData.tail_call_v.R0));
 
-            try callImpl_tail_v(fiber, &decoder, rs[0], rs[1]);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .dyn_tail_call => {
-            const rs = decodeIndex2(&decoder);
-            const funcIndex = fiber.readLocal(Bytecode.FunctionIndex, rs[0]);
+        .tail_call_im => {
+            try callImpl_tail(fiber, lastData.tail_call_im.F0);
 
-            try callImpl_tail(fiber, &decoder, funcIndex, rs[1]);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .dyn_tail_call_v => {
-            const rs = decodeIndex2(&decoder);
-            const funcIndex = fiber.readLocal(Bytecode.FunctionIndex, rs[0]);
+        .tail_call_im_v => {
+            try callImpl_tail_v(fiber, lastData.tail_call_im_v.F0);
 
-            try callImpl_tail_v(fiber, &decoder, funcIndex, rs[1]);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .tail_prompt => {
-            const rs = decodeIndex2(&decoder);
-            const evidence = fiber.evidence[rs[0]].topPtrUnchecked();
+            try callImpl_ev_tail(fiber, lastData.tail_prompt.E0);
 
-            try callImpl_ev_tail(fiber, &decoder, rs[0], evidence.handler, rs[1]);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .tail_prompt_v => {
-            const rs = decodeIndex2(&decoder);
-            const evidence = fiber.evidence[rs[0]].topPtrUnchecked();
+            try callImpl_ev_tail_v(fiber, lastData.tail_prompt_v.E0);
 
-            try callImpl_ev_tail_v(fiber, &decoder, rs[0], evidence.handler, rs[1]);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
         .call => {
-            const rs = decodeIndex2(&decoder);
+            try callImpl_no_tail(fiber, fiber.readLocal(Bytecode.FunctionIndex, lastData.call.R0), undefined);
 
-            try callImpl_no_tail(fiber, &decoder, rs[0], rs[1]);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .call_v => {
-            const rs = decodeIndex2(&decoder);
+            try callImpl_no_tail(fiber, fiber.readLocal(Bytecode.FunctionIndex, lastData.call_v.R0), lastData.call_v.R1);
 
-            try callImpl_no_tail_v(fiber, &decoder, rs[0], rs[1]);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .dyn_call => {
-            const rs = decodeIndex2(&decoder);
-            const funcIndex = fiber.readLocal(Bytecode.FunctionIndex, rs[0]);
+        .call_im => {
+            try callImpl_no_tail(fiber, lastData.call_im.F0, undefined);
 
-            try callImpl_no_tail(fiber, &decoder, funcIndex, rs[1]);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .dyn_call_v => {
-            const rs = decodeIndex2(&decoder);
-            const funcIndex = fiber.readLocal(Bytecode.FunctionIndex, rs[0]);
+        .call_im_v => {
+            try callImpl_no_tail(fiber, lastData.call_im_v.F0, lastData.call_im_v.R0);
 
-            try callImpl_no_tail_v(fiber, &decoder, funcIndex, rs[1]);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .prompt => {
-            const rs = decodeIndex2(&decoder);
-            const evidence = fiber.evidence[rs[0]].topPtrUnchecked();
+            try callImpl_ev_no_tail(fiber, lastData.prompt.E0);
 
-            try callImpl_ev_no_tail(fiber, &decoder, rs[0], evidence.handler, rs[1]);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .prompt_v => {
-            const rs = decodeIndex2(&decoder);
-            const evidence = fiber.evidence[rs[0]].topPtrUnchecked();
+            try callImpl_ev_no_tail_v(fiber, lastData.prompt_v.E0, lastData.prompt_v.R0);
 
-            try callImpl_ev_no_tail_v(fiber, &decoder, rs[0], evidence.handler, rs[1]);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
         .ret => {
-            ret(fiber, &decoder, .no_v);
+            ret(fiber, undefined, .no_v);
 
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .ret_v => {
-            ret(fiber, &decoder, .v);
+            ret(fiber, lastData.ret_v.R0, .v);
 
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .term => {
-            term(fiber, &decoder, .no_v);
+            term(fiber, undefined, .no_v);
 
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .term_v => {
-            term(fiber, &decoder, .v);
+            term(fiber, lastData.term_v.R0, .v);
 
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
         .when_z => {
-            const rs = decodeIndex2(&decoder);
+            when(fiber, lastData.when_z.B0, lastData.when_z.R0, .zero);
 
-            when(fiber, rs[0], rs[1], .zero);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .when_nz => {
-            const rs = decodeIndex2(&decoder);
+            when(fiber, lastData.when_nz.B0, lastData.when_nz.R0, .non_zero);
 
-            when(fiber, rs[0], rs[1], .non_zero);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
         .re => {
-            const rx = decodeIndex(&decoder);
+            re(fiber, lastData.re.B0, undefined, null);
 
-            re(fiber, &decoder, rx, null);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .re_z => {
-            const rx = decodeIndex(&decoder);
+            re(fiber, lastData.re_z.B0, lastData.re_z.R0, .zero);
 
-            re(fiber, &decoder, rx, .zero);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .re_nz => {
-            const rx = decodeIndex(&decoder);
+            re(fiber, lastData.re_nz.B0, lastData.re_nz.R0, .non_zero);
 
-            re(fiber, &decoder, rx, .non_zero);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
         .br => {
-            const rx = decodeIndex(&decoder);
+            br(fiber, lastData.br.B0, undefined, null, undefined, .no_v);
 
-            br(fiber, &decoder, rx, .no_v, null);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .br_z => {
-            const rx = decodeIndex(&decoder);
+            br(fiber, lastData.br_z.B0, lastData.br_z.R0, .zero, undefined, .no_v);
 
-            br(fiber, &decoder, rx, .no_v, .zero);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .br_nz => {
-            const rx = decodeIndex(&decoder);
+            br(fiber, lastData.br_nz.B0, lastData.br_nz.R0, .non_zero, undefined, .no_v);
 
-            br(fiber, &decoder, rx, .no_v, .non_zero);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
         .br_v => {
-            const rx = decodeIndex(&decoder);
+            br(fiber, lastData.br_v.B0, undefined, null, lastData.br_v.R0, .v);
 
-            br(fiber, &decoder, rx, .v, null);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .br_z_v => {
-            const rx = decodeIndex(&decoder);
+            br(fiber, lastData.br_z_v.B0, lastData.br_z_v.R0, .zero, lastData.br_z_v.R1, .v);
 
-            br(fiber, &decoder, rx, .v, .zero);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .br_nz_v => {
-            const rx = decodeIndex(&decoder);
+            br(fiber, lastData.br_nz_v.B0, lastData.br_nz_v.R0, .non_zero, lastData.br_nz_v.R1, .v);
 
-            br(fiber, &decoder, rx, .v, .non_zero);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
         .block => {
-            const rx = decodeIndex(&decoder);
+            block(fiber, lastData.block.B0, undefined);
 
-            block(fiber, &decoder, rx, .no_v);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .block_v => {
-            const rx = decodeIndex(&decoder);
+            block(fiber, lastData.block_v.B0, lastData.block_v.R0);
 
-            block(fiber, &decoder, rx, .v);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
         .with => {
-            const rs = decodeIndex2(&decoder);
+            try with(fiber, lastData.with.B0, lastData.with.H0, undefined);
 
-            try with(fiber, &decoder, rs[0], rs[1], .no_v);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .with_v => {
-            const rs = decodeIndex2(&decoder);
+            try with(fiber, lastData.with_v.B0, lastData.with_v.H0, lastData.with_v.R0);
 
-            try with(fiber, &decoder, rs[0], rs[1], .v);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
         .if_z => {
-            const rs = decodeIndex3(&decoder);
+            @"if"(fiber, lastData.if_z.B0, lastData.if_z.B1, lastData.if_z.R0, .zero, undefined);
 
-            @"if"(fiber, &decoder, rs[0], rs[1], rs[2], .no_v, .zero);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .if_nz => {
-            const rs = decodeIndex3(&decoder);
+            @"if"(fiber, lastData.if_nz.B0, lastData.if_nz.B1, lastData.if_nz.R0, .non_zero, undefined);
 
-            @"if"(fiber, &decoder, rs[0], rs[1], rs[2], .no_v, .non_zero);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .if_z_v => {
-            const rs = decodeIndex3(&decoder);
+            @"if"(fiber, lastData.if_z_v.B0, lastData.if_z_v.B1, lastData.if_z_v.R0, .zero, lastData.if_z_v.R1);
 
-            @"if"(fiber, &decoder, rs[0], rs[1], rs[2], .v, .zero);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .if_nz_v => {
-            const rs = decodeIndex3(&decoder);
+            @"if"(fiber, lastData.if_nz_v.B0, lastData.if_nz_v.B1, lastData.if_nz_v.R0, .non_zero, lastData.if_nz_v.R1);
 
-            @"if"(fiber, &decoder, rs[0], rs[1], rs[2], .v, .non_zero);
-
-            if (comptime reswitch) {
-                updateDecoder(fiber, &decoder);
-                continue :reswitch decodeOpCode(&decoder);
-            }
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
         .addr_local => {
-            const rs = decodeIndex2(&decoder);
+            addr_local(fiber, lastData.addr_local.R0, lastData.addr_local.R1);
 
-            addr_local(fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
         .addr_global => {
-            const rs = decodeIndex2(&decoder);
+            addr_global(fiber, lastData.addr_global.G0, lastData.addr_global.R0);
 
-            addr_global(fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
         .addr_upvalue => {
-            const rs = decodeIndex2(&decoder);
+            addr_upvalue(fiber, lastData.addr_upvalue.U0, lastData.addr_upvalue.R0);
 
-            addr_upvalue(fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
-        },
-
-        .read_global8 => {
-            const rs = decodeIndex2(&decoder);
-
-            read_global(u8, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
-        },
-        .read_global16 => {
-            const rs = decodeIndex2(&decoder);
-
-            read_global(u16, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
-        },
-        .read_global32 => {
-            const rs = decodeIndex2(&decoder);
-
-            read_global(u32, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .read_global64 => {
-            const rs = decodeIndex2(&decoder);
 
-            read_global(u64, fiber, rs[0], rs[1]);
+        .read_global_8 => {
+            read_global(u8, fiber, lastData.read_global_8.G0, lastData.read_global_8.R0);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+        .read_global_16 => {
+            read_global(u16, fiber, lastData.read_global_16.G0, lastData.read_global_16.R0);
 
-        .write_global8 => {
-            const rs = decodeIndex2(&decoder);
-
-            write_global(u8, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .write_global16 => {
-            const rs = decodeIndex2(&decoder);
-
-            write_global(u16, fiber, rs[0], rs[1]);
+        .read_global_32 => {
+            read_global(u32, fiber, lastData.read_global_32.G0, lastData.read_global_32.R0);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .write_global32 => {
-            const rs = decodeIndex2(&decoder);
+        .read_global_64 => {
+            read_global(u64, fiber, lastData.read_global_64.G0, lastData.read_global_64.R0);
 
-            write_global(u32, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .write_global64 => {
-            const rs = decodeIndex2(&decoder);
 
-            write_global(u64, fiber, rs[0], rs[1]);
+        .write_global_8 => {
+            write_global(u8, fiber, lastData.write_global_8.G0, lastData.write_global_8.R0);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-
-        .read_upvalue8 => {
-            const rs = decodeIndex2(&decoder);
-
-            read_upvalue(u8, fiber, rs[0], rs[1]);
+        .write_global_16 => {
+            write_global(u16, fiber, lastData.write_global_16.G0, lastData.write_global_16.R0);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .read_upvalue16 => {
-            const rs = decodeIndex2(&decoder);
+        .write_global_32 => {
+            write_global(u32, fiber, lastData.write_global_32.G0, lastData.write_global_32.R0);
 
-            read_upvalue(u16, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .read_upvalue32 => {
-            const rs = decodeIndex2(&decoder);
+        .write_global_64 => {
+            write_global(u64, fiber, lastData.write_global_64.G0, lastData.write_global_64.R0);
 
-            read_upvalue(u32, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .read_upvalue64 => {
-            const rs = decodeIndex2(&decoder);
 
-            read_upvalue(u64, fiber, rs[0], rs[1]);
+        .read_upvalue_8 => {
+            read_upvalue(u8, fiber, lastData.read_upvalue_8.U0, lastData.read_upvalue_8.R0);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-
-        .write_upvalue8 => {
-            const rs = decodeIndex2(&decoder);
+        .read_upvalue_16 => {
+            read_upvalue(u16, fiber, lastData.read_upvalue_16.U0, lastData.read_upvalue_16.R0);
 
-            write_upvalue(u8, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .write_upvalue16 => {
-            const rs = decodeIndex2(&decoder);
+        .read_upvalue_32 => {
+            read_upvalue(u32, fiber, lastData.read_upvalue_32.U0, lastData.read_upvalue_32.R0);
 
-            write_upvalue(u16, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .write_upvalue32 => {
-            const rs = decodeIndex2(&decoder);
-
-            write_upvalue(u32, fiber, rs[0], rs[1]);
+        .read_upvalue_64 => {
+            read_upvalue(u64, fiber, lastData.read_upvalue_64.U0, lastData.read_upvalue_64.R0);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .write_upvalue64 => {
-            const rs = decodeIndex2(&decoder);
 
-            write_upvalue(u64, fiber, rs[0], rs[1]);
+        .write_upvalue_8 => {
+            write_upvalue(u8, fiber, lastData.write_upvalue_8.U0, lastData.write_upvalue_8.R0);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+        .write_upvalue_16 => {
+            write_upvalue(u16, fiber, lastData.write_upvalue_16.U0, lastData.write_upvalue_16.R0);
 
-        .load8 => {
-            const rs = decodeIndex2(&decoder);
-
-            try load(u8, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .load16 => {
-            const rs = decodeIndex2(&decoder);
-
-            try load(u16, fiber, rs[0], rs[1]);
+        .write_upvalue_32 => {
+            write_upvalue(u32, fiber, lastData.write_upvalue_32.U0, lastData.write_upvalue_32.R0);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .load32 => {
-            const rs = decodeIndex2(&decoder);
+        .write_upvalue_64 => {
+            write_upvalue(u64, fiber, lastData.write_upvalue_64.U0, lastData.write_upvalue_64.R0);
 
-            try load(u32, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .load64 => {
-            const rs = decodeIndex2(&decoder);
 
-            try load(u64, fiber, rs[0], rs[1]);
+        .load_8 => {
+            try load(u8, fiber, lastData.load_8.R0, lastData.load_8.R1);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-
-        .store8 => {
-            const rs = decodeIndex2(&decoder);
-
-            try store(u8, fiber, rs[0], rs[1]);
+        .load_16 => {
+            try load(u16, fiber, lastData.load_16.R0, lastData.load_16.R1);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .store16 => {
-            const rs = decodeIndex2(&decoder);
+        .load_32 => {
+            try load(u32, fiber, lastData.load_32.R0, lastData.load_32.R1);
 
-            try store(u16, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .store32 => {
-            const rs = decodeIndex2(&decoder);
+        .load_64 => {
+            try load(u64, fiber, lastData.load_64.R0, lastData.load_64.R1);
 
-            try store(u32, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .store64 => {
-            const rs = decodeIndex2(&decoder);
 
-            try store(u64, fiber, rs[0], rs[1]);
+        .store_8 => {
+            try store(u8, fiber, lastData.store_8.R0, lastData.store_8.R1);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-
-        .clear8 => {
-            const rx = decodeIndex(&decoder);
+        .store_16 => {
+            try store(u16, fiber, lastData.store_16.R0, lastData.store_16.R1);
 
-            clear(u8, fiber, rx);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .clear16 => {
-            const rx = decodeIndex(&decoder);
+        .store_32 => {
+            try store(u32, fiber, lastData.store_32.R0, lastData.store_32.R1);
 
-            clear(u16, fiber, rx);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .clear32 => {
-            const rx = decodeIndex(&decoder);
-
-            clear(u32, fiber, rx);
+        .store_64 => {
+            try store(u64, fiber, lastData.store_64.R0, lastData.store_64.R1);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .clear64 => {
-            const rx = decodeIndex(&decoder);
 
-            clear(u64, fiber, rx);
+        .clear_8 => {
+            clear(u8, fiber, lastData.clear_8.R0);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+        .clear_16 => {
+            clear(u16, fiber, lastData.clear_16.R0);
 
-        .swap8 => {
-            const rs = decodeIndex2(&decoder);
-
-            swap(u8, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .swap16 => {
-            const rs = decodeIndex2(&decoder);
-
-            swap(u16, fiber, rs[0], rs[1]);
+        .clear_32 => {
+            clear(u32, fiber, lastData.clear_32.R0);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .swap32 => {
-            const rs = decodeIndex2(&decoder);
+        .clear_64 => {
+            clear(u64, fiber, lastData.clear_64.R0);
 
-            swap(u32, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .swap64 => {
-            const rs = decodeIndex2(&decoder);
 
-            swap(u64, fiber, rs[0], rs[1]);
+        .swap_8 => {
+            swap(u8, fiber, lastData.swap_8.R0, lastData.swap_8.R1);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-
-        .copy8 => {
-            const rs = decodeIndex2(&decoder);
-
-            copy(u8, fiber, rs[0], rs[1]);
+        .swap_16 => {
+            swap(u16, fiber, lastData.swap_16.R0, lastData.swap_16.R1);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .copy16 => {
-            const rs = decodeIndex2(&decoder);
+        .swap_32 => {
+            swap(u32, fiber, lastData.swap_32.R0, lastData.swap_32.R1);
 
-            copy(u16, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .copy32 => {
-            const rs = decodeIndex2(&decoder);
+        .swap_64 => {
+            swap(u64, fiber, lastData.swap_64.R0, lastData.swap_64.R1);
 
-            copy(u32, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .copy64 => {
-            const rs = decodeIndex2(&decoder);
 
-            copy(u64, fiber, rs[0], rs[1]);
+        .copy_8 => {
+            copy(u8, fiber, lastData.copy_8.R0, lastData.copy_8.R1);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-
-        .b_not => {
-            const rs = decodeIndex2(&decoder);
+        .copy_16 => {
+            copy(u16, fiber, lastData.copy_16.R0, lastData.copy_16.R1);
 
-            unary(bool, fiber, "not", rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .b_and => {
-            const rs = decodeIndex3(&decoder);
+        .copy_32 => {
+            copy(u32, fiber, lastData.copy_32.R0, lastData.copy_32.R1);
 
-            binary(bool, fiber, "and", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .b_or => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(bool, fiber, "or", rs[0], rs[1], rs[2]);
+        .copy_64 => {
+            copy(u64, fiber, lastData.copy_64.R0, lastData.copy_64.R1);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
-        .f_add32 => {
-            const rs = decodeIndex3(&decoder);
+        .f_add_32 => {
+            binary(f32, fiber, "add", lastData.f_add_32.R0, lastData.f_add_32.R1, lastData.f_add_32.R2);
 
-            binary(f32, fiber, "add", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .f_add64 => {
-            const rs = decodeIndex3(&decoder);
+        .f_add_64 => {
+            binary(f64, fiber, "add", lastData.f_add_64.R0, lastData.f_add_64.R1, lastData.f_add_64.R2);
 
-            binary(f64, fiber, "add", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .f_sub32 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(f32, fiber, "sub", rs[0], rs[1], rs[2]);
+        .f_sub_32 => {
+            binary(f32, fiber, "sub", lastData.f_sub_32.R0, lastData.f_sub_32.R1, lastData.f_sub_32.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .f_sub64 => {
-            const rs = decodeIndex3(&decoder);
+        .f_sub_64 => {
+            binary(f64, fiber, "sub", lastData.f_sub_64.R0, lastData.f_sub_64.R1, lastData.f_sub_64.R2);
 
-            binary(f64, fiber, "sub", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .f_mul32 => {
-            const rs = decodeIndex3(&decoder);
+        .f_mul_32 => {
+            binary(f32, fiber, "mul", lastData.f_mul_32.R0, lastData.f_mul_32.R1, lastData.f_mul_32.R2);
 
-            binary(f32, fiber, "mul", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .f_mul64 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(f64, fiber, "mul", rs[0], rs[1], rs[2]);
+        .f_mul_64 => {
+            binary(f64, fiber, "mul", lastData.f_mul_64.R0, lastData.f_mul_64.R1, lastData.f_mul_64.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .f_div32 => {
-            const rs = decodeIndex3(&decoder);
+        .f_div_32 => {
+            binary(f32, fiber, "div", lastData.f_div_32.R0, lastData.f_div_32.R1, lastData.f_div_32.R2);
 
-            binary(f32, fiber, "div", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .f_div64 => {
-            const rs = decodeIndex3(&decoder);
+        .f_div_64 => {
+            binary(f64, fiber, "div", lastData.f_div_64.R0, lastData.f_div_64.R1, lastData.f_div_64.R2);
 
-            binary(f64, fiber, "div", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .f_rem32 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(f32, fiber, "rem", rs[0], rs[1], rs[2]);
+        .f_rem_32 => {
+            binary(f32, fiber, "rem", lastData.f_rem_32.R0, lastData.f_rem_32.R1, lastData.f_rem_32.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .f_rem64 => {
-            const rs = decodeIndex3(&decoder);
+        .f_rem_64 => {
+            binary(f64, fiber, "rem", lastData.f_rem_64.R0, lastData.f_rem_64.R1, lastData.f_rem_64.R2);
 
-            binary(f64, fiber, "rem", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .f_neg32 => {
-            const rs = decodeIndex2(&decoder);
+        .f_neg_32 => {
+            unary(f32, fiber, "neg", lastData.f_neg_32.R0, lastData.f_neg_32.R1);
 
-            unary(f32, fiber, "neg", rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .f_neg64 => {
-            const rs = decodeIndex2(&decoder);
-
-            unary(f64, fiber, "neg", rs[0], rs[1]);
+        .f_neg_64 => {
+            unary(f64, fiber, "neg", lastData.f_neg_64.R0, lastData.f_neg_64.R1);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
-        .f_eq32 => {
-            const rs = decodeIndex3(&decoder);
+        .f_eq_32 => {
+            binary(f32, fiber, "eq", lastData.f_eq_32.R0, lastData.f_eq_32.R1, lastData.f_eq_32.R2);
 
-            binary(f32, fiber, "eq", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .f_eq64 => {
-            const rs = decodeIndex3(&decoder);
+        .f_eq_64 => {
+            binary(f64, fiber, "eq", lastData.f_eq_64.R0, lastData.f_eq_64.R1, lastData.f_eq_64.R2);
 
-            binary(f64, fiber, "eq", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .f_ne32 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(f32, fiber, "ne", rs[0], rs[1], rs[2]);
+        .f_ne_32 => {
+            binary(f32, fiber, "ne", lastData.f_ne_32.R0, lastData.f_ne_32.R1, lastData.f_ne_32.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .f_ne64 => {
-            const rs = decodeIndex3(&decoder);
+        .f_ne_64 => {
+            binary(f64, fiber, "ne", lastData.f_ne_64.R0, lastData.f_ne_64.R1, lastData.f_ne_64.R2);
 
-            binary(f64, fiber, "ne", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .f_lt32 => {
-            const rs = decodeIndex3(&decoder);
+        .f_lt_32 => {
+            binary(f32, fiber, "lt", lastData.f_lt_32.R0, lastData.f_lt_32.R1, lastData.f_lt_32.R2);
 
-            binary(f32, fiber, "lt", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .f_lt64 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(f64, fiber, "lt", rs[0], rs[1], rs[2]);
+        .f_lt_64 => {
+            binary(f64, fiber, "lt", lastData.f_lt_64.R0, lastData.f_lt_64.R1, lastData.f_lt_64.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .f_gt32 => {
-            const rs = decodeIndex3(&decoder);
+        .f_gt_32 => {
+            binary(f32, fiber, "gt", lastData.f_gt_32.R0, lastData.f_gt_32.R1, lastData.f_gt_32.R2);
 
-            binary(f32, fiber, "gt", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .f_gt64 => {
-            const rs = decodeIndex3(&decoder);
+        .f_gt_64 => {
+            binary(f64, fiber, "gt", lastData.f_gt_64.R0, lastData.f_gt_64.R1, lastData.f_gt_64.R2);
 
-            binary(f64, fiber, "gt", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .f_le32 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(f32, fiber, "le", rs[0], rs[1], rs[2]);
+        .f_le_32 => {
+            binary(f32, fiber, "le", lastData.f_le_32.R0, lastData.f_le_32.R1, lastData.f_le_32.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .f_le64 => {
-            const rs = decodeIndex3(&decoder);
+        .f_le_64 => {
+            binary(f64, fiber, "le", lastData.f_le_64.R0, lastData.f_le_64.R1, lastData.f_le_64.R2);
 
-            binary(f64, fiber, "le", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .f_ge32 => {
-            const rs = decodeIndex3(&decoder);
+        .f_ge_32 => {
+            binary(f32, fiber, "ge", lastData.f_ge_32.R0, lastData.f_ge_32.R1, lastData.f_ge_32.R2);
 
-            binary(f32, fiber, "ge", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .f_ge64 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(f64, fiber, "ge", rs[0], rs[1], rs[2]);
+        .f_ge_64 => {
+            binary(f64, fiber, "ge", lastData.f_ge_64.R0, lastData.f_ge_64.R1, lastData.f_ge_64.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
-        .i_add8 => {
-            const rs = decodeIndex3(&decoder);
+        .i_add_8 => {
+            binary(u8, fiber, "add", lastData.i_add_8.R0, lastData.i_add_8.R1, lastData.i_add_8.R2);
 
-            binary(u8, fiber, "add", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_add16 => {
-            const rs = decodeIndex3(&decoder);
+        .i_add_16 => {
+            binary(u16, fiber, "add", lastData.i_add_16.R0, lastData.i_add_16.R1, lastData.i_add_16.R2);
 
-            binary(u16, fiber, "add", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_add32 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(u32, fiber, "add", rs[0], rs[1], rs[2]);
+        .i_add_32 => {
+            binary(u32, fiber, "add", lastData.i_add_32.R0, lastData.i_add_32.R1, lastData.i_add_32.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_add64 => {
-            const rs = decodeIndex3(&decoder);
+        .i_add_64 => {
+            binary(u64, fiber, "add", lastData.i_add_64.R0, lastData.i_add_64.R1, lastData.i_add_64.R2);
 
-            binary(u64, fiber, "add", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_sub8 => {
-            const rs = decodeIndex3(&decoder);
+        .i_sub_8 => {
+            binary(u8, fiber, "sub", lastData.i_sub_8.R0, lastData.i_sub_8.R1, lastData.i_sub_8.R2);
 
-            binary(u8, fiber, "sub", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_sub16 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(u16, fiber, "sub", rs[0], rs[1], rs[2]);
+        .i_sub_16 => {
+            binary(u16, fiber, "sub", lastData.i_sub_16.R0, lastData.i_sub_16.R1, lastData.i_sub_16.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_sub32 => {
-            const rs = decodeIndex3(&decoder);
+        .i_sub_32 => {
+            binary(u32, fiber, "sub", lastData.i_sub_32.R0, lastData.i_sub_32.R1, lastData.i_sub_32.R2);
 
-            binary(u32, fiber, "sub", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_sub64 => {
-            const rs = decodeIndex3(&decoder);
+        .i_sub_64 => {
+            binary(u64, fiber, "sub", lastData.i_sub_64.R0, lastData.i_sub_64.R1, lastData.i_sub_64.R2);
 
-            binary(u64, fiber, "sub", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_mul8 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(u8, fiber, "mul", rs[0], rs[1], rs[2]);
+        .i_mul_8 => {
+            binary(u8, fiber, "mul", lastData.i_mul_8.R0, lastData.i_mul_8.R1, lastData.i_mul_8.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_mul16 => {
-            const rs = decodeIndex3(&decoder);
+        .i_mul_16 => {
+            binary(u16, fiber, "mul", lastData.i_mul_16.R0, lastData.i_mul_16.R1, lastData.i_mul_16.R2);
 
-            binary(u16, fiber, "mul", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_mul32 => {
-            const rs = decodeIndex3(&decoder);
+        .i_mul_32 => {
+            binary(u32, fiber, "mul", lastData.i_mul_32.R0, lastData.i_mul_32.R1, lastData.i_mul_32.R2);
 
-            binary(u32, fiber, "mul", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_mul64 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(u64, fiber, "mul", rs[0], rs[1], rs[2]);
+        .i_mul_64 => {
+            binary(u64, fiber, "mul", lastData.i_mul_64.R0, lastData.i_mul_64.R1, lastData.i_mul_64.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_div8 => {
-            const rs = decodeIndex3(&decoder);
+        .s_div_8 => {
+            binary(i8, fiber, "div", lastData.s_div_8.R0, lastData.s_div_8.R1, lastData.s_div_8.R2);
 
-            binary(i8, fiber, "div", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_div16 => {
-            const rs = decodeIndex3(&decoder);
+        .s_div_16 => {
+            binary(i16, fiber, "div", lastData.s_div_16.R0, lastData.s_div_16.R1, lastData.s_div_16.R2);
 
-            binary(i16, fiber, "div", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_div32 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(i32, fiber, "div", rs[0], rs[1], rs[2]);
+        .s_div_32 => {
+            binary(i32, fiber, "div", lastData.s_div_32.R0, lastData.s_div_32.R1, lastData.s_div_32.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_div64 => {
-            const rs = decodeIndex3(&decoder);
+        .s_div_64 => {
+            binary(i64, fiber, "div", lastData.s_div_64.R0, lastData.s_div_64.R1, lastData.s_div_64.R2);
 
-            binary(i64, fiber, "div", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_div8 => {
-            const rs = decodeIndex3(&decoder);
+        .u_div_8 => {
+            binary(u8, fiber, "div", lastData.u_div_8.R0, lastData.u_div_8.R1, lastData.u_div_8.R2);
 
-            binary(u8, fiber, "div", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_div16 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(u16, fiber, "div", rs[0], rs[1], rs[2]);
+        .u_div_16 => {
+            binary(u16, fiber, "div", lastData.u_div_16.R0, lastData.u_div_16.R1, lastData.u_div_16.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_div32 => {
-            const rs = decodeIndex3(&decoder);
+        .u_div_32 => {
+            binary(u32, fiber, "div", lastData.u_div_32.R0, lastData.u_div_32.R1, lastData.u_div_32.R2);
 
-            binary(u32, fiber, "div", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_div64 => {
-            const rs = decodeIndex3(&decoder);
+        .u_div_64 => {
+            binary(u64, fiber, "div", lastData.u_div_64.R0, lastData.u_div_64.R1, lastData.u_div_64.R2);
 
-            binary(u64, fiber, "div", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_rem8 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(i8, fiber, "rem", rs[0], rs[1], rs[2]);
+        .s_rem_8 => {
+            binary(i8, fiber, "rem", lastData.s_rem_8.R0, lastData.s_rem_8.R1, lastData.s_rem_8.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_rem16 => {
-            const rs = decodeIndex3(&decoder);
+        .s_rem_16 => {
+            binary(i16, fiber, "rem", lastData.s_rem_16.R0, lastData.s_rem_16.R1, lastData.s_rem_16.R2);
 
-            binary(i16, fiber, "rem", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_rem32 => {
-            const rs = decodeIndex3(&decoder);
+        .s_rem_32 => {
+            binary(i32, fiber, "rem", lastData.s_rem_32.R0, lastData.s_rem_32.R1, lastData.s_rem_32.R2);
 
-            binary(i32, fiber, "rem", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_rem64 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(i64, fiber, "rem", rs[0], rs[1], rs[2]);
+        .s_rem_64 => {
+            binary(i64, fiber, "rem", lastData.s_rem_64.R0, lastData.s_rem_64.R1, lastData.s_rem_64.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_rem8 => {
-            const rs = decodeIndex3(&decoder);
+        .u_rem_8 => {
+            binary(u8, fiber, "rem", lastData.u_rem_8.R0, lastData.u_rem_8.R1, lastData.u_rem_8.R2);
 
-            binary(u8, fiber, "rem", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_rem16 => {
-            const rs = decodeIndex3(&decoder);
+        .u_rem_16 => {
+            binary(u16, fiber, "rem", lastData.u_rem_16.R0, lastData.u_rem_16.R1, lastData.u_rem_16.R2);
 
-            binary(u16, fiber, "rem", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_rem32 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(u32, fiber, "rem", rs[0], rs[1], rs[2]);
+        .u_rem_32 => {
+            binary(u32, fiber, "rem", lastData.u_rem_32.R0, lastData.u_rem_32.R1, lastData.u_rem_32.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_rem64 => {
-            const rs = decodeIndex3(&decoder);
+        .u_rem_64 => {
+            binary(u64, fiber, "rem", lastData.u_rem_64.R0, lastData.u_rem_64.R1, lastData.u_rem_64.R2);
 
-            binary(u64, fiber, "rem", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_neg8 => {
-            const rs = decodeIndex2(&decoder);
+        .s_neg_8 => {
+            unary(i8, fiber, "neg", lastData.s_neg_8.R0, lastData.s_neg_8.R1);
 
-            unary(i8, fiber, "neg", rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_neg16 => {
-            const rs = decodeIndex2(&decoder);
-
-            unary(i16, fiber, "neg", rs[0], rs[1]);
+        .s_neg_16 => {
+            unary(i16, fiber, "neg", lastData.s_neg_16.R0, lastData.s_neg_16.R1);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_neg32 => {
-            const rs = decodeIndex2(&decoder);
+        .s_neg_32 => {
+            unary(i32, fiber, "neg", lastData.s_neg_32.R0, lastData.s_neg_32.R1);
 
-            unary(i32, fiber, "neg", rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_neg64 => {
-            const rs = decodeIndex2(&decoder);
+        .s_neg_64 => {
+            unary(i64, fiber, "neg", lastData.s_neg_64.R0, lastData.s_neg_64.R1);
 
-            unary(i64, fiber, "neg", rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-
-        .i_bitnot8 => {
-            const rs = decodeIndex2(&decoder);
 
-            unary(u8, fiber, "bitnot", rs[0], rs[1]);
+        .bnot_8 => {
+            unary(u8, fiber, "bitnot", lastData.bnot_8.R0, lastData.bnot_8.R1);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_bitnot16 => {
-            const rs = decodeIndex2(&decoder);
+        .bnot_16 => {
+            unary(u16, fiber, "bitnot", lastData.bnot_16.R0, lastData.bnot_16.R1);
 
-            unary(u16, fiber, "bitnot", rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_bitnot32 => {
-            const rs = decodeIndex2(&decoder);
+        .bnot_32 => {
+            unary(u32, fiber, "bitnot", lastData.bnot_32.R0, lastData.bnot_32.R1);
 
-            unary(u32, fiber, "bitnot", rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_bitnot64 => {
-            const rs = decodeIndex2(&decoder);
-
-            unary(u64, fiber, "bitnot", rs[0], rs[1]);
+        .bnot_64 => {
+            unary(u64, fiber, "bitnot", lastData.bnot_64.R0, lastData.bnot_64.R1);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_bitand8 => {
-            const rs = decodeIndex3(&decoder);
+        .band_8 => {
+            binary(u8, fiber, "bitand", lastData.band_8.R0, lastData.band_8.R1, lastData.band_8.R2);
 
-            binary(u8, fiber, "bitand", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_bitand16 => {
-            const rs = decodeIndex3(&decoder);
+        .band_16 => {
+            binary(u16, fiber, "bitand", lastData.band_16.R0, lastData.band_16.R1, lastData.band_16.R2);
 
-            binary(u16, fiber, "bitand", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_bitand32 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(u32, fiber, "bitand", rs[0], rs[1], rs[2]);
+        .band_32 => {
+            binary(u32, fiber, "bitand", lastData.band_32.R0, lastData.band_32.R1, lastData.band_32.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_bitand64 => {
-            const rs = decodeIndex3(&decoder);
+        .band_64 => {
+            binary(u64, fiber, "bitand", lastData.band_64.R0, lastData.band_64.R1, lastData.band_64.R2);
 
-            binary(u64, fiber, "bitand", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_bitor8 => {
-            const rs = decodeIndex3(&decoder);
+        .bor_8 => {
+            binary(u8, fiber, "bitor", lastData.bor_8.R0, lastData.bor_8.R1, lastData.bor_8.R2);
 
-            binary(u8, fiber, "bitor", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_bitor16 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(u16, fiber, "bitor", rs[0], rs[1], rs[2]);
+        .bor_16 => {
+            binary(u16, fiber, "bitor", lastData.bor_16.R0, lastData.bor_16.R1, lastData.bor_16.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_bitor32 => {
-            const rs = decodeIndex3(&decoder);
+        .bor_32 => {
+            binary(u32, fiber, "bitor", lastData.bor_32.R0, lastData.bor_32.R1, lastData.bor_32.R2);
 
-            binary(u32, fiber, "bitor", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_bitor64 => {
-            const rs = decodeIndex3(&decoder);
+        .bor_64 => {
+            binary(u64, fiber, "bitor", lastData.bor_64.R0, lastData.bor_64.R1, lastData.bor_64.R2);
 
-            binary(u64, fiber, "bitor", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_bitxor8 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(u8, fiber, "bitxor", rs[0], rs[1], rs[2]);
+        .bxor_8 => {
+            binary(u8, fiber, "bitxor", lastData.bxor_8.R0, lastData.bxor_8.R1, lastData.bxor_8.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_bitxor16 => {
-            const rs = decodeIndex3(&decoder);
+        .bxor_16 => {
+            binary(u16, fiber, "bitxor", lastData.bxor_16.R0, lastData.bxor_16.R1, lastData.bxor_16.R2);
 
-            binary(u16, fiber, "bitxor", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_bitxor32 => {
-            const rs = decodeIndex3(&decoder);
+        .bxor_32 => {
+            binary(u32, fiber, "bitxor", lastData.bxor_32.R0, lastData.bxor_32.R1, lastData.bxor_32.R2);
 
-            binary(u32, fiber, "bitxor", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_bitxor64 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(u64, fiber, "bitxor", rs[0], rs[1], rs[2]);
+        .bxor_64 => {
+            binary(u64, fiber, "bitxor", lastData.bxor_64.R0, lastData.bxor_64.R1, lastData.bxor_64.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_shiftl8 => {
-            const rs = decodeIndex3(&decoder);
+        .bshiftl_8 => {
+            binary(u8, fiber, "shiftl", lastData.bshiftl_8.R0, lastData.bshiftl_8.R1, lastData.bshiftl_8.R2);
 
-            binary(u8, fiber, "shiftl", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_shiftl16 => {
-            const rs = decodeIndex3(&decoder);
+        .bshiftl_16 => {
+            binary(u16, fiber, "shiftl", lastData.bshiftl_16.R0, lastData.bshiftl_16.R1, lastData.bshiftl_16.R2);
 
-            binary(u16, fiber, "shiftl", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_shiftl32 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(u32, fiber, "shiftl", rs[0], rs[1], rs[2]);
+        .bshiftl_32 => {
+            binary(u32, fiber, "shiftl", lastData.bshiftl_32.R0, lastData.bshiftl_32.R1, lastData.bshiftl_32.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_shiftl64 => {
-            const rs = decodeIndex3(&decoder);
+        .bshiftl_64 => {
+            binary(u64, fiber, "shiftl", lastData.bshiftl_64.R0, lastData.bshiftl_64.R1, lastData.bshiftl_64.R2);
 
-            binary(u64, fiber, "shiftl", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_shiftr8 => {
-            const rs = decodeIndex3(&decoder);
+        .u_bshiftr_8 => {
+            binary(u8, fiber, "shiftr", lastData.u_bshiftr_8.R0, lastData.u_bshiftr_8.R1, lastData.u_bshiftr_8.R2);
 
-            binary(u8, fiber, "shiftr", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_shiftr16 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(u16, fiber, "shiftr", rs[0], rs[1], rs[2]);
+        .u_bshiftr_16 => {
+            binary(u16, fiber, "shiftr", lastData.u_bshiftr_16.R0, lastData.u_bshiftr_16.R1, lastData.u_bshiftr_16.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_shiftr32 => {
-            const rs = decodeIndex3(&decoder);
+        .u_bshiftr_32 => {
+            binary(u32, fiber, "shiftr", lastData.u_bshiftr_32.R0, lastData.u_bshiftr_32.R1, lastData.u_bshiftr_32.R2);
 
-            binary(u32, fiber, "shiftr", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_shiftr64 => {
-            const rs = decodeIndex3(&decoder);
+        .u_bshiftr_64 => {
+            binary(u64, fiber, "shiftr", lastData.u_bshiftr_64.R0, lastData.u_bshiftr_64.R1, lastData.u_bshiftr_64.R2);
 
-            binary(u64, fiber, "shiftr", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_shiftr8 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(i8, fiber, "shiftr", rs[0], rs[1], rs[2]);
+        .s_bshiftr_8 => {
+            binary(i8, fiber, "shiftr", lastData.s_bshiftr_8.R0, lastData.s_bshiftr_8.R1, lastData.s_bshiftr_8.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_shiftr16 => {
-            const rs = decodeIndex3(&decoder);
+        .s_bshiftr_16 => {
+            binary(i16, fiber, "shiftr", lastData.s_bshiftr_16.R0, lastData.s_bshiftr_16.R1, lastData.s_bshiftr_16.R2);
 
-            binary(i16, fiber, "shiftr", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_shiftr32 => {
-            const rs = decodeIndex3(&decoder);
+        .s_bshiftr_32 => {
+            binary(i32, fiber, "shiftr", lastData.s_bshiftr_32.R0, lastData.s_bshiftr_32.R1, lastData.s_bshiftr_32.R2);
 
-            binary(i32, fiber, "shiftr", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_shiftr64 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(i64, fiber, "shiftr", rs[0], rs[1], rs[2]);
+        .s_bshiftr_64 => {
+            binary(i64, fiber, "shiftr", lastData.s_bshiftr_64.R0, lastData.s_bshiftr_64.R1, lastData.s_bshiftr_64.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
-        .i_eq8 => {
-            const rs = decodeIndex3(&decoder);
+        .i_eq_8 => {
+            binary(u8, fiber, "eq", lastData.i_eq_8.R0, lastData.i_eq_8.R1, lastData.i_eq_8.R2);
 
-            binary(u8, fiber, "eq", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_eq16 => {
-            const rs = decodeIndex3(&decoder);
+        .i_eq_16 => {
+            binary(u16, fiber, "eq", lastData.i_eq_16.R0, lastData.i_eq_16.R1, lastData.i_eq_16.R2);
 
-            binary(u16, fiber, "eq", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_eq32 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(u32, fiber, "eq", rs[0], rs[1], rs[2]);
+        .i_eq_32 => {
+            binary(u32, fiber, "eq", lastData.i_eq_32.R0, lastData.i_eq_32.R1, lastData.i_eq_32.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_eq64 => {
-            const rs = decodeIndex3(&decoder);
+        .i_eq_64 => {
+            binary(u64, fiber, "eq", lastData.i_eq_64.R0, lastData.i_eq_64.R1, lastData.i_eq_64.R2);
 
-            binary(u64, fiber, "eq", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_ne8 => {
-            const rs = decodeIndex3(&decoder);
+        .i_ne_8 => {
+            binary(u8, fiber, "ne", lastData.i_ne_8.R0, lastData.i_ne_8.R1, lastData.i_ne_8.R2);
 
-            binary(u8, fiber, "ne", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_ne16 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(u16, fiber, "ne", rs[0], rs[1], rs[2]);
+        .i_ne_16 => {
+            binary(u16, fiber, "ne", lastData.i_ne_16.R0, lastData.i_ne_16.R1, lastData.i_ne_16.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_ne32 => {
-            const rs = decodeIndex3(&decoder);
+        .i_ne_32 => {
+            binary(u32, fiber, "ne", lastData.i_ne_32.R0, lastData.i_ne_32.R1, lastData.i_ne_32.R2);
 
-            binary(u32, fiber, "ne", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_ne64 => {
-            const rs = decodeIndex3(&decoder);
+        .i_ne_64 => {
+            binary(u64, fiber, "ne", lastData.i_ne_64.R0, lastData.i_ne_64.R1, lastData.i_ne_64.R2);
 
-            binary(u64, fiber, "ne", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_lt8 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(u8, fiber, "lt", rs[0], rs[1], rs[2]);
+        .u_lt_8 => {
+            binary(u8, fiber, "lt", lastData.u_lt_8.R0, lastData.u_lt_8.R1, lastData.u_lt_8.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_lt16 => {
-            const rs = decodeIndex3(&decoder);
+        .u_lt_16 => {
+            binary(u16, fiber, "lt", lastData.u_lt_16.R0, lastData.u_lt_16.R1, lastData.u_lt_16.R2);
 
-            binary(u16, fiber, "lt", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_lt32 => {
-            const rs = decodeIndex3(&decoder);
+        .u_lt_32 => {
+            binary(u32, fiber, "lt", lastData.u_lt_32.R0, lastData.u_lt_32.R1, lastData.u_lt_32.R2);
 
-            binary(u32, fiber, "lt", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_lt64 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(u64, fiber, "lt", rs[0], rs[1], rs[2]);
+        .u_lt_64 => {
+            binary(u64, fiber, "lt", lastData.u_lt_64.R0, lastData.u_lt_64.R1, lastData.u_lt_64.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_lt8 => {
-            const rs = decodeIndex3(&decoder);
+        .s_lt_8 => {
+            binary(i8, fiber, "lt", lastData.s_lt_8.R0, lastData.s_lt_8.R1, lastData.s_lt_8.R2);
 
-            binary(i8, fiber, "lt", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_lt16 => {
-            const rs = decodeIndex3(&decoder);
+        .s_lt_16 => {
+            binary(i16, fiber, "lt", lastData.s_lt_16.R0, lastData.s_lt_16.R1, lastData.s_lt_16.R2);
 
-            binary(i16, fiber, "lt", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_lt32 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(i32, fiber, "lt", rs[0], rs[1], rs[2]);
+        .s_lt_32 => {
+            binary(i32, fiber, "lt", lastData.s_lt_32.R0, lastData.s_lt_32.R1, lastData.s_lt_32.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_lt64 => {
-            const rs = decodeIndex3(&decoder);
+        .s_lt_64 => {
+            binary(i64, fiber, "lt", lastData.s_lt_64.R0, lastData.s_lt_64.R1, lastData.s_lt_64.R2);
 
-            binary(i64, fiber, "lt", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_gt8 => {
-            const rs = decodeIndex3(&decoder);
+        .u_gt_8 => {
+            binary(u8, fiber, "gt", lastData.u_gt_8.R0, lastData.u_gt_8.R1, lastData.u_gt_8.R2);
 
-            binary(u8, fiber, "gt", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_gt16 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(u16, fiber, "gt", rs[0], rs[1], rs[2]);
+        .u_gt_16 => {
+            binary(u16, fiber, "gt", lastData.u_gt_16.R0, lastData.u_gt_16.R1, lastData.u_gt_16.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_gt32 => {
-            const rs = decodeIndex3(&decoder);
+        .u_gt_32 => {
+            binary(u32, fiber, "gt", lastData.u_gt_32.R0, lastData.u_gt_32.R1, lastData.u_gt_32.R2);
 
-            binary(u32, fiber, "gt", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_gt64 => {
-            const rs = decodeIndex3(&decoder);
+        .u_gt_64 => {
+            binary(u64, fiber, "gt", lastData.u_gt_64.R0, lastData.u_gt_64.R1, lastData.u_gt_64.R2);
 
-            binary(u64, fiber, "gt", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_gt8 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(i8, fiber, "gt", rs[0], rs[1], rs[2]);
+        .s_gt_8 => {
+            binary(i8, fiber, "gt", lastData.s_gt_8.R0, lastData.s_gt_8.R1, lastData.s_gt_8.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_gt16 => {
-            const rs = decodeIndex3(&decoder);
+        .s_gt_16 => {
+            binary(i16, fiber, "gt", lastData.s_gt_16.R0, lastData.s_gt_16.R1, lastData.s_gt_16.R2);
 
-            binary(i16, fiber, "gt", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_gt32 => {
-            const rs = decodeIndex3(&decoder);
+        .s_gt_32 => {
+            binary(i32, fiber, "gt", lastData.s_gt_32.R0, lastData.s_gt_32.R1, lastData.s_gt_32.R2);
 
-            binary(i32, fiber, "gt", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_gt64 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(i64, fiber, "gt", rs[0], rs[1], rs[2]);
+        .s_gt_64 => {
+            binary(i64, fiber, "gt", lastData.s_gt_64.R0, lastData.s_gt_64.R1, lastData.s_gt_64.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_le8 => {
-            const rs = decodeIndex3(&decoder);
+        .u_le_8 => {
+            binary(u8, fiber, "le", lastData.u_le_8.R0, lastData.u_le_8.R1, lastData.u_le_8.R2);
 
-            binary(u8, fiber, "le", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_le16 => {
-            const rs = decodeIndex3(&decoder);
+        .u_le_16 => {
+            binary(u16, fiber, "le", lastData.u_le_16.R0, lastData.u_le_16.R1, lastData.u_le_16.R2);
 
-            binary(u16, fiber, "le", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_le32 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(u32, fiber, "le", rs[0], rs[1], rs[2]);
+        .u_le_32 => {
+            binary(u32, fiber, "le", lastData.u_le_32.R0, lastData.u_le_32.R1, lastData.u_le_32.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_le64 => {
-            const rs = decodeIndex3(&decoder);
+        .u_le_64 => {
+            binary(u64, fiber, "le", lastData.u_le_64.R0, lastData.u_le_64.R1, lastData.u_le_64.R2);
 
-            binary(u64, fiber, "le", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_le8 => {
-            const rs = decodeIndex3(&decoder);
+        .s_le_8 => {
+            binary(i8, fiber, "le", lastData.s_le_8.R0, lastData.s_le_8.R1, lastData.s_le_8.R2);
 
-            binary(i8, fiber, "le", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_le16 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(i16, fiber, "le", rs[0], rs[1], rs[2]);
+        .s_le_16 => {
+            binary(i16, fiber, "le", lastData.s_le_16.R0, lastData.s_le_16.R1, lastData.s_le_16.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_le32 => {
-            const rs = decodeIndex3(&decoder);
+        .s_le_32 => {
+            binary(i32, fiber, "le", lastData.s_le_32.R0, lastData.s_le_32.R1, lastData.s_le_32.R2);
 
-            binary(i32, fiber, "le", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_le64 => {
-            const rs = decodeIndex3(&decoder);
+        .s_le_64 => {
+            binary(i64, fiber, "le", lastData.s_le_64.R0, lastData.s_le_64.R1, lastData.s_le_64.R2);
 
-            binary(i64, fiber, "le", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_ge8 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(u8, fiber, "ge", rs[0], rs[1], rs[2]);
+        .u_ge_8 => {
+            binary(u8, fiber, "ge", lastData.u_ge_8.R0, lastData.u_ge_8.R1, lastData.u_ge_8.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_ge16 => {
-            const rs = decodeIndex3(&decoder);
+        .u_ge_16 => {
+            binary(u16, fiber, "ge", lastData.u_ge_16.R0, lastData.u_ge_16.R1, lastData.u_ge_16.R2);
 
-            binary(u16, fiber, "ge", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_ge32 => {
-            const rs = decodeIndex3(&decoder);
+        .u_ge_32 => {
+            binary(u32, fiber, "ge", lastData.u_ge_32.R0, lastData.u_ge_32.R1, lastData.u_ge_32.R2);
 
-            binary(u32, fiber, "ge", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_ge64 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(u64, fiber, "ge", rs[0], rs[1], rs[2]);
+        .u_ge_64 => {
+            binary(u64, fiber, "ge", lastData.u_ge_64.R0, lastData.u_ge_64.R1, lastData.u_ge_64.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_ge8 => {
-            const rs = decodeIndex3(&decoder);
+        .s_ge_8 => {
+            binary(i8, fiber, "ge", lastData.s_ge_8.R0, lastData.s_ge_8.R1, lastData.s_ge_8.R2);
 
-            binary(i8, fiber, "ge", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_ge16 => {
-            const rs = decodeIndex3(&decoder);
+        .s_ge_16 => {
+            binary(i16, fiber, "ge", lastData.s_ge_16.R0, lastData.s_ge_16.R1, lastData.s_ge_16.R2);
 
-            binary(i16, fiber, "ge", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_ge32 => {
-            const rs = decodeIndex3(&decoder);
-
-            binary(i32, fiber, "ge", rs[0], rs[1], rs[2]);
+        .s_ge_32 => {
+            binary(i32, fiber, "ge", lastData.s_ge_32.R0, lastData.s_ge_32.R1, lastData.s_ge_32.R2);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_ge64 => {
-            const rs = decodeIndex3(&decoder);
+        .s_ge_64 => {
+            binary(i64, fiber, "ge", lastData.s_ge_64.R0, lastData.s_ge_64.R1, lastData.s_ge_64.R2);
 
-            binary(i64, fiber, "ge", rs[0], rs[1], rs[2]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
-        .u_ext8x16 => {
-            const rs = decodeIndex2(&decoder);
+        .u_ext_8_16 => {
+            cast(u8, u16, fiber, lastData.u_ext_8_16.R0, lastData.u_ext_8_16.R1);
 
-            cast(u8, u16, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_ext8x32 => {
-            const rs = decodeIndex2(&decoder);
-
-            cast(u8, u32, fiber, rs[0], rs[1]);
+        .u_ext_8_32 => {
+            cast(u8, u32, fiber, lastData.u_ext_8_32.R0, lastData.u_ext_8_32.R1);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_ext8x64 => {
-            const rs = decodeIndex2(&decoder);
+        .u_ext_8_64 => {
+            cast(u8, u64, fiber, lastData.u_ext_8_64.R0, lastData.u_ext_8_64.R1);
 
-            cast(u8, u64, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_ext16x32 => {
-            const rs = decodeIndex2(&decoder);
+        .u_ext_16_32 => {
+            cast(u16, u32, fiber, lastData.u_ext_16_32.R0, lastData.u_ext_16_32.R1);
 
-            cast(u16, u32, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_ext16x64 => {
-            const rs = decodeIndex2(&decoder);
-
-            cast(u16, u64, fiber, rs[0], rs[1]);
+        .u_ext_16_64 => {
+            cast(u16, u64, fiber, lastData.u_ext_16_64.R0, lastData.u_ext_16_64.R1);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u_ext32x64 => {
-            const rs = decodeIndex2(&decoder);
+        .u_ext_32_64 => {
+            cast(u32, u64, fiber, lastData.u_ext_32_64.R0, lastData.u_ext_32_64.R1);
 
-            cast(u32, u64, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_ext8x16 => {
-            const rs = decodeIndex2(&decoder);
+        .s_ext_8_16 => {
+            cast(i8, i16, fiber, lastData.s_ext_8_16.R0, lastData.s_ext_8_16.R1);
 
-            cast(i8, i16, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_ext8x32 => {
-            const rs = decodeIndex2(&decoder);
-
-            cast(i8, i32, fiber, rs[0], rs[1]);
+        .s_ext_8_32 => {
+            cast(i8, i32, fiber, lastData.s_ext_8_32.R0, lastData.s_ext_8_32.R1);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_ext8x64 => {
-            const rs = decodeIndex2(&decoder);
+        .s_ext_8_64 => {
+            cast(i8, i64, fiber, lastData.s_ext_8_64.R0, lastData.s_ext_8_64.R1);
 
-            cast(i8, i64, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_ext16x32 => {
-            const rs = decodeIndex2(&decoder);
+        .s_ext_16_32 => {
+            cast(i16, i32, fiber, lastData.s_ext_16_32.R0, lastData.s_ext_16_32.R1);
 
-            cast(i16, i32, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_ext16x64 => {
-            const rs = decodeIndex2(&decoder);
-
-            cast(i16, i64, fiber, rs[0], rs[1]);
+        .s_ext_16_64 => {
+            cast(i16, i64, fiber, lastData.s_ext_16_64.R0, lastData.s_ext_16_64.R1);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_ext32x64 => {
-            const rs = decodeIndex2(&decoder);
+        .s_ext_32_64 => {
+            cast(i32, i64, fiber, lastData.s_ext_32_64.R0, lastData.s_ext_32_64.R1);
 
-            cast(i32, i64, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .f_ext32x64 => {
-            const rs = decodeIndex2(&decoder);
+        .f_ext_32_64 => {
+            cast(f32, i64, fiber, lastData.f_ext_32_64.R0, lastData.f_ext_32_64.R1);
 
-            cast(f32, i64, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-
-        .i_trunc64x32 => {
-            const rs = decodeIndex2(&decoder);
 
-            cast(u64, u32, fiber, rs[0], rs[1]);
+        .i_trunc_64_32 => {
+            cast(u64, u32, fiber, lastData.i_trunc_64_32.R0, lastData.i_trunc_64_32.R1);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_trunc64x16 => {
-            const rs = decodeIndex2(&decoder);
+        .i_trunc_64_16 => {
+            cast(u64, u16, fiber, lastData.i_trunc_64_16.R0, lastData.i_trunc_64_16.R1);
 
-            cast(u64, u16, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_trunc64x8 => {
-            const rs = decodeIndex2(&decoder);
+        .i_trunc_64_8 => {
+            cast(u64, u8, fiber, lastData.i_trunc_64_8.R0, lastData.i_trunc_64_8.R1);
 
-            cast(u64, u8, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_trunc32x16 => {
-            const rs = decodeIndex2(&decoder);
-
-            cast(u32, u16, fiber, rs[0], rs[1]);
+        .i_trunc_32_16 => {
+            cast(u32, u16, fiber, lastData.i_trunc_32_16.R0, lastData.i_trunc_32_16.R1);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_trunc32x8 => {
-            const rs = decodeIndex2(&decoder);
+        .i_trunc_32_8 => {
+            cast(u32, u8, fiber, lastData.i_trunc_32_8.R0, lastData.i_trunc_32_8.R1);
 
-            cast(u32, u8, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_trunc16x8 => {
-            const rs = decodeIndex2(&decoder);
+        .i_trunc_16_8 => {
+            cast(u16, u8, fiber, lastData.i_trunc_16_8.R0, lastData.i_trunc_16_8.R1);
 
-            cast(u16, u8, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .f_trunc64x32 => {
-            const rs = decodeIndex2(&decoder);
-
-            cast(f64, f32, fiber, rs[0], rs[1]);
+        .f_trunc_64_32 => {
+            cast(f64, f32, fiber, lastData.f_trunc_64_32.R0, lastData.f_trunc_64_32.R1);
 
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
         .u8_to_f32 => {
-            const rs = decodeIndex2(&decoder);
+            cast(u8, f32, fiber, lastData.u8_to_f32.R0, lastData.u8_to_f32.R1);
 
-            cast(u8, f32, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .u8_to_f64 => {
-            const rs = decodeIndex2(&decoder);
+            cast(u8, f64, fiber, lastData.u8_to_f64.R0, lastData.u8_to_f64.R1);
 
-            cast(u8, f64, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .u16_to_f32 => {
-            const rs = decodeIndex2(&decoder);
+            cast(u16, f32, fiber, lastData.u16_to_f32.R0, lastData.u16_to_f32.R1);
 
-            cast(u16, f32, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .u16_to_f64 => {
-            const rs = decodeIndex2(&decoder);
+            cast(u16, f64, fiber, lastData.u16_to_f64.R0, lastData.u16_to_f64.R1);
 
-            cast(u16, f64, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .u32_to_f32 => {
-            const rs = decodeIndex2(&decoder);
+            cast(u32, f32, fiber, lastData.u32_to_f32.R0, lastData.u32_to_f32.R1);
 
-            cast(u32, f32, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .u32_to_f64 => {
-            const rs = decodeIndex2(&decoder);
+            cast(u32, f64, fiber, lastData.u32_to_f64.R0, lastData.u32_to_f64.R1);
 
-            cast(u32, f64, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .u64_to_f32 => {
-            const rs = decodeIndex2(&decoder);
+            cast(u64, f32, fiber, lastData.u64_to_f32.R0, lastData.u64_to_f32.R1);
 
-            cast(u64, f32, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .u64_to_f64 => {
-            const rs = decodeIndex2(&decoder);
+            cast(u64, f64, fiber, lastData.u64_to_f64.R0, lastData.u64_to_f64.R1);
 
-            cast(u64, f64, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .s8_to_f32 => {
-            const rs = decodeIndex2(&decoder);
+            cast(i8, f32, fiber, lastData.s8_to_f32.R0, lastData.s8_to_f32.R1);
 
-            cast(i8, f32, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .s8_to_f64 => {
-            const rs = decodeIndex2(&decoder);
+            cast(i8, f64, fiber, lastData.s8_to_f64.R0, lastData.s8_to_f64.R1);
 
-            cast(i8, f64, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .s16_to_f32 => {
-            const rs = decodeIndex2(&decoder);
+            cast(i16, f32, fiber, lastData.s16_to_f32.R0, lastData.s16_to_f32.R1);
 
-            cast(i16, f32, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .s16_to_f64 => {
-            const rs = decodeIndex2(&decoder);
+            cast(i16, f64, fiber, lastData.s16_to_f64.R0, lastData.s16_to_f64.R1);
 
-            cast(i16, f64, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .s32_to_f32 => {
-            const rs = decodeIndex2(&decoder);
+            cast(i32, f32, fiber, lastData.s32_to_f32.R0, lastData.s32_to_f32.R1);
 
-            cast(i32, f32, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .s32_to_f64 => {
-            const rs = decodeIndex2(&decoder);
+            cast(i32, f64, fiber, lastData.s32_to_f64.R0, lastData.s32_to_f64.R1);
 
-            cast(i32, f64, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .s64_to_f32 => {
-            const rs = decodeIndex2(&decoder);
+            cast(i64, f32, fiber, lastData.s64_to_f32.R0, lastData.s64_to_f32.R1);
 
-            cast(i64, f32, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .s64_to_f64 => {
-            const rs = decodeIndex2(&decoder);
+            cast(i64, f64, fiber, lastData.s64_to_f64.R0, lastData.s64_to_f64.R1);
 
-            cast(i64, f64, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .f32_to_u8 => {
-            const rs = decodeIndex2(&decoder);
+            cast(f32, u8, fiber, lastData.f32_to_u8.R0, lastData.f32_to_u8.R1);
 
-            cast(f32, u8, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .f32_to_u16 => {
-            const rs = decodeIndex2(&decoder);
+            cast(f32, u16, fiber, lastData.f32_to_u16.R0, lastData.f32_to_u16.R1);
 
-            cast(f32, u16, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .f32_to_u32 => {
-            const rs = decodeIndex2(&decoder);
+            cast(f32, u32, fiber, lastData.f32_to_u32.R0, lastData.f32_to_u32.R1);
 
-            cast(f32, u32, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .f32_to_u64 => {
-            const rs = decodeIndex2(&decoder);
+            cast(f32, u64, fiber, lastData.f32_to_u64.R0, lastData.f32_to_u64.R1);
 
-            cast(f32, u64, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .f64_to_u8 => {
-            const rs = decodeIndex2(&decoder);
+            cast(f64, u8, fiber, lastData.f64_to_u8.R0, lastData.f64_to_u8.R1);
 
-            cast(f64, u8, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .f64_to_u16 => {
-            const rs = decodeIndex2(&decoder);
+            cast(f64, u16, fiber, lastData.f64_to_u16.R0, lastData.f64_to_u16.R1);
 
-            cast(f64, u16, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .f64_to_u32 => {
-            const rs = decodeIndex2(&decoder);
+            cast(f64, u32, fiber, lastData.f64_to_u32.R0, lastData.f64_to_u32.R1);
 
-            cast(f64, u32, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .f64_to_u64 => {
-            const rs = decodeIndex2(&decoder);
+            cast(f64, u64, fiber, lastData.f64_to_u64.R0, lastData.f64_to_u64.R1);
 
-            cast(f64, u64, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .f32_to_s8 => {
-            const rs = decodeIndex2(&decoder);
+            cast(f32, i8, fiber, lastData.f32_to_s8.R0, lastData.f32_to_s8.R1);
 
-            cast(f32, i8, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .f32_to_s16 => {
-            const rs = decodeIndex2(&decoder);
+            cast(f32, i16, fiber, lastData.f32_to_s16.R0, lastData.f32_to_s16.R1);
 
-            cast(f32, i16, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .f32_to_s32 => {
-            const rs = decodeIndex2(&decoder);
+            cast(f32, i32, fiber, lastData.f32_to_s32.R0, lastData.f32_to_s32.R1);
 
-            cast(f32, i32, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .f32_to_s64 => {
-            const rs = decodeIndex2(&decoder);
+            cast(f32, i64, fiber, lastData.f32_to_s64.R0, lastData.f32_to_s64.R1);
 
-            cast(f32, i64, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .f64_to_s8 => {
-            const rs = decodeIndex2(&decoder);
+            cast(f64, i8, fiber, lastData.f64_to_s8.R0, lastData.f64_to_s8.R1);
 
-            cast(f64, i8, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .f64_to_s16 => {
-            const rs = decodeIndex2(&decoder);
+            cast(f64, i16, fiber, lastData.f64_to_s16.R0, lastData.f64_to_s16.R1);
 
-            cast(f64, i16, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .f64_to_s32 => {
-            const rs = decodeIndex2(&decoder);
+            cast(f64, i32, fiber, lastData.f64_to_s32.R0, lastData.f64_to_s32.R1);
 
-            cast(f64, i32, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
         .f64_to_s64 => {
-            const rs = decodeIndex2(&decoder);
+            cast(f64, i64, fiber, lastData.f64_to_s64.R0, lastData.f64_to_s64.R1);
 
-            cast(f64, i64, fiber, rs[0], rs[1]);
-
-            if (comptime reswitch) continue :reswitch decodeOpCode(&decoder);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
+        inline else => Support.todo(noreturn, {}),
     }
 
     if (comptime !reswitch) return true;
@@ -2048,7 +1382,7 @@ fn stepForeign(fiber: *Fiber) Fiber.Trap!void {
     const currentCallFrame = fiber.stack.call.topPtrUnchecked();
     const foreign = fiber.getForeign(currentCallFrame.function.value.foreign);
 
-    const currentBlockFrame = fiber.stack.block.getPtrUnchecked(currentCallFrame.root_block);
+    const currentBlockFrame = fiber.blocks.getPtrUnchecked(currentCallFrame.root_block);
 
     var foreignOut: Fiber.ForeignOut = undefined;
     const control = foreign(fiber, currentBlockFrame.index, &foreignOut);
@@ -2059,10 +1393,10 @@ fn stepForeign(fiber: *Fiber) Fiber.Trap!void {
         .done => {
             fiber.stack.data.ptr = currentCallFrame.stack.base;
             fiber.stack.call.ptr -= 1;
-            fiber.stack.block.ptr = currentCallFrame.root_block;
+            fiber.blocks.ptr = currentCallFrame.root_block;
         },
         .done_v => {
-            const rootBlockFrame = fiber.stack.block.getPtrUnchecked(currentCallFrame.root_block);
+            const rootBlockFrame = fiber.blocks.getPtrUnchecked(currentCallFrame.root_block);
 
             const out = fiber.readLocal(u64, foreignOut.done_v);
 
@@ -2070,7 +1404,7 @@ fn stepForeign(fiber: *Fiber) Fiber.Trap!void {
 
             fiber.stack.data.ptr = currentCallFrame.stack.base;
             fiber.stack.call.ptr -= 1;
-            fiber.stack.block.ptr = currentCallFrame.root_block;
+            fiber.blocks.ptr = currentCallFrame.root_block;
         },
     }
 }
@@ -2113,13 +1447,13 @@ pub fn write_upvalue(comptime T: type, fiber: *Fiber, u: Bytecode.UpvalueIndex, 
 pub fn load(comptime T: type, fiber: *Fiber, x: Bytecode.RegisterIndex, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const out = fiber.readLocal(*T, y);
     const in = fiber.readLocal(T, x);
-    try fiber.boundsCheck(@ptrCast(out), @sizeOf(T));
+    try fiber.boundsCheck(out, @sizeOf(T));
     out.* = in;
 }
 
 pub fn store(comptime T: type, fiber: *Fiber, x: Bytecode.RegisterIndex, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const in = fiber.readLocal(*T, x);
-    try fiber.boundsCheck(@ptrCast(in), @sizeOf(T));
+    try fiber.boundsCheck(in, @sizeOf(T));
     fiber.writeLocal(y, in.*);
 }
 
@@ -2143,23 +1477,26 @@ pub fn copy(comptime T: type, fiber: *Fiber, x: Bytecode.RegisterIndex, y: Bytec
 fn when(fiber: *Fiber, newBlockIndex: Bytecode.BlockIndex, x: Bytecode.RegisterIndex, comptime zeroCheck: ZeroCheck) callconv(Config.INLINING_CALL_CONV) void {
     const cond = fiber.readLocal(u8, x);
 
-    const blockFrame = Fiber.BlockFrame.noOutput(newBlockIndex, null);
+    const newBlock = fiber.calls.top().function.value.bytecode.blocks[newBlockIndex];
+
+    const newBlockFrame = Fiber.BlockFrame {
+        .base = newBlock,
+        .ip = newBlock,
+        .out = undefined,
+        .handler_set = null,
+    };
 
     switch (zeroCheck) {
-        .zero => if (cond == 0) fiber.stack.block.pushUnchecked(blockFrame),
-        .non_zero => if (cond != 0) fiber.stack.block.pushUnchecked(blockFrame),
+        .zero => if (cond == 0) fiber.blocks.push(newBlockFrame),
+        .non_zero => if (cond != 0) fiber.blocks.push(newBlockFrame),
     }
 }
 
-fn br(fiber: *Fiber, decoder: *const IO.Decoder, terminatedBlockOffset: Bytecode.BlockIndex, comptime style: ReturnStyle, comptime zeroCheck: ?ZeroCheck) callconv(Config.INLINING_CALL_CONV) void {
-    const blockPtr = fiber.stack.block.ptr;
-
-    const terminatedBlockPtr = blockPtr - (terminatedBlockOffset + 1);
-    const terminatedBlockFrame = fiber.stack.block.getPtrUnchecked(terminatedBlockPtr);
+fn br(fiber: *Fiber, terminatedBlockOffset: Bytecode.BlockIndex, x: Bytecode.RegisterIndex, comptime zeroCheck: ?ZeroCheck, y: Bytecode.RegisterIndex, comptime style: ReturnStyle) callconv(Config.INLINING_CALL_CONV) void {
+    const terminatedBlockPtr: [*]Fiber.BlockFrame = fiber.blocks.top_ptr - terminatedBlockOffset;
 
     if (zeroCheck) |zc| {
-        const rx = decodeIndex(decoder);
-        const cond = fiber.readLocal(u8, rx);
+        const cond = fiber.readLocal(u8, x);
 
         switch (zc) {
             .zero => if (cond != 0) return,
@@ -2168,26 +1505,20 @@ fn br(fiber: *Fiber, decoder: *const IO.Decoder, terminatedBlockOffset: Bytecode
     }
 
     if (style == .v) {
-        const rx = decodeIndex(decoder);
-        const out = fiber.readLocal(u64, rx);
-        fiber.writeLocal(terminatedBlockFrame.out, out);
+        const out = fiber.readLocal(u64, y);
+        fiber.writeLocal(terminatedBlockPtr[0].out, out);
     }
 
-    fiber.removeAnyHandlerSet(terminatedBlockFrame);
+    fiber.removeAnyHandlerSet(@ptrCast(terminatedBlockPtr));
 
-    fiber.stack.block.ptr = terminatedBlockPtr;
+    fiber.blocks.top_ptr = terminatedBlockPtr;
 }
 
-fn re(fiber: *Fiber, decoder: *const IO.Decoder, restartedBlockOffset: Bytecode.BlockIndex, comptime zeroCheck: ?ZeroCheck) callconv(Config.INLINING_CALL_CONV) void {
-    const blockPtr = fiber.stack.block.ptr;
-
-    const restartedBlockPtr = blockPtr - (restartedBlockOffset + 1);
-
-    const restartedBlockFrame = fiber.stack.block.getPtrUnchecked(restartedBlockPtr);
+fn re(fiber: *Fiber, restartedBlockOffset: Bytecode.BlockIndex, x: Bytecode.RegisterIndex, comptime zeroCheck: ?ZeroCheck) callconv(Config.INLINING_CALL_CONV) void {
+    const restartedBlockPtr: [*]Fiber.BlockFrame = fiber.blocks.top_ptr - restartedBlockOffset;
 
     if (zeroCheck) |zc| {
-        const rx = decodeIndex(decoder);
-        const cond = fiber.readLocal(u8, rx);
+        const cond = fiber.readLocal(u8, x);
 
         switch (zc) {
             .zero => if (cond != 0) return,
@@ -2195,438 +1526,154 @@ fn re(fiber: *Fiber, decoder: *const IO.Decoder, restartedBlockOffset: Bytecode.
         }
     }
 
-    restartedBlockFrame.ip_offset = 0;
-
-    fiber.stack.block.ptr = restartedBlockPtr + 1;
+    restartedBlockPtr[0].ip = restartedBlockPtr[0].base;
+    fiber.blocks.top_ptr = restartedBlockPtr;
 }
 
-fn block(fiber: *Fiber, decoder: *const IO.Decoder, newBlockIndex: Bytecode.BlockIndex, comptime style: ReturnStyle) callconv(Config.INLINING_CALL_CONV) void {
-    const newBlockFrame =
-        if (comptime style == .v) v: {
-            const rx = decodeIndex(decoder);
-            break :v Fiber.BlockFrame.value(newBlockIndex, rx, null);
-        }
-        else Fiber.BlockFrame.noOutput(newBlockIndex, null);
+fn block(fiber: *Fiber, newBlockIndex: Bytecode.BlockIndex, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
+    const newBlock = fiber.calls.top().function.value.bytecode.blocks[newBlockIndex];
 
-    fiber.stack.block.pushUnchecked(newBlockFrame);
+    const newBlockFrame = Fiber.BlockFrame {
+        .base = newBlock,
+        .ip = newBlock,
+        .out = y,
+        .handler_set = null,
+    };
+
+    fiber.blocks.push(newBlockFrame);
 }
 
-fn with(fiber: *Fiber, decoder: *const IO.Decoder, newBlockIndex: Bytecode.BlockIndex, handlerSetIndex: Bytecode.HandlerSetIndex, comptime style: ReturnStyle) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    const handlerSet = fiber.program.handler_sets[handlerSetIndex];
+fn with(fiber: *Fiber, newBlockIndex: Bytecode.BlockIndex, handlerSetIndex: Bytecode.HandlerSetIndex, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const handlerSet = &fiber.program.handler_sets[handlerSetIndex];
 
-    for (handlerSet) |binding| {
-        try fiber.evidence[binding.id].push(Fiber.Evidence {
-            .handler = binding.handler,
-            .data = fiber.stack.data.ptr,
-            .call = fiber.stack.call.ptr,
-            .block = fiber.stack.block.ptr,
+    const newBlock = fiber.calls.top().function.value.bytecode.blocks[newBlockIndex];
+
+    const newBlockFrame = Fiber.BlockFrame {
+        .base = newBlock,
+        .ip = newBlock,
+        .out = y,
+        .handler_set = handlerSet,
+    };
+
+    fiber.blocks.push(newBlockFrame);
+
+    for (handlerSet.*) |binding| {
+        fiber.evidence[binding.id].push(Fiber.Evidence {
+            .handler = &fiber.program.functions[binding.handler],
+            .call = fiber.calls.top(),
+            .block = fiber.blocks.top(),
         });
     }
-
-    const newBlockFrame =
-        if (comptime style == .v) v: {
-            const rx = decodeIndex(decoder);
-            break :v Fiber.BlockFrame.value(newBlockIndex, rx, handlerSetIndex);
-        }
-        else Fiber.BlockFrame.noOutput(newBlockIndex, handlerSetIndex);
-
-    fiber.stack.block.pushUnchecked(newBlockFrame);
 }
 
-fn @"if"(fiber: *Fiber, decoder: *const IO.Decoder, thenBlockIndex: Bytecode.BlockIndex, elseBlockIndex: Bytecode.BlockIndex, x: Bytecode.RegisterIndex, comptime style: ReturnStyle, comptime zeroCheck: ZeroCheck) callconv(Config.INLINING_CALL_CONV) void {
+fn @"if"(fiber: *Fiber, thenBlockIndex: Bytecode.BlockIndex, elseBlockIndex: Bytecode.BlockIndex, x: Bytecode.RegisterIndex, comptime zeroCheck: ZeroCheck, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
     const cond = fiber.readLocal(u8, x);
 
-    const destBlockIndex = switch (zeroCheck) {
+    const newBlockIndex = switch (zeroCheck) {
         .zero => if (cond == 0) thenBlockIndex else elseBlockIndex,
         .non_zero => if (cond != 0) thenBlockIndex else elseBlockIndex,
     };
 
-    const newBlockFrame =
-        if (comptime style == .v) v: {
-            const rx = decodeIndex(decoder);
-            break :v Fiber.BlockFrame.value(destBlockIndex, rx, null);
+    const newBlock = fiber.calls.top().function.value.bytecode.blocks[newBlockIndex];
+
+    const newBlockFrame = Fiber.BlockFrame {
+        .base = newBlock,
+        .ip = newBlock,
+        .out = y,
+        .handler_set = null,
+    };
+
+    fiber.blocks.push(newBlockFrame);
+}
+
+
+
+fn callImpl_no_tail(fiber: *Fiber, funcIndex: Bytecode.FunctionIndex, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const newFunction = &fiber.program.functions[funcIndex];
+
+    if (( fiber.data.hasSpaceU1(newFunction.num_registers)
+        & fiber.calls.hasSpaceU1(1)
+        ) != 1) {
+        @branchHint(.cold);
+        if (!fiber.data.hasSpace(newFunction.num_registers)) {
+            std.debug.print("stack overflow @{}\n", .{Fiber.DATA_STACK_SIZE});
         }
-        else Fiber.BlockFrame.noOutput(destBlockIndex, null);
-
-    fiber.stack.block.pushUnchecked(newBlockFrame);
-}
-
-
-
-fn callImpl_no_tail(fiber: *Fiber, decoder: *const IO.Decoder, funcIndex: Bytecode.FunctionIndex, argCount: u16) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    const newFunction = &fiber.program.functions[funcIndex];
-
-    const base = fiber.stack.data.ptr;
-
-    try fiber.stack.data.pushUninit(newFunction.num_registers * 8);
-
-    for (0..argCount) |i| {
-        const rx = decodeIndex(decoder);
-        const src = fiber.addrLocal(rx);
-        const offset = base + (i * 8);
-        const dest = fiber.stack.data.memory.ptr + offset;
-
-        @as(*u64, @alignCast(@ptrCast(dest))).* = @as(*const u64, @alignCast(@ptrCast(src))).*;
-    }
-
-    const newBlockFrame = Fiber.BlockFrame.entryPoint(null);
-    const evidence = undefined;
-
-    try fiber.stack.call.push(Fiber.CallFrame {
-        .function = newFunction,
-        .evidence = evidence,
-        .root_block = fiber.stack.block.ptr,
-        .stack = base,
-    });
-
-    fiber.stack.block.pushUnchecked(newBlockFrame);
-}
-
-fn callImpl_no_tail_v(fiber: *Fiber, decoder: *const IO.Decoder, funcIndex: Bytecode.FunctionIndex, argCount: u16) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    const newFunction = &fiber.program.functions[funcIndex];
-
-    const base = fiber.stack.data.ptr;
-
-    try fiber.stack.data.pushUninit(newFunction.num_registers * 8);
-
-
-    switch (argCount) {
-        0 => {},
-        1 => {
-            const rx = decodeIndex(decoder);
-            const src = fiber.addrLocal(rx);
-            const offset = base;
-            const dest = fiber.stack.data.memory.ptr + offset;
-
-            @as(*u64, @alignCast(@ptrCast(dest))).* = @as(*const u64, @alignCast(@ptrCast(src))).*;
-        },
-        2 => {
-            const rs = decodeIndex2(decoder);
-
-            const srcA = fiber.addrLocal(rs[0]);
-            const srcB = fiber.addrLocal(rs[1]);
-
-            const offsetA = base;
-            const offsetB = base + 8;
-
-            const destA = fiber.stack.data.memory.ptr + offsetA;
-            const destB = fiber.stack.data.memory.ptr + offsetB;
-
-            @as(*u64, @alignCast(@ptrCast(destA))).* = @as(*const u64, @alignCast(@ptrCast(srcA))).*;
-            @as(*u64, @alignCast(@ptrCast(destB))).* = @as(*const u64, @alignCast(@ptrCast(srcB))).*;
-        },
-        3 => {
-            const rs = decodeIndex3(decoder);
-
-            const srcA = fiber.addrLocal(rs[0]);
-            const srcB = fiber.addrLocal(rs[1]);
-            const srcC = fiber.addrLocal(rs[2]);
-
-            const offsetA = base;
-            const offsetB = base + 8;
-            const offsetC = base + 16;
-
-            const destA = fiber.stack.data.memory.ptr + offsetA;
-            const destB = fiber.stack.data.memory.ptr + offsetB;
-            const destC = fiber.stack.data.memory.ptr + offsetC;
-
-            @as(*u64, @alignCast(@ptrCast(destA))).* = @as(*const u64, @alignCast(@ptrCast(srcA))).*;
-            @as(*u64, @alignCast(@ptrCast(destB))).* = @as(*const u64, @alignCast(@ptrCast(srcB))).*;
-            @as(*u64, @alignCast(@ptrCast(destC))).* = @as(*const u64, @alignCast(@ptrCast(srcC))).*;
-        },
-        4 => {
-            const rs = decodeIndex4(decoder);
-
-            const srcA = fiber.addrLocal(rs[0]);
-            const srcB = fiber.addrLocal(rs[1]);
-            const srcC = fiber.addrLocal(rs[2]);
-            const srcD = fiber.addrLocal(rs[3]);
-
-            const offsetA = base;
-            const offsetB = base + 8;
-            const offsetC = base + 16;
-            const offsetD = base + 24;
-
-            const destA = fiber.stack.data.memory.ptr + offsetA;
-            const destB = fiber.stack.data.memory.ptr + offsetB;
-            const destC = fiber.stack.data.memory.ptr + offsetC;
-            const destD = fiber.stack.data.memory.ptr + offsetD;
-
-            @as(*u64, @alignCast(@ptrCast(destA))).* = @as(*const u64, @alignCast(@ptrCast(srcA))).*;
-            @as(*u64, @alignCast(@ptrCast(destB))).* = @as(*const u64, @alignCast(@ptrCast(srcB))).*;
-            @as(*u64, @alignCast(@ptrCast(destC))).* = @as(*const u64, @alignCast(@ptrCast(srcC))).*;
-            @as(*u64, @alignCast(@ptrCast(destD))).* = @as(*const u64, @alignCast(@ptrCast(srcD))).*;
-        },
-        else => {
-            @branchHint(.unlikely);
-
-            for (0..argCount) |i| {
-                const rx = decodeIndex(decoder);
-                const src = fiber.addrLocal(rx);
-                const offset = base + (i * 8);
-                const dest = fiber.stack.data.memory.ptr + offset;
-
-                @as(*u64, @alignCast(@ptrCast(dest))).* = @as(*const u64, @alignCast(@ptrCast(src))).*;
-            }
+        if (!fiber.calls.hasSpace(1)) {
+            std.debug.print("call overflow @{}\n", .{Fiber.CALL_STACK_SIZE});
         }
+        return Fiber.Trap.Overflow;
     }
 
-    const rx = decodeIndex(decoder);
-    const newBlockFrame = Fiber.BlockFrame.entryPoint(rx);
+    const arguments = decodeArguments(fiber, newFunction.num_arguments);
 
-    try fiber.stack.call.push(Fiber.CallFrame {
+    const data = fiber.data.incrGetMulti(newFunction.num_registers);
+
+    const newBlock = newFunction.value.bytecode.blocks[0];
+
+    const newBlockFrame = fiber.blocks.pushGet(Fiber.BlockFrame {
+        .base = newBlock,
+        .ip = newBlock,
+        .out = y,
+        .handler_set = null,
+    });
+
+    const oldCallFrame = fiber.calls.top();
+
+    fiber.calls.push(Fiber.CallFrame {
         .function = newFunction,
         .evidence = undefined,
-        .root_block = fiber.stack.block.ptr,
-        .stack = base,
+        .block = newBlockFrame,
+        .data = data,
     });
 
-    fiber.stack.block.pushUnchecked(newBlockFrame);
-}
-
-fn callImpl_tail(fiber: *Fiber, decoder: *const IO.Decoder, funcIndex: Bytecode.FunctionIndex, argCount: u16) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    const oldCallFrame = fiber.stack.call.topPtrUnchecked();
-    const newFunction = &fiber.program.functions[funcIndex];
-
-    const base = fiber.stack.data.ptr;
-
-    try fiber.stack.data.pushUninit(newFunction.num_registers * 8);
-
-    for (0..argCount) |i| {
-        const rx = decodeIndex(decoder);
-        const src = fiber.addrLocal(rx);
-        const offset = base + (i * 8);
-        const dest = fiber.stack.data.memory.ptr + offset;
-
-        @as(*u64, @alignCast(@ptrCast(dest))).* = @as(*const u64, @alignCast(@ptrCast(src))).*;
+    for (0..newFunction.num_arguments) |i| {
+        const value = Fiber.readReg(u64, oldCallFrame, arguments[i]);
+        Fiber.writeReg(fiber.calls.top(), @truncate(i), value);
     }
+}
 
-    fiber.stack.data.ptr = oldCallFrame.stack;
-    fiber.stack.call.ptr -= 1;
-    fiber.stack.block.ptr = oldCallFrame.root_block - 1;
+fn callImpl_tail(fiber: *Fiber, funcIndex: Bytecode.FunctionIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    Support.todo(noreturn, .{fiber, funcIndex});
+}
 
-    const newBlockFrame = Fiber.BlockFrame.entryPoint(null);
+fn callImpl_tail_v(fiber: *Fiber, funcIndex: Bytecode.FunctionIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    Support.todo(noreturn, .{fiber, funcIndex});
+}
 
-    try fiber.stack.call.push(Fiber.CallFrame {
-        .function = newFunction,
-        .evidence = undefined,
-        .root_block = fiber.stack.block.ptr,
-        .stack = base,
-    });
+fn callImpl_ev_no_tail(fiber: *Fiber, evIndex: Bytecode.EvidenceIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    Support.todo(noreturn, .{fiber, evIndex});
+}
 
-    fiber.stack.block.pushUnchecked(newBlockFrame);
+fn callImpl_ev_no_tail_v(fiber: *Fiber, evIndex: Bytecode.EvidenceIndex, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    Support.todo(noreturn, .{fiber, evIndex, y});
+}
+
+fn callImpl_ev_tail(fiber: *Fiber, evIndex: Bytecode.EvidenceIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    Support.todo(noreturn, .{fiber, evIndex});
+}
+
+fn callImpl_ev_tail_v(fiber: *Fiber, evIndex: Bytecode.EvidenceIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    Support.todo(noreturn, .{fiber, evIndex});
 }
 
 
-// FIXME: inlining here causes seemingly-infinite build time
-fn callImpl_tail_v(fiber: *Fiber, decoder: *const IO.Decoder, funcIndex: Bytecode.FunctionIndex, argCount: u16) callconv(.Unspecified) Fiber.Trap!void {
-    const oldCallFrame = fiber.stack.call.topPtrUnchecked();
-    const newFunction = &fiber.program.functions[funcIndex];
-
-    const base = fiber.stack.data.ptr;
-
-    try fiber.stack.data.pushUninit(newFunction.num_registers * 8);
-
-    for (0..argCount) |i| {
-        const rx = decodeIndex(decoder);
-        const src = fiber.addrLocal(rx);
-        const offset = base + (i * 8);
-        const dest = fiber.stack.data.memory.ptr + offset;
-
-        @as(*u64, @alignCast(@ptrCast(dest))).* = @as(*const u64, @alignCast(@ptrCast(src))).*;
-    }
-
-    const oldFunctionRootBlockFrame = fiber.stack.block.getPtrUnchecked(oldCallFrame.root_block);
-    const oldFunctionOutput = oldFunctionRootBlockFrame.out;
-    const newBlockFrame = Fiber.BlockFrame.entryPoint(oldFunctionOutput);
-
-    fiber.stack.data.ptr = oldCallFrame.stack;
-    fiber.stack.call.ptr -= 1;
-    fiber.stack.block.ptr = oldCallFrame.root_block - 1;
-
-    try fiber.stack.call.push(Fiber.CallFrame {
-        .function = newFunction,
-        .evidence = undefined,
-        .root_block = fiber.stack.block.ptr,
-        .stack = base,
-    });
-
-    fiber.stack.block.pushUnchecked(newBlockFrame);
+fn term(fiber: *Fiber, y: Bytecode.RegisterIndex, comptime style: ReturnStyle) callconv(Config.INLINING_CALL_CONV) void {
+    Support.todo(noreturn, .{fiber, y, style});
 }
 
-fn callImpl_ev_no_tail(fiber: *Fiber, decoder: *const IO.Decoder, evIndex: Bytecode.EvidenceIndex, funcIndex: Bytecode.FunctionIndex, argCount: u16) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    const newFunction = &fiber.program.functions[funcIndex];
+fn ret(fiber: *Fiber, y: Bytecode.RegisterIndex, comptime style: ReturnStyle) callconv(Config.INLINING_CALL_CONV) void {
+    const currentCallFrame = fiber.calls.top();
 
-    const base = fiber.stack.data.ptr;
-
-    try fiber.stack.data.pushUninit(newFunction.num_registers * 8);
-
-    for (0..argCount) |i| {
-        const rx = decodeIndex(decoder);
-        const src = fiber.addrLocal(rx);
-        const offset = base + (i * 8);
-        const dest = fiber.stack.data.memory.ptr + offset;
-
-        @as(*u64, @alignCast(@ptrCast(dest))).* = @as(*const u64, @alignCast(@ptrCast(src))).*;
-    }
-
-    const newBlockFrame = Fiber.BlockFrame.entryPoint(null);
-
-    try fiber.stack.call.push(Fiber.CallFrame {
-        .function = newFunction,
-        .evidence = .{
-            .index = evIndex,
-            .offset = fiber.evidence[evIndex].ptr - 1
-        },
-        .root_block = fiber.stack.block.ptr,
-        .stack = base,
-    });
-
-    fiber.stack.block.pushUnchecked(newBlockFrame);
-}
-
-fn callImpl_ev_no_tail_v(fiber: *Fiber, decoder: *const IO.Decoder, evIndex: Bytecode.EvidenceIndex, funcIndex: Bytecode.FunctionIndex, argCount: u16) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    const newFunction = &fiber.program.functions[funcIndex];
-
-    const base = fiber.stack.data.ptr;
-
-    try fiber.stack.data.pushUninit(newFunction.num_registers * 8);
-
-    for (0..argCount) |i| {
-        const rx = decodeIndex(decoder);
-        const src = fiber.addrLocal(rx);
-        const offset = base + (i * 8);
-        const dest = fiber.stack.data.memory.ptr + offset;
-
-        @as(*u64, @alignCast(@ptrCast(dest))).* = @as(*const u64, @alignCast(@ptrCast(src))).*;
-    }
-
-    const rx = decodeIndex(decoder);
-    const newBlockFrame = Fiber.BlockFrame.entryPoint(rx);
-
-    try fiber.stack.call.push(Fiber.CallFrame {
-        .function = newFunction,
-        .evidence = .{
-            .index = evIndex,
-            .offset = fiber.evidence[evIndex].ptr - 1
-        },
-        .root_block = fiber.stack.block.ptr,
-        .stack = base,
-    });
-
-    fiber.stack.block.pushUnchecked(newBlockFrame);
-}
-
-fn callImpl_ev_tail(fiber: *Fiber, decoder: *const IO.Decoder, evIndex: Bytecode.EvidenceIndex, funcIndex: Bytecode.FunctionIndex, argCount: u16) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    const oldCallFrame = fiber.stack.call.topPtrUnchecked();
-    const newFunction = &fiber.program.functions[funcIndex];
-
-    const base = fiber.stack.data.ptr;
-
-    try fiber.stack.data.pushUninit(newFunction.num_registers * 8);
-
-    for (0..argCount) |i| {
-        const rx = decodeIndex(decoder);
-        const src = fiber.addrLocal(rx);
-        const offset = base + (i * 8);
-        const dest = fiber.stack.data.memory.ptr + offset;
-
-        @as(*u64, @alignCast(@ptrCast(dest))).* = @as(*const u64, @alignCast(@ptrCast(src))).*;
-    }
-
-    fiber.stack.data.ptr = oldCallFrame.stack;
-    fiber.stack.call.ptr -= 1;
-    fiber.stack.block.ptr = oldCallFrame.root_block - 1;
-
-    const newBlockFrame = Fiber.BlockFrame.entryPoint(null);
-
-    try fiber.stack.call.push(Fiber.CallFrame {
-        .function = newFunction,
-        .evidence = .{
-            .index = evIndex,
-            .offset = fiber.evidence[evIndex].ptr - 1
-        },
-        .root_block = fiber.stack.block.ptr,
-        .stack = base,
-    });
-
-    fiber.stack.block.pushUnchecked(newBlockFrame);
-}
-
-fn callImpl_ev_tail_v(fiber: *Fiber, decoder: *const IO.Decoder, evIndex: Bytecode.EvidenceIndex, funcIndex: Bytecode.FunctionIndex, argCount: u16) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    const oldCallFrame = fiber.stack.call.topPtrUnchecked();
-    const newFunction = &fiber.program.functions[funcIndex];
-
-    const base = fiber.stack.data.ptr;
-
-    try fiber.stack.data.pushUninit(newFunction.num_registers * 8);
-
-    for (0..argCount) |i| {
-        const rx = decodeIndex(decoder);
-        const src = fiber.addrLocal(rx);
-        const offset = base + (i * 8);
-        const dest = fiber.stack.data.memory.ptr + offset;
-
-        @as(*u64, @alignCast(@ptrCast(dest))).* = @as(*const u64, @alignCast(@ptrCast(src))).*;
-    }
-
-    const oldFunctionRootBlockFrame = fiber.stack.block.getPtrUnchecked(oldCallFrame.root_block);
-    const oldFunctionOutput = oldFunctionRootBlockFrame.out;
-
-    fiber.stack.data.ptr = oldCallFrame.stack;
-    fiber.stack.call.ptr -= 1;
-    fiber.stack.block.ptr = oldCallFrame.root_block - 1;
-
-    const newBlockFrame = Fiber.BlockFrame.entryPoint(oldFunctionOutput);
-
-    try fiber.stack.call.push(Fiber.CallFrame {
-        .function = newFunction,
-        .evidence = .{
-            .index = evIndex,
-            .offset = fiber.evidence[evIndex].ptr - 1,
-        },
-        .root_block = fiber.stack.block.ptr,
-        .stack = base,
-    });
-
-    fiber.stack.block.pushUnchecked(newBlockFrame);
-}
-
-
-fn term(fiber: *Fiber, decoder: *const IO.Decoder, comptime style: ReturnStyle) callconv(Config.INLINING_CALL_CONV) void {
-    const currentCallFrame = fiber.stack.call.topPtrUnchecked();
-
-    const evRef = currentCallFrame.evidence;
-
-    const evidence = fiber.evidence[evRef.index].getPtrUnchecked(evRef.offset);
-
-    const rootBlockFrame = fiber.stack.block.getPtrUnchecked(evidence.block);
+    const rootBlockFrame = currentCallFrame.block;
 
     if (style == .v) {
-        const rx = decodeIndex(decoder);
-        const out = fiber.readLocal(u64, rx);
-        fiber.writeReg(evidence.call, rootBlockFrame.out, out);
+        const out = fiber.readLocal(u64, y);
+        Fiber.writeReg(@ptrCast(fiber.calls.top_ptr - 1), rootBlockFrame.out, out);
     }
 
-    fiber.stack.data.ptr = evidence.data;
-    fiber.stack.call.ptr = evidence.call;
-    fiber.stack.block.ptr = evidence.block;
-}
-
-fn ret(fiber: *Fiber, decoder: *const IO.Decoder, comptime style: ReturnStyle) callconv(Config.INLINING_CALL_CONV) void {
-    const currentCallFrame = fiber.stack.call.topPtrUnchecked();
-
-    const rootBlockFrame = fiber.stack.block.getPtrUnchecked(currentCallFrame.root_block);
-
-    if (style == .v) {
-        const rx = decodeIndex(decoder);
-        const out = fiber.readLocal(u64, rx);
-        fiber.writeReg(fiber.stack.call.ptr - 2, rootBlockFrame.out, out);
-    }
-
-    fiber.stack.data.ptr = currentCallFrame.stack;
-    fiber.stack.call.ptr -= 1;
-    fiber.stack.block.ptr = currentCallFrame.root_block;
+    fiber.data.top_ptr = currentCallFrame.data;
+    fiber.calls.pop();
+    fiber.blocks.top_ptr = @as([*]Fiber.BlockFrame, @ptrCast(rootBlockFrame)) - 1;
 }
 
 pub fn cast(comptime X: type, comptime Y: type, fiber: *Fiber, xOp: Bytecode.RegisterIndex, yOp: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {

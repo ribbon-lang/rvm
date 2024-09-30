@@ -38,6 +38,13 @@ evidence: []EvidenceStack,
 foreign: []const ForeignFunction,
 
 
+pub const CALL_STACK_SIZE: usize = 1024;
+pub const BLOCK_STACK_SIZE: usize = CALL_STACK_SIZE * Bytecode.MAX_BLOCKS;
+pub const EVIDENCE_VECTOR_SIZE: usize = Bytecode.MAX_EVIDENCE;
+pub const EVIDENCE_STACK_SIZE: usize = 1024;
+pub const DATA_STACK_SIZE: usize = CALL_STACK_SIZE * Bytecode.MAX_REGISTERS;
+
+
 pub const DataStack = Stack(Bytecode.Register, false);
 pub const CallStack = Stack(CallFrame, true);
 pub const BlockStack = Stack(BlockFrame, true);
@@ -88,22 +95,6 @@ pub fn convertForeignError(e: Extern.Error) Trap {
 
 
 
-pub const CALL_STACK_SIZE: usize = 1024;
-pub const BLOCK_STACK_SIZE: usize = CALL_STACK_SIZE * Bytecode.MAX_BLOCKS;
-pub const EVIDENCE_VECTOR_SIZE: usize = Bytecode.MAX_EVIDENCE;
-pub const EVIDENCE_STACK_SIZE: usize = 1024;
-pub const DATA_STACK_SIZE: usize
-    = (1024 * 1024 * 1)
-    ;
-
-const TOTAL_META_SIZE: usize
-    = CALL_STACK_SIZE * @sizeOf(CallFrame)
-    + BLOCK_STACK_SIZE * @sizeOf(BlockFrame)
-    + EVIDENCE_VECTOR_SIZE * (@sizeOf(Evidence) * EVIDENCE_STACK_SIZE + @sizeOf(EvidenceStack))
-    + @sizeOf(Fiber)
-    ;
-
-
 pub fn Stack(comptime T: type, comptime PRE_INCR: bool) type {
     return struct {
         top_ptr: [*]T,
@@ -125,7 +116,7 @@ pub fn Stack(comptime T: type, comptime PRE_INCR: bool) type {
         }
 
         pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
-            allocator.free(self.base_ptr[0..@intFromPtr(self.base_ptr) - @intFromPtr(self.top_ptr)]);
+            allocator.free(self.base_ptr[0..(@intFromPtr(self.max_ptr) - @intFromPtr(self.base_ptr)) / @sizeOf(T)]);
         }
 
         pub inline fn push(self: *Self, value: T) void {
@@ -159,13 +150,17 @@ pub fn Stack(comptime T: type, comptime PRE_INCR: bool) type {
         }
 
         pub inline fn incrGet(self: *Self, count: usize) *T {
+            return @ptrCast(self.incrGetMulti(count));
+        }
+
+        pub inline fn incrGetMulti(self: *Self, count: usize) [*]T {
             if (comptime PRE_INCR) {
                 self.top_ptr += count;
                 return self.top_ptr;
             } else {
                 const out = self.top_ptr;
                 self.top_ptr += count;
-                return @ptrCast(out);
+                return out;
             }
         }
 
@@ -195,8 +190,7 @@ pub fn Stack(comptime T: type, comptime PRE_INCR: bool) type {
 }
 
 pub const Evidence = struct {
-    handler: [*]Bytecode.Function,
-    data: *Bytecode.Register,
+    handler: *const Bytecode.Function,
     call: *CallFrame,
     block: *BlockFrame,
 };
@@ -205,7 +199,7 @@ pub const BlockFrame = struct {
     base: [*]const Bytecode.Instruction,
     ip: [*]const Bytecode.Instruction,
     out: Bytecode.RegisterIndex,
-    handler_set: ?[*]const Bytecode.HandlerSet,
+    handler_set: ?*const Bytecode.HandlerSet,
 };
 
 pub const CallFrame = struct {
@@ -297,9 +291,9 @@ pub inline fn removeAnyHandlerSet(self: *Fiber, blockFrame: *const Fiber.BlockFr
 }
 
 pub inline fn removeHandlerSet(self: *Fiber, handlerSet: *const Bytecode.HandlerSet) void {
-    for (handlerSet) |binding| {
+    for (handlerSet.*) |binding| {
         const removedEv = self.evidence[binding.id].popGet();
-        std.debug.assert(removedEv.handler == binding.handler);
+        std.debug.assert(removedEv.handler == &self.program.functions[binding.handler]);
     }
 }
 
@@ -309,9 +303,10 @@ pub inline fn removeHandlerSet(self: *Fiber, handlerSet: *const Bytecode.Handler
 pub fn invoke(self: *Core.Fiber, comptime T: type, functionIndex: Bytecode.FunctionIndex, arguments: anytype) Trap!T {
     const function = &self.program.functions[functionIndex];
 
-    if (( self.calls.hasSpaceU1(1)
+    if (( self.calls.hasSpaceU1(2)
         & self.data.hasSpaceU1(function.num_registers + 1)
         ) != 1) {
+        @branchHint(.cold);
         return Trap.Overflow;
     }
 
@@ -386,7 +381,7 @@ pub inline fn writeLocal(self: *Fiber, r: Bytecode.RegisterIndex, value: anytype
     return writeReg(self.calls.top(), r, value);
 }
 
-pub inline fn addrLocal(self: *Fiber, r: Bytecode.RegisterIndex) [*]u8 {
+pub inline fn addrLocal(self: *Fiber, r: Bytecode.RegisterIndex) *u64 {
     return addrReg(self.calls.top(), r);
 }
 
@@ -398,7 +393,7 @@ pub inline fn writeUpvalue(self: *Fiber, u: Bytecode.UpvalueIndex, value: anytyp
     return writeReg(self.calls.top().evidence.call, u, value);
 }
 
-pub inline fn addrUpvalue(self: *Fiber, u: Bytecode.UpvalueIndex) [*]u8 {
+pub inline fn addrUpvalue(self: *Fiber, u: Bytecode.UpvalueIndex) *u64 {
     return addrReg(self.calls.top().evidence.call, u);
 }
 
@@ -414,16 +409,16 @@ pub inline fn writeGlobal(self: *Fiber, g: Bytecode.GlobalIndex, value: anytype)
     @as(*@TypeOf(value), @ptrCast(@alignCast(self.addrGlobal(g)))).* = value;
 }
 
-pub inline fn addrReg(frame: *const CallFrame, r: Bytecode.RegisterIndex) [*]u8 {
-    return @ptrCast(&frame.data[r]);
+pub inline fn addrReg(frame: *const CallFrame, r: Bytecode.RegisterIndex) *u64 {
+    return @ptrCast(frame.data + r);
 }
 
 pub inline fn readReg(comptime T: type, frame: *const CallFrame, r: Bytecode.RegisterIndex) T {
-    return @as(*T, @ptrCast(&frame.data[r])).*;
+    return @as(*T, @ptrCast(addrReg(frame, r))).*;
 }
 
 pub inline fn writeReg(frame: *const CallFrame, r: Bytecode.RegisterIndex, value: anytype) void {
-    @as(*@TypeOf(value), @ptrCast(&frame.data[r])).* = value;
+    @as(*@TypeOf(value), @ptrCast(addrReg(frame, r))).* = value;
 }
 
 

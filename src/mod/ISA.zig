@@ -2615,6 +2615,13 @@ pub const Instructions = &[_]InstructionCategory {
     },
 };
 
+pub fn computeInstructionName(comptime kind: InstructionKind, comptime instr: InstructionDescriptor) [:0]const u8 {
+    return comptime
+        (if (instr.prefix.len > 0) instr.prefix ++ "_" else "")
+        ++ kind.base_name
+        ++ (if (instr.suffix.len > 0) "_" ++ instr.suffix else "");
+}
+
 pub const InstructionCategory = struct {
     name: [:0]const u8,
     description: [:0]const u8 = "",

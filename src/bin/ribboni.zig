@@ -103,25 +103,25 @@ pub fn main() Error!void {
     const func = try builder.main();
 
 
-
+    const arg = try func.arg();
     const cond = try func.local();
     const two_loaded = try func.local();
     const one_loaded = try func.local();
     try func.entry.read_global_64(two, two_loaded);
     try func.entry.read_global_64(one, one_loaded);
-    try func.entry.s_lt_64(0, two_loaded, cond);
+    try func.entry.s_lt_64(arg, two_loaded, cond);
     const thenBlock, const elseBlock = try func.entry.if_nz(cond);
 
     try func.entry.trap();
 
-    try thenBlock.ret_v(0);
+    try thenBlock.ret_v(arg);
 
     const a = try func.local();
-    try elseBlock.i_sub_64(0, one_loaded, a);
+    try elseBlock.i_sub_64(arg, one_loaded, a);
     try elseBlock.call_im_v(func, a, .{a});
 
     const b = try func.local();
-    try elseBlock.i_sub_64(0, two_loaded, b);
+    try elseBlock.i_sub_64(arg, two_loaded, b);
     try elseBlock.call_im_v(func, b, .{b});
 
     try elseBlock.i_add_64(a, b, a);

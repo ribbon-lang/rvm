@@ -59,7 +59,7 @@ pub const OpCode = op_code: {
 
             for (kind.instructions) |instr| {
                 fields = fields ++ [1]std.builtin.Type.EnumField { .{
-                    .name = (if (instr.prefix.len > 0) instr.prefix ++ "_" else "") ++ kind.base_name ++ (if (instr.suffix.len > 0) "_" ++ instr.suffix else ""),
+                    .name = ISA.computeInstructionName(kind, instr),
                     .value = (@as(u16, i) << 8) | @as(u16, j),
                 } };
 

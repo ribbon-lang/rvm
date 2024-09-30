@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const ISA = @import("ISA");
+
 const Bytecode = @import("./root.zig");
 
 pub const ValueSize = u16;
@@ -176,8 +178,95 @@ pub const Type = union(enum) {
         .{ .float = Float { .bit_width = .f64 } },
     };
 };
+
 pub const Location = struct {
     function: *const Bytecode.Function,
     block: [*]const Bytecode.Instruction,
     ip: [*]const Bytecode.Instruction,
 };
+
+pub const InstructionData = struct {
+    len: usize,
+    operands: [8]OperandData,
+
+    pub fn format(self: *const InstructionData, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        for (0..self.len) |i| {
+            switch (self.operands[i]) {
+                .register => |x| try writer.print("R{}", .{x}),
+                .byte => |x| try writer.print("b{x}", .{x}),
+                .short => |x| try writer.print("s{x}", .{x}),
+                .immediate => |x| try writer.print("i{x}", .{x}),
+                .handler_set_index => |x| try writer.print("H{}", .{x}),
+                .evidence_index => |x| try writer.print("E{}", .{x}),
+                .global_index => |x| try writer.print("G{}", .{x}),
+                .upvalue_index => |x| try writer.print("U{}", .{x}),
+                .function_index => |x| try writer.print("F{}", .{x}),
+                .block_index => |x| try writer.print("B{}", .{x}),
+            }
+
+            if (i < self.len - 1) {
+                try writer.writeAll(" ");
+            }
+        }
+    }
+};
+
+pub const OperandData = union(enum) {
+    register: Bytecode.RegisterIndex,
+    byte: u8,
+    short: u16,
+    immediate: u32,
+    handler_set_index: Bytecode.HandlerSetIndex,
+    evidence_index: Bytecode.EvidenceIndex,
+    global_index: Bytecode.GlobalIndex,
+    upvalue_index: Bytecode.UpvalueIndex,
+    function_index: Bytecode.FunctionIndex,
+    block_index: Bytecode.BlockIndex,
+};
+
+pub fn extractInstructionInfo(instr: Bytecode.Instruction) InstructionData {
+    @setEvalBranchQuota(10_000);
+
+    inline for (ISA.Instructions) |category| {
+        inline for (category.kinds) |kind| {
+            inline for (kind.instructions) |instrDesc| {
+                const instrName = comptime ISA.computeInstructionName(kind, instrDesc);
+
+                const opcode = @field(Bytecode.OpCode, instrName);
+
+                if (instr.code == opcode) {
+                    const data = @field(instr.data, instrName);
+
+                    if (@TypeOf(data) == void) return InstructionData {.len = 0, .operands = undefined};
+
+                    const operandNames = comptime std.meta.fieldNames(@TypeOf(data));
+
+                    var out = InstructionData{
+                        .len = instrDesc.operands.len,
+                        .operands = undefined,
+                    };
+
+                    inline for (0..instrDesc.operands.len) |i| {
+                        const operand = @field(data, operandNames[i]);
+                        switch (instrDesc.operands[i]) {
+                            .register => out.operands[i] = .{ .register = operand },
+                            .byte => out.operands[i] = .{ .byte = operand },
+                            .short => out.operands[i] = .{ .short = operand },
+                            .immediate => out.operands[i] = .{ .immediate = operand },
+                            .handler_set_index => out.operands[i] = .{ .handler_set_index = operand },
+                            .evidence_index => out.operands[i] = .{ .evidence_index = operand },
+                            .global_index => out.operands[i] = .{ .global_index = operand },
+                            .upvalue_index => out.operands[i] = .{ .upvalue_index = operand },
+                            .function_index => out.operands[i] = .{ .function_index = operand },
+                            .block_index => out.operands[i] = .{ .block_index = operand },
+                        }
+                    }
+
+                    return out;
+                }
+            }
+        }
+    }
+
+    unreachable;
+}

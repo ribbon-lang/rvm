@@ -55,7 +55,7 @@ pub fn exited(self: *const BlockBuilder) bool {
 }
 
 pub fn preassemble(self: *const BlockBuilder) Error!usize {
-    if (self.exit != null) {
+    if (self.exit == null) {
         return Error.UnfinishedBlock;
     }
 
@@ -83,7 +83,7 @@ pub fn args(self: *BlockBuilder, rargs: anytype) Error!void {
         return Error.TooManyRegisters;
     }
 
-    var acc = [1]Bytecode.RegisterIndex {0} ** (@sizeOf(Bytecode.Instruction) / @sizeOf(Bytecode.RegisterIndex));
+    var acc = [1]Bytecode.RegisterIndex {255} ** (@sizeOf(Bytecode.Instruction) / @sizeOf(Bytecode.RegisterIndex));
 
     comptime var i: usize = 0;
     inline while (i < rargs.len) : (i += 1) {
@@ -94,7 +94,7 @@ pub fn args(self: *BlockBuilder, rargs: anytype) Error!void {
     }
 
     if (i % acc.len != 0) {
-        for (0..(i % acc.len)) |j| acc[j] = 0;
+        for ((i % acc.len)..acc.len) |j| acc[j] = 255;
         try self.ops.append(self.function.parent.allocator, @as(Bytecode.Instruction, @bitCast(acc)));
     }
 }
