@@ -163,7 +163,7 @@ See `zig build --help` for more information.
    either by linking the tar, `zig fetch`, or provide a local path to the source.
 2. Add Rvm to your module imports like this:
 ```zig
-const ribbon_i = b.dependency("ribbon-i", .{
+const rvm = b.dependency("rvm", .{
     // these should always be passed to ensure ribbon is built correctly
     .target = target,
     .optimize = optimize,
@@ -172,7 +172,7 @@ const ribbon_i = b.dependency("ribbon-i", .{
     // i.e.
     // .logLevel = .info,
 });
-module.addImport("Rvm", ribbon_i.module("Core"));
+module.addImport("Rvm", rvm.module("Core"));
 ```
 3. See [`src/bin/rvm.zig`](src/bin/rvm.zig) for usage
 
