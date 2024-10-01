@@ -52,11 +52,11 @@ pub fn main() !void {
 
     switch (mode) {
         .USAGE => {
-            try out.writeAll("```\nribboni ");
+            try out.writeAll("```\nrvm ");
             try clap.usage(out, clap.Help, options[2..]);
             try out.writeAll("\n```\n");
             for (0..2) |i| {
-                try out.print("```\nribboni --{s}\n```", .{options[i].names.long.?});
+                try out.print("```\nrvm --{s}\n```", .{options[i].names.long.?});
                 if (i < 1) {
                     try out.writeAll("\n");
                 }

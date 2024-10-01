@@ -9,7 +9,7 @@ const Log = @import("Log");
 
 pub const std_options = Log.std_options;
 
-pub const log = Log.scoped(.ribboni);
+pub const log = Log.scoped(.rvm);
 
 
 pub const Context = @import("Context.zig");

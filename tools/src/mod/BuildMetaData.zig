@@ -21,12 +21,12 @@ pub const fullCommandNames = std.meta.fieldNames(@TypeOf(fullCommands));
 pub const verifyCommandNames = std.meta.fieldNames(@TypeOf(verifyCommands));
 
 pub const basicCommands = .{
-    .run = "Build and run a quick debug test version of ribboni only (No headers, readme, lib ...)",
-    .quick = "Build a quick debug test version of ribboni only (No headers, readme, lib ...)",
+    .run = "Build and run a quick debug test version of rvm only (No headers, readme, lib ...)",
+    .quick = "Build a quick debug test version of rvm only (No headers, readme, lib ...)",
     .full = listCommand(fullCommandNames),
     .verify = listCommand(verifyCommandNames),
     .check = "Run semantic analysis on all files referenced by a unit test; do not build artifacts (Useful with `zls` build on save)",
-    .release = "Build the release versions of RibbonI for all targets",
+    .release = "Build the release versions of Rvm for all targets",
 };
 
 pub const testCommands = .{
@@ -38,18 +38,18 @@ pub const testCommands = .{
 pub const fullCommands = .{
     .@"test" = listCommand(testCommandNames),
     .readme = "Generate `./README.md`",
-    .header = "Generate `./include/ribboni.h`",
+    .header = "Generate `./include/rvm.h`",
 };
 
 pub const verifyCommands = .{
     .@"verify-readme" = "Verify that `./README.md` is up to date",
-    .@"verify-header" = "Verify that `./include/ribboni.h` is up to date",
+    .@"verify-header" = "Verify that `./include/rvm.h` is up to date",
     .@"verify-tests" = "Verify that all tests pass (this is an alias for `test`)",
 };
 
 pub const options = .{
     .logLevel = .{ std.log.Level, "Logging output level to display", .err },
-    .logScopes = .{ []const u8, "Logging scopes to display", "ribboni" },
+    .logScopes = .{ []const u8, "Logging scopes to display", "rvm" },
     .useEmoji = .{ bool, "Use emoji in the output", true },
     .useAnsiStyles = .{ bool, "Use ANSI styles in the output", true },
 };

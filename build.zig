@@ -153,11 +153,11 @@ pub fn build(b: *Build) !void {
 
     const headerCommand: *Build.Step = buildCommands.get("header").?;
     const headers = headerFiles: {
-        const header = try nativeCompSet.getHeader("libribboni");
+        const header = try nativeCompSet.getHeader("librvm");
 
         const writeHeader = b.addUpdateSourceFiles();
 
-        const sourcePath = "include/ribboni.h";
+        const sourcePath = "include/rvm.h";
 
         writeHeader.addCopyFileToSource(header, sourcePath);
 
@@ -519,14 +519,14 @@ fn fullBuild(b: *Build, nativeCompSet: *Compilation, cliOptions: *const CliOptio
     target.mod = core;
 
 
-    const libRibbon = try comp.getLibrary("libribboni");
+    const libRibbon = try comp.getLibrary("librvm");
 
     target.lib = libRibbon;
 
     libRibbon.bundle_compiler_rt = true;
 
     const installLib = b.addInstallArtifact(libRibbon, .{
-        .dest_sub_path = b.fmt("{s}ribboni{s}", .{relTarget.result.libPrefix(), relTarget.result.staticLibSuffix()}),
+        .dest_sub_path = b.fmt("{s}rvm{s}", .{relTarget.result.libPrefix(), relTarget.result.staticLibSuffix()}),
         .dest_dir = .{
             .override = .{
                 .custom = relPath,
@@ -537,8 +537,8 @@ fn fullBuild(b: *Build, nativeCompSet: *Compilation, cliOptions: *const CliOptio
     target.step.dependOn(&installLib.step);
 
     const installInclude = b.addInstallFile(
-        try nativeCompSet.getHeader("libribboni"),
-        b.fmt("{s}/include/ribboni.h", .{relPath}),
+        try nativeCompSet.getHeader("librvm"),
+        b.fmt("{s}/include/rvm.h", .{relPath}),
     );
     target.step.dependOn(&installInclude.step);
 
@@ -556,7 +556,7 @@ fn fullBuild(b: *Build, nativeCompSet: *Compilation, cliOptions: *const CliOptio
 
     target.step.dependOn(&installReadme.step);
 
-    const bin = try comp.getBinary("ribboni");
+    const bin = try comp.getBinary("rvm");
 
     target.bin = bin;
 
@@ -665,7 +665,7 @@ fn cTest(b: *Build, command: *Build.Step, cliOptions: *const CliOptions, manifes
         "-I", b.fmt("{s}include/", .{dir}),
         "./tests/test.c",
         "-L", dir,
-        "-lribboni",
+        "-lrvm",
     });
 
     compile.expectStdErrEqual("");

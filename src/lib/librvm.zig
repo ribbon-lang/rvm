@@ -9,7 +9,7 @@ const Log = @import("Log");
 
 pub const std_options = Log.std_options;
 
-const log = Log.scoped(.libribboni);
+const log = Log.scoped(.librvm);
 
 inline fn tryCall(err_out: ?*BB_Error, func: anytype, args: anytype) ?@typeInfo(@typeInfo(@TypeOf(func)).Fn.return_type.?).ErrorUnion.payload {
     if (@call(.always_inline, func, args)) |res| {

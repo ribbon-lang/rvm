@@ -1,26 +1,26 @@
-<div align="center">
-  <img style="height: 18em"
+<div align="left">
+  <img style="height: 10em"
        alt="Ribbon Language Logo"
        src="https://ribbon-lang.github.io/images/logo_full.svg"
        />
 </div>
 
 <div align="right">
-  <h1>Ribbon<sup>I</sup></h1>
+  <h1>rvm</h1>
   <h3>The Ribbon Virtual Machine</h3>
   <sup><!--#Readme:Build version--></sup>
 </div>
 
 ---
 
-This is a virtual machine implementation for the Ribbon programming language. This
-project is still in the very early development stages. For now, issues are
-turned off and pull requests without prior [discussion](#discussion) are
-discouraged.
+This is a virtual machine implementation for the
+[Ribbon](https://ribbon-lang.github.io) programming language.
 
 
 ## Contents
 
++ [Roadmap](#roadmap)
+    - [Todo for v0.1.0 release](#todo-for-v010-release)
 + [Discussion](#discussion)
 + [Usage](#usage)
     - [Building from source](#building-from-source)
@@ -37,12 +37,31 @@ discouraged.
     - [Op Codes](#op-codes)
         <!--#Readme:ISA toc-->
 
+## Roadmap
+
++ ✅ Bytecode interpreter (90%)
++ 🟥 CLI (0%)
++ 🟥 C Api (0%)
+
+Initial development of the interpreter itself is essentially complete, aside
+from the foreign function interface. Some bug squashing is likely still
+necessary, of course, as testing is minimal at this time. C-Api and CLI are
+non-existent right now.
+
+#### Todo for v0.1.0 release:
++ Foreign function interface
++ Implement CLI
++ Implement C Api
++ More testing and cleanup
+
+
 ## Discussion
 
 Eventually I will create some places for public discourse about the language,
 for now you can reach me via:
 - Email: noxabellus@gmail.com
 - Discord DM, or on various dev servers: my username is `noxabellus`
+- For `rvm`-specific inquiries, feel free to create an issue on this repository
 
 
 ## Usage
@@ -75,9 +94,9 @@ See `zig build --help` for more information.
 
 #### From Zig
 
-1. Include RibbonI in your `build.zig.zon` in the `.dependencies` section,
+1. Include Rvm in your `build.zig.zon` in the `.dependencies` section,
    either by linking the tar, `zig fetch`, or provide a local path to the source.
-2. Add RibbonI to your module imports like this:
+2. Add Rvm to your module imports like this:
 ```zig
 const ribbon_i = b.dependency("ribbon-i", .{
     // these should always be passed to ensure ribbon is built correctly
@@ -88,13 +107,14 @@ const ribbon_i = b.dependency("ribbon-i", .{
     // i.e.
     // .logLevel = .info,
 });
-module.addImport("RibbonI", ribbon_i.module("Core"));
+module.addImport("Rvm", ribbon_i.module("Core"));
 ```
-3. See [`src/bin/ribboni.zig`](src/bin/ribboni.zig) for usage
+3. See [`src/bin/rvm.zig`](src/bin/rvm.zig) for usage
 
 #### From C
 
-Should be straight forward, though the API is limited as of now.
+Should be straight forward, when the API is in place. Current status: 0%
+
 Use the included header file, then link your program with the `.lib`/`.a` file.
 
 #### From other languages
@@ -104,7 +124,7 @@ If your host language has C FFI, it should be fairly straight forward. If you ma
 
 ### CLI
 
-The `ribboni` executable is a work in progress, but offers a functional command line interface for RibbonI.
+The `rvm` executable is a work in progress.
 
 #### CLI Usage
 <!--#Readme:CLI usage-->
@@ -115,7 +135,7 @@ The `ribboni` executable is a work in progress, but offers a functional command 
 
 ## ISA
 
-The instruction set architecture for RibbonI is still in flux,
+The instruction set architecture for Rvm is still in flux,
 but here is a preliminary rundown.
 
 

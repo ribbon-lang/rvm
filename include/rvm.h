@@ -1,9 +1,9 @@
-/* File generated from src/lib/libribboni.zig */
+/* File generated from src/lib/librvm.zig */
 
 #pragma once
 
-#ifndef LIBRIBBONI_H
-#define LIBRIBBONI_H
+#ifndef LIBRVM_H
+#define LIBRVM_H
 
 #define BB_OPAQUE struct{}
 
@@ -60,4 +60,4 @@ void *BB_Allocator_alloc (BB_Allocator allocator, size_t size, size_t alignment,
 
 void BB_Allocator_free (BB_Allocator allocator, void *buf, size_t size, size_t alignment);
 
-#endif // LIBRIBBONI_H
+#endif // LIBRVM_H

@@ -12,7 +12,7 @@ const IO = @import("IO");
 const Bytecode = @import("Bytecode");
 const Builder = @import("Builder");
 const Disassembler = @import("Disassembler");
-const log = std.log.scoped(.ribboni);
+const log = std.log.scoped(.rvm);
 
 pub const std_options = @import("Log").std_options;
 

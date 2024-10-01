@@ -13,7 +13,7 @@ const ANSI = @import("ANSI");
 pub const options =
     clap.parseParamsComptime(std.fmt.comptimePrint(
     \\--help                       Display options help message, and exit
-    \\--version                    Display SemVer2 version number for RibbonI, and exit
+    \\--version                    Display SemVer2 version number for Rvm, and exit
     \\--use-emoji <bool>           Use emoji in the output [Default: {}]
     \\--use-ansi-styles <bool>     Use ANSI styles in the output [Default: {}]
     \\<path>...                    Files to execute
@@ -122,7 +122,7 @@ pub fn processArgs(allocator: std.mem.Allocator, args: []const []const u8) (Supp
     defer res.deinit();
 
     if (res.args.version != 0) {
-        try stdout.print("RibbonI v{}\n", .{Config.VERSION});
+        try stdout.print("Rvm v{}\n", .{Config.VERSION});
         if (res.args.help != 0) {
             try stdout.print("\n", .{});
         }
@@ -166,13 +166,13 @@ pub fn processArgs(allocator: std.mem.Allocator, args: []const []const u8) (Supp
 }
 
 pub fn printUsage(out: anytype) !void {
-    try out.print("Usage: ribboni ", .{});
+    try out.print("Usage: rvm ", .{});
     clap.usage(out, clap.Help, options[2..]) catch |err| {
         try out.print("Error while printing usage: {s}\n", .{@errorName(err)});
         return error.ClapError;
     };
-    try out.print("\n     | ribboni --help", .{});
-    try out.print("\n     | ribboni --version", .{});
+    try out.print("\n     | rvm --help", .{});
+    try out.print("\n     | rvm --version", .{});
     try out.print("\n", .{});
 }
 
