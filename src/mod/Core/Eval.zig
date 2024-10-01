@@ -61,6 +61,13 @@ pub inline fn step(fiber: *Fiber) Fiber.Trap!bool {
 //     return stepBytecode(false, fiber);
 // }
 
+inline fn decodeWideImmediate(fiber: *Fiber) u64 {
+    const currentBlockFrame = fiber.blocks.top();
+    const instr = currentBlockFrame.ip[0];
+    currentBlockFrame.ip += 1;
+    return @bitCast(instr);
+}
+
 inline fn decodeInstr(fiber: *Fiber, out_data: *Bytecode.OpData) Bytecode.OpCode {
     const currentBlockFrame = fiber.blocks.top();
     const instr = currentBlockFrame.ip[0];
@@ -70,16 +77,18 @@ inline fn decodeInstr(fiber: *Fiber, out_data: *Bytecode.OpData) Bytecode.OpCode
     return instr.code;
 }
 
+inline fn byteSizeToWordSize(byteSize: usize) usize {
+    const byteOffset = @divTrunc(byteSize, 8);
+    const padding = @intFromBool(Support.alignmentDelta(byteSize, 8) > 0);
+    return byteOffset + padding;
+}
+
 inline fn decodeArguments(fiber: *Fiber, count: usize) [*]const Bytecode.RegisterIndex {
     const currentBlockFrame = fiber.blocks.top();
 
     const out: [*]const Bytecode.RegisterIndex = @ptrCast(currentBlockFrame.ip);
 
-    const byteCount = count * @sizeOf(Bytecode.RegisterIndex);
-    const byteOffset = @divTrunc(byteCount, @sizeOf(Bytecode.Instruction));
-    const padding = @intFromBool(Support.alignmentDelta(byteCount, @sizeOf(Bytecode.Instruction)) > 0);
-
-    currentBlockFrame.ip += byteOffset + padding;
+    currentBlockFrame.ip += byteSizeToWordSize(count * @sizeOf(Bytecode.RegisterIndex));
 
     return out;
 }
@@ -91,159 +100,22 @@ fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (reswitch)
 
     var lastData: Bytecode.OpData = undefined;
 
-    reswitch: switch (decodeInstr(fiber, &lastData)) {
-        .trap => return Fiber.Trap.Unreachable,
+    var registerScratchSpace = [1]u64 { undefined } ** Bytecode.MAX_REGISTERS;
 
+    reswitch: switch (decodeInstr(fiber, &lastData)) {
         .nop => if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData),
+
+
         .halt => if (comptime !reswitch) return false,
 
-        .tail_call => {
-            try callImpl_tail(fiber, fiber.readLocal(Bytecode.FunctionIndex, lastData.tail_call.R0));
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .tail_call_v => {
-            try callImpl_tail_v(fiber, fiber.readLocal(Bytecode.FunctionIndex, lastData.tail_call_v.R0));
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .tail_call_im => {
-            try callImpl_tail(fiber, lastData.tail_call_im.F0);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .tail_call_im_v => {
-            try callImpl_tail_v(fiber, lastData.tail_call_im_v.F0);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .tail_prompt => {
-            try callImpl_ev_tail(fiber, lastData.tail_prompt.E0);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .tail_prompt_v => {
-            try callImpl_ev_tail_v(fiber, lastData.tail_prompt_v.E0);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-
-        .call => {
-            try callImpl_no_tail(fiber, fiber.readLocal(Bytecode.FunctionIndex, lastData.call.R0), undefined);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .call_v => {
-            try callImpl_no_tail(fiber, fiber.readLocal(Bytecode.FunctionIndex, lastData.call_v.R0), lastData.call_v.R1);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .call_im => {
-            try callImpl_no_tail(fiber, lastData.call_im.F0, undefined);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .call_im_v => {
-            try callImpl_no_tail(fiber, lastData.call_im_v.F0, lastData.call_im_v.R0);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .prompt => {
-            try callImpl_ev_no_tail(fiber, lastData.prompt.E0);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .prompt_v => {
-            try callImpl_ev_no_tail_v(fiber, lastData.prompt_v.E0, lastData.prompt_v.R0);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-
-        .ret => {
-            ret(fiber, undefined, .no_v);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .ret_v => {
-            ret(fiber, lastData.ret_v.R0, .v);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .term => {
-            term(fiber, undefined, .no_v);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .term_v => {
-            term(fiber, lastData.term_v.R0, .v);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-
-        .when_z => {
-            when(fiber, lastData.when_z.B0, lastData.when_z.R0, .zero);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .when_nz => {
-            when(fiber, lastData.when_nz.B0, lastData.when_nz.R0, .non_zero);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-
-        .re => {
-            re(fiber, lastData.re.B0, undefined, null);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .re_z => {
-            re(fiber, lastData.re_z.B0, lastData.re_z.R0, .zero);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .re_nz => {
-            re(fiber, lastData.re_nz.B0, lastData.re_nz.R0, .non_zero);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-
-        .br => {
-            br(fiber, lastData.br.B0, undefined, null, undefined, .no_v);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .br_z => {
-            br(fiber, lastData.br_z.B0, lastData.br_z.R0, .zero, undefined, .no_v);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .br_nz => {
-            br(fiber, lastData.br_nz.B0, lastData.br_nz.R0, .non_zero, undefined, .no_v);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-
-        .br_v => {
-            br(fiber, lastData.br_v.B0, undefined, null, lastData.br_v.R0, .v);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .br_z_v => {
-            br(fiber, lastData.br_z_v.B0, lastData.br_z_v.R0, .zero, lastData.br_z_v.R1, .v);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .br_nz_v => {
-            br(fiber, lastData.br_nz_v.B0, lastData.br_nz_v.R0, .non_zero, lastData.br_nz_v.R1, .v);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
+        .trap => return Fiber.Trap.Unreachable,
 
         .block => {
             block(fiber, lastData.block.B0, undefined);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .block_v => {
             block(fiber, lastData.block_v.B0, lastData.block_v.R0);
 
@@ -255,8 +127,21 @@ fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (reswitch)
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .with_v => {
             try with(fiber, lastData.with_v.B0, lastData.with_v.H0, lastData.with_v.R0);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .if_nz => {
+            @"if"(fiber, lastData.if_nz.B0, lastData.if_nz.B1, lastData.if_nz.R0, .non_zero, undefined);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .if_nz_v => {
+            @"if"(fiber, lastData.if_nz_v.B0, lastData.if_nz_v.B1, lastData.if_nz_v.R0, .non_zero, lastData.if_nz_v.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
@@ -266,24 +151,217 @@ fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (reswitch)
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .if_nz => {
-            @"if"(fiber, lastData.if_nz.B0, lastData.if_nz.B1, lastData.if_nz.R0, .non_zero, undefined);
 
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
         .if_z_v => {
             @"if"(fiber, lastData.if_z_v.B0, lastData.if_z_v.B1, lastData.if_z_v.R0, .zero, lastData.if_z_v.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .if_nz_v => {
-            @"if"(fiber, lastData.if_nz_v.B0, lastData.if_nz_v.B1, lastData.if_nz_v.R0, .non_zero, lastData.if_nz_v.R1);
+
+        .when_nz => {
+            when(fiber, lastData.when_nz.B0, lastData.when_nz.R0, .non_zero);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
-        .addr_local => {
-            addr_local(fiber, lastData.addr_local.R0, lastData.addr_local.R1);
+        .when_z => {
+            when(fiber, lastData.when_z.B0, lastData.when_z.R0, .zero);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .re => {
+            re(fiber, lastData.re.B0, undefined, null);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .re_nz => {
+            re(fiber, lastData.re_nz.B0, lastData.re_nz.R0, .non_zero);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .re_z => {
+            re(fiber, lastData.re_z.B0, lastData.re_z.R0, .zero);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .br => {
+            br(fiber, lastData.br.B0, undefined, null, undefined, .no_v);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .br_nz => {
+            br(fiber, lastData.br_nz.B0, lastData.br_nz.R0, .non_zero, undefined, .no_v);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .br_z => {
+            br(fiber, lastData.br_z.B0, lastData.br_z.R0, .zero, undefined, .no_v);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .br_v => {
+            br(fiber, lastData.br_v.B0, undefined, null, fiber.readLocal(u64, lastData.br_v.R0), .v);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .br_nz_v => {
+            br(fiber, lastData.br_nz_v.B0, lastData.br_nz_v.R0, .non_zero, fiber.readLocal(u64, lastData.br_nz_v.R1), .v);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .br_z_v => {
+            br(fiber, lastData.br_z_v.B0, lastData.br_z_v.R0, .zero, fiber.readLocal(u64, lastData.br_z_v.R1), .v);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .br_im_v => {
+            br(fiber, lastData.br_im_v.B0, undefined, null, lastData.br_im_v.i0, .v);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .br_im_w_v => {
+            br(fiber, lastData.br_im_w_v.B0, undefined, null, decodeWideImmediate(fiber), .v);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .br_nz_im_v => {
+            br(fiber, lastData.br_nz_im_v.B0, lastData.br_nz_im_v.R0, .non_zero, decodeWideImmediate(fiber), .v);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .br_z_im_v => {
+            br(fiber, lastData.br_z_im_v.B0, lastData.br_z_im_v.R0, .zero, decodeWideImmediate(fiber), .v);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .call => {
+            const f = fiber.readLocal(Bytecode.FunctionIndex, lastData.call.R0);
+            try call(fiber, &fiber.program.functions[f], undefined);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .call_v => {
+            const f = fiber.readLocal(Bytecode.FunctionIndex, lastData.call_v.R0);
+            try call(fiber, &fiber.program.functions[f], lastData.call_v.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .call_im => {
+            try call(fiber, &fiber.program.functions[lastData.call_im.F0], undefined);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .call_im_v => {
+            try call(fiber,  &fiber.program.functions[lastData.call_im_v.F0], lastData.call_im_v.R0);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .tail_call => {
+            const f = fiber.readLocal(Bytecode.FunctionIndex, lastData.tail_call.R0);
+            try tail_call(fiber, &registerScratchSpace, &fiber.program.functions[f]);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .tail_call_v => {
+            const f = fiber.readLocal(Bytecode.FunctionIndex, lastData.tail_call_v.R0);
+            try tail_call(fiber, &registerScratchSpace, &fiber.program.functions[f]);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .tail_call_im => {
+            try tail_call(fiber, &registerScratchSpace, &fiber.program.functions[lastData.tail_call_im.F0]);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .tail_call_im_v => {
+            try tail_call(fiber, &registerScratchSpace, &fiber.program.functions[lastData.tail_call_im_v.F0]);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .prompt => {
+            try prompt(fiber, lastData.prompt.E0, undefined);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .prompt_v => {
+            try prompt(fiber, lastData.prompt_v.E0, lastData.prompt_v.R0);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .ret => {
+            ret(fiber, undefined, .no_v);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .ret_v => {
+            ret(fiber, fiber.readLocal(u64, lastData.ret_v.R0), .v);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .ret_im_v => {
+            ret(fiber, lastData.ret_im_v.i0, .v);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .ret_im_w_v => {
+            ret(fiber, decodeWideImmediate(fiber), .v);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .term => {
+            term(fiber, undefined, .no_v);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .term_v => {
+            term(fiber, fiber.readLocal(u64, lastData.term_v.R0), .v);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .term_im_v => {
+            term(fiber, lastData.term_im_v.i0, .v);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .term_im_w_v => {
+            term(fiber, decodeWideImmediate(fiber), .v);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .alloca => {
+            try alloca(fiber, lastData.alloca.s0, lastData.alloca.R0);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
@@ -300,44 +378,32 @@ fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (reswitch)
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
+        .addr_local => {
+            addr_local(fiber, lastData.addr_local.R0, lastData.addr_local.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
         .read_global_8 => {
             read_global(u8, fiber, lastData.read_global_8.G0, lastData.read_global_8.R0);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .read_global_16 => {
             read_global(u16, fiber, lastData.read_global_16.G0, lastData.read_global_16.R0);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .read_global_32 => {
             read_global(u32, fiber, lastData.read_global_32.G0, lastData.read_global_32.R0);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .read_global_64 => {
             read_global(u64, fiber, lastData.read_global_64.G0, lastData.read_global_64.R0);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-
-        .write_global_8 => {
-            write_global(u8, fiber, lastData.write_global_8.G0, lastData.write_global_8.R0);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .write_global_16 => {
-            write_global(u16, fiber, lastData.write_global_16.G0, lastData.write_global_16.R0);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .write_global_32 => {
-            write_global(u32, fiber, lastData.write_global_32.G0, lastData.write_global_32.R0);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .write_global_64 => {
-            write_global(u64, fiber, lastData.write_global_64.G0, lastData.write_global_64.R0);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
@@ -347,39 +413,115 @@ fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (reswitch)
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .read_upvalue_16 => {
             read_upvalue(u16, fiber, lastData.read_upvalue_16.U0, lastData.read_upvalue_16.R0);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .read_upvalue_32 => {
             read_upvalue(u32, fiber, lastData.read_upvalue_32.U0, lastData.read_upvalue_32.R0);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .read_upvalue_64 => {
             read_upvalue(u64, fiber, lastData.read_upvalue_64.U0, lastData.read_upvalue_64.R0);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
+        .write_global_8 => {
+            fiber.writeGlobal(lastData.write_global_8.G0, fiber.readLocal(u8, lastData.write_global_8.R0));
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .write_global_16 => {
+            fiber.writeGlobal(lastData.write_global_16.G0, fiber.readLocal(u16, lastData.write_global_16.R0));
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .write_global_32 => {
+            fiber.writeGlobal(lastData.write_global_32.G0, fiber.readLocal(u32, lastData.write_global_32.R0));
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .write_global_64 => {
+            fiber.writeGlobal(lastData.write_global_64.G0, fiber.readLocal(u64, lastData.write_global_64.R0));
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .write_global_8_im => {
+            fiber.writeGlobal(lastData.write_global_8_im.G0, lastData.write_global_8_im.b0);
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .write_global_16_im => {
+            fiber.writeGlobal(lastData.write_global_16_im.G0, lastData.write_global_16_im.s0);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .write_global_32_im => {
+            fiber.writeGlobal(lastData.write_global_32_im.G0, lastData.write_global_32_im.i0);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .write_global_64_im => {
+            fiber.writeGlobal(lastData.write_global_64_im.G0, decodeWideImmediate(fiber));
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
         .write_upvalue_8 => {
-            write_upvalue(u8, fiber, lastData.write_upvalue_8.U0, lastData.write_upvalue_8.R0);
+            fiber.writeUpvalue(lastData.write_upvalue_8.U0, fiber.readLocal(u8, lastData.write_upvalue_8.R0));
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .write_upvalue_16 => {
-            write_upvalue(u16, fiber, lastData.write_upvalue_16.U0, lastData.write_upvalue_16.R0);
+            fiber.writeUpvalue(lastData.write_upvalue_16.U0, fiber.readLocal(u16, lastData.write_upvalue_16.R0));
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .write_upvalue_32 => {
-            write_upvalue(u32, fiber, lastData.write_upvalue_32.U0, lastData.write_upvalue_32.R0);
+            fiber.writeUpvalue(lastData.write_upvalue_32.U0, fiber.readLocal(u32, lastData.write_upvalue_32.R0));
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .write_upvalue_64 => {
-            write_upvalue(u64, fiber, lastData.write_upvalue_64.U0, lastData.write_upvalue_64.R0);
+            fiber.writeUpvalue(lastData.write_upvalue_64.U0, fiber.readLocal(u64, lastData.write_upvalue_64.R0));
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .write_upvalue_8_im => {
+            fiber.writeUpvalue(lastData.write_upvalue_8_im.U0, lastData.write_upvalue_8_im.b0);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .write_upvalue_16_im => {
+            fiber.writeUpvalue(lastData.write_upvalue_16_im.U0, lastData.write_upvalue_16_im.s0);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .write_upvalue_32_im => {
+            fiber.writeUpvalue(lastData.write_upvalue_32_im.U0, lastData.write_upvalue_32_im.i0);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .write_upvalue_64_im => {
+            fiber.writeUpvalue(lastData.write_upvalue_64_im.U0, decodeWideImmediate(fiber));
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
@@ -389,16 +531,19 @@ fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (reswitch)
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .load_16 => {
             try load(u16, fiber, lastData.load_16.R0, lastData.load_16.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .load_32 => {
             try load(u32, fiber, lastData.load_32.R0, lastData.load_32.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .load_64 => {
             try load(u64, fiber, lastData.load_64.R0, lastData.load_64.R1);
 
@@ -406,22 +551,49 @@ fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (reswitch)
         },
 
         .store_8 => {
-            try store(u8, fiber, lastData.store_8.R0, lastData.store_8.R1);
+            try store(fiber, fiber.readLocal(u8, lastData.store_8.R0), lastData.store_8.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .store_16 => {
-            try store(u16, fiber, lastData.store_16.R0, lastData.store_16.R1);
+            try store(fiber, fiber.readLocal(u16, lastData.store_16.R0), lastData.store_16.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .store_32 => {
-            try store(u32, fiber, lastData.store_32.R0, lastData.store_32.R1);
+            try store(fiber, fiber.readLocal(u32, lastData.store_32.R0), lastData.store_32.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .store_64 => {
-            try store(u64, fiber, lastData.store_64.R0, lastData.store_64.R1);
+            try store(fiber, fiber.readLocal(u64, lastData.store_64.R0), lastData.store_64.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .store_8_im => {
+            try store(fiber, lastData.store_8_im.b0, lastData.store_8_im.R0);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .store_16_im => {
+            try store(fiber, lastData.store_16_im.s0, lastData.store_16_im.R0);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .store_32_im => {
+            try store(fiber, lastData.store_32_im.i0, lastData.store_32_im.R0);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .store_64_im => {
+            try store(fiber, decodeWideImmediate(fiber), lastData.store_64_im.R0);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
@@ -431,16 +603,19 @@ fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (reswitch)
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .clear_16 => {
             clear(u16, fiber, lastData.clear_16.R0);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .clear_32 => {
             clear(u32, fiber, lastData.clear_32.R0);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .clear_64 => {
             clear(u64, fiber, lastData.clear_64.R0);
 
@@ -452,16 +627,19 @@ fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (reswitch)
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .swap_16 => {
             swap(u16, fiber, lastData.swap_16.R0, lastData.swap_16.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .swap_32 => {
             swap(u32, fiber, lastData.swap_32.R0, lastData.swap_32.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .swap_64 => {
             swap(u64, fiber, lastData.swap_64.R0, lastData.swap_64.R1);
 
@@ -469,711 +647,2025 @@ fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (reswitch)
         },
 
         .copy_8 => {
-            copy(u8, fiber, lastData.copy_8.R0, lastData.copy_8.R1);
+            fiber.writeLocal(lastData.copy_8.R1, fiber.readLocal(u8, lastData.copy_8.R0));
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .copy_16 => {
-            copy(u16, fiber, lastData.copy_16.R0, lastData.copy_16.R1);
+            fiber.writeLocal(lastData.copy_16.R1, fiber.readLocal(u16, lastData.copy_16.R0));
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .copy_32 => {
-            copy(u32, fiber, lastData.copy_32.R0, lastData.copy_32.R1);
+            fiber.writeLocal(lastData.copy_32.R1, fiber.readLocal(u32, lastData.copy_32.R0));
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .copy_64 => {
-            copy(u64, fiber, lastData.copy_64.R0, lastData.copy_64.R1);
+            fiber.writeLocal(lastData.copy_64.R1, fiber.readLocal(u64, lastData.copy_64.R0));
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .copy_8_im => {
+            fiber.writeLocal(lastData.copy_8_im.R0, lastData.copy_8_im.b0);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .copy_16_im => {
+            fiber.writeLocal(lastData.copy_16_im.R0, lastData.copy_16_im.s0);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .copy_32_im => {
+            fiber.writeLocal(lastData.copy_32_im.R0, lastData.copy_32_im.i0);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .copy_64_im => {
+            fiber.writeLocal(lastData.copy_64_im.R0, decodeWideImmediate(fiber));
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+
+        .i_add_8 => {
+            binary(fiber, "add", fiber.readLocal(u8, lastData.i_add_8.R0), fiber.readLocal(u8, lastData.i_add_8.R1), lastData.i_add_8.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .i_add_16 => {
+            binary(fiber, "add", fiber.readLocal(u16, lastData.i_add_16.R0), fiber.readLocal(u16, lastData.i_add_16.R1), lastData.i_add_16.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .i_add_32 => {
+            binary(fiber, "add", fiber.readLocal(u32, lastData.i_add_32.R0), fiber.readLocal(u32, lastData.i_add_32.R1), lastData.i_add_32.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .i_add_64 => {
+            binary(fiber, "add", fiber.readLocal(u64, lastData.i_add_64.R0), fiber.readLocal(u64, lastData.i_add_64.R1), lastData.i_add_64.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .i_add_8_im => {
+            binary(fiber, "add", lastData.i_add_8_im.b0, fiber.readLocal(u8, lastData.i_add_8_im.R0), lastData.i_add_8_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .i_add_16_im => {
+            binary(fiber, "add", lastData.i_add_16_im.s0, fiber.readLocal(u16, lastData.i_add_16_im.R0), lastData.i_add_16_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .i_add_32_im => {
+            binary(fiber, "add", lastData.i_add_32_im.i0, fiber.readLocal(u32, lastData.i_add_32_im.R0), lastData.i_add_32_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .i_add_64_im => {
+            binary(fiber, "add", decodeWideImmediate(fiber), fiber.readLocal(u64, lastData.i_add_64_im.R0), lastData.i_add_64_im.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
         .f_add_32 => {
-            binary(f32, fiber, "add", lastData.f_add_32.R0, lastData.f_add_32.R1, lastData.f_add_32.R2);
+            binary(fiber, "add", fiber.readLocal(f32, lastData.f_add_32.R0), fiber.readLocal(f32, lastData.f_add_32.R1), lastData.f_add_32.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .f_add_64 => {
-            binary(f64, fiber, "add", lastData.f_add_64.R0, lastData.f_add_64.R1, lastData.f_add_64.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .f_sub_32 => {
-            binary(f32, fiber, "sub", lastData.f_sub_32.R0, lastData.f_sub_32.R1, lastData.f_sub_32.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .f_sub_64 => {
-            binary(f64, fiber, "sub", lastData.f_sub_64.R0, lastData.f_sub_64.R1, lastData.f_sub_64.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .f_mul_32 => {
-            binary(f32, fiber, "mul", lastData.f_mul_32.R0, lastData.f_mul_32.R1, lastData.f_mul_32.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .f_mul_64 => {
-            binary(f64, fiber, "mul", lastData.f_mul_64.R0, lastData.f_mul_64.R1, lastData.f_mul_64.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .f_div_32 => {
-            binary(f32, fiber, "div", lastData.f_div_32.R0, lastData.f_div_32.R1, lastData.f_div_32.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .f_div_64 => {
-            binary(f64, fiber, "div", lastData.f_div_64.R0, lastData.f_div_64.R1, lastData.f_div_64.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .f_rem_32 => {
-            binary(f32, fiber, "rem", lastData.f_rem_32.R0, lastData.f_rem_32.R1, lastData.f_rem_32.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .f_rem_64 => {
-            binary(f64, fiber, "rem", lastData.f_rem_64.R0, lastData.f_rem_64.R1, lastData.f_rem_64.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .f_neg_32 => {
-            unary(f32, fiber, "neg", lastData.f_neg_32.R0, lastData.f_neg_32.R1);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .f_neg_64 => {
-            unary(f64, fiber, "neg", lastData.f_neg_64.R0, lastData.f_neg_64.R1);
+            binary(fiber, "add", fiber.readLocal(f64, lastData.f_add_64.R0), fiber.readLocal(f64, lastData.f_add_64.R1), lastData.f_add_64.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
-        .f_eq_32 => {
-            binary(f32, fiber, "eq", lastData.f_eq_32.R0, lastData.f_eq_32.R1, lastData.f_eq_32.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .f_eq_64 => {
-            binary(f64, fiber, "eq", lastData.f_eq_64.R0, lastData.f_eq_64.R1, lastData.f_eq_64.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .f_ne_32 => {
-            binary(f32, fiber, "ne", lastData.f_ne_32.R0, lastData.f_ne_32.R1, lastData.f_ne_32.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .f_ne_64 => {
-            binary(f64, fiber, "ne", lastData.f_ne_64.R0, lastData.f_ne_64.R1, lastData.f_ne_64.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .f_lt_32 => {
-            binary(f32, fiber, "lt", lastData.f_lt_32.R0, lastData.f_lt_32.R1, lastData.f_lt_32.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .f_lt_64 => {
-            binary(f64, fiber, "lt", lastData.f_lt_64.R0, lastData.f_lt_64.R1, lastData.f_lt_64.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .f_gt_32 => {
-            binary(f32, fiber, "gt", lastData.f_gt_32.R0, lastData.f_gt_32.R1, lastData.f_gt_32.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .f_gt_64 => {
-            binary(f64, fiber, "gt", lastData.f_gt_64.R0, lastData.f_gt_64.R1, lastData.f_gt_64.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .f_le_32 => {
-            binary(f32, fiber, "le", lastData.f_le_32.R0, lastData.f_le_32.R1, lastData.f_le_32.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .f_le_64 => {
-            binary(f64, fiber, "le", lastData.f_le_64.R0, lastData.f_le_64.R1, lastData.f_le_64.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .f_ge_32 => {
-            binary(f32, fiber, "ge", lastData.f_ge_32.R0, lastData.f_ge_32.R1, lastData.f_ge_32.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .f_ge_64 => {
-            binary(f64, fiber, "ge", lastData.f_ge_64.R0, lastData.f_ge_64.R1, lastData.f_ge_64.R2);
+        .f_add_32_im => {
+            binary(fiber, "add", @as(f32, @bitCast(lastData.f_add_32_im.i0)), fiber.readLocal(f32, lastData.f_add_32_im.R0), lastData.f_add_32_im.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
-        .i_add_8 => {
-            binary(u8, fiber, "add", lastData.i_add_8.R0, lastData.i_add_8.R1, lastData.i_add_8.R2);
+        .f_add_64_im => {
+            binary(fiber, "add", @as(f64, @bitCast(decodeWideImmediate(fiber))), fiber.readLocal(f64, lastData.f_add_64_im.R0), lastData.f_add_64_im.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .i_add_16 => {
-            binary(u16, fiber, "add", lastData.i_add_16.R0, lastData.i_add_16.R1, lastData.i_add_16.R2);
 
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .i_add_32 => {
-            binary(u32, fiber, "add", lastData.i_add_32.R0, lastData.i_add_32.R1, lastData.i_add_32.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .i_add_64 => {
-            binary(u64, fiber, "add", lastData.i_add_64.R0, lastData.i_add_64.R1, lastData.i_add_64.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
         .i_sub_8 => {
-            binary(u8, fiber, "sub", lastData.i_sub_8.R0, lastData.i_sub_8.R1, lastData.i_sub_8.R2);
+            binary(fiber, "sub", fiber.readLocal(u8, lastData.i_sub_8.R0), fiber.readLocal(u8, lastData.i_sub_8.R1), lastData.i_sub_8.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .i_sub_16 => {
-            binary(u16, fiber, "sub", lastData.i_sub_16.R0, lastData.i_sub_16.R1, lastData.i_sub_16.R2);
+            binary(fiber, "sub", fiber.readLocal(u16, lastData.i_sub_16.R0), fiber.readLocal(u16, lastData.i_sub_16.R1), lastData.i_sub_16.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .i_sub_32 => {
-            binary(u32, fiber, "sub", lastData.i_sub_32.R0, lastData.i_sub_32.R1, lastData.i_sub_32.R2);
+            binary(fiber, "sub", fiber.readLocal(u32, lastData.i_sub_32.R0), fiber.readLocal(u32, lastData.i_sub_32.R1), lastData.i_sub_32.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .i_sub_64 => {
-            binary(u64, fiber, "sub", lastData.i_sub_64.R0, lastData.i_sub_64.R1, lastData.i_sub_64.R2);
+            binary(fiber, "sub", fiber.readLocal(u64, lastData.i_sub_64.R0), fiber.readLocal(u64, lastData.i_sub_64.R1), lastData.i_sub_64.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
+        .i_sub_8_im_a => {
+            binary(fiber, "sub", lastData.i_sub_8_im_a.b0, fiber.readLocal(u8, lastData.i_sub_8_im_a.R0), lastData.i_sub_8_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .i_sub_16_im_a => {
+            binary(fiber, "sub", lastData.i_sub_16_im_a.s0, fiber.readLocal(u16, lastData.i_sub_16_im_a.R0), lastData.i_sub_16_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .i_sub_32_im_a => {
+            binary(fiber, "sub", lastData.i_sub_32_im_a.i0, fiber.readLocal(u32, lastData.i_sub_32_im_a.R0), lastData.i_sub_32_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .i_sub_64_im_a => {
+            binary(fiber, "sub", decodeWideImmediate(fiber), fiber.readLocal(u64, lastData.i_sub_64_im_a.R0), lastData.i_sub_64_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .i_sub_8_im_b => {
+            binary(fiber, "sub", fiber.readLocal(u8, lastData.i_sub_8_im_b.R0), lastData.i_sub_8_im_b.b0, lastData.i_sub_8_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .i_sub_16_im_b => {
+            binary(fiber, "sub", fiber.readLocal(u16, lastData.i_sub_16_im_b.R0), lastData.i_sub_16_im_b.s0, lastData.i_sub_16_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .i_sub_32_im_b => {
+            binary(fiber, "sub", fiber.readLocal(u32, lastData.i_sub_32_im_b.R0), lastData.i_sub_32_im_b.i0, lastData.i_sub_32_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .i_sub_64_im_b => {
+            binary(fiber, "sub", fiber.readLocal(u64, lastData.i_sub_64_im_b.R0), decodeWideImmediate(fiber), lastData.i_sub_64_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_sub_32 => {
+            binary(fiber, "sub", fiber.readLocal(f32, lastData.f_sub_32.R0), fiber.readLocal(f32, lastData.f_sub_32.R1), lastData.f_sub_32.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_sub_64 => {
+            binary(fiber, "sub", fiber.readLocal(f64, lastData.f_sub_64.R0), fiber.readLocal(f64, lastData.f_sub_64.R1), lastData.f_sub_64.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_sub_32_im_a => {
+            binary(fiber, "sub", @as(f32, @bitCast(lastData.f_sub_32_im_a.i0)), fiber.readLocal(f32, lastData.f_sub_32_im_a.R0), lastData.f_sub_32_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_sub_64_im_a => {
+            binary(fiber, "sub", @as(f64, @bitCast(decodeWideImmediate(fiber))), fiber.readLocal(f64, lastData.f_sub_64_im_a.R0), lastData.f_sub_64_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_sub_32_im_b => {
+            binary(fiber, "sub", fiber.readLocal(f32, lastData.f_sub_32_im_b.R0), @as(f32, @bitCast(lastData.f_sub_32_im_b.i0)), lastData.f_sub_32_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_sub_64_im_b => {
+            binary(fiber, "sub", fiber.readLocal(f64, lastData.f_sub_64_im_b.R0), @as(f64, @bitCast(decodeWideImmediate(fiber))), lastData.f_sub_64_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
         .i_mul_8 => {
-            binary(u8, fiber, "mul", lastData.i_mul_8.R0, lastData.i_mul_8.R1, lastData.i_mul_8.R2);
+            binary(fiber, "mul", fiber.readLocal(u8, lastData.i_mul_8.R0), fiber.readLocal(u8, lastData.i_mul_8.R1), lastData.i_mul_8.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .i_mul_16 => {
-            binary(u16, fiber, "mul", lastData.i_mul_16.R0, lastData.i_mul_16.R1, lastData.i_mul_16.R2);
+            binary(fiber, "mul", fiber.readLocal(u16, lastData.i_mul_16.R0), fiber.readLocal(u16, lastData.i_mul_16.R1), lastData.i_mul_16.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .i_mul_32 => {
-            binary(u32, fiber, "mul", lastData.i_mul_32.R0, lastData.i_mul_32.R1, lastData.i_mul_32.R2);
+            binary(fiber, "mul", fiber.readLocal(u32, lastData.i_mul_32.R0), fiber.readLocal(u32, lastData.i_mul_32.R1), lastData.i_mul_32.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .i_mul_64 => {
-            binary(u64, fiber, "mul", lastData.i_mul_64.R0, lastData.i_mul_64.R1, lastData.i_mul_64.R2);
+            binary(fiber, "mul", fiber.readLocal(u64, lastData.i_mul_64.R0), fiber.readLocal(u64, lastData.i_mul_64.R1), lastData.i_mul_64.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_div_8 => {
-            binary(i8, fiber, "div", lastData.s_div_8.R0, lastData.s_div_8.R1, lastData.s_div_8.R2);
+
+        .i_mul_8_im => {
+            binary(fiber, "mul", lastData.i_mul_8_im.b0, fiber.readLocal(u8, lastData.i_mul_8_im.R0), lastData.i_mul_8_im.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_div_16 => {
-            binary(i16, fiber, "div", lastData.s_div_16.R0, lastData.s_div_16.R1, lastData.s_div_16.R2);
+
+        .i_mul_16_im => {
+            binary(fiber, "mul", lastData.i_mul_16_im.s0, fiber.readLocal(u16, lastData.i_mul_16_im.R0), lastData.i_mul_16_im.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_div_32 => {
-            binary(i32, fiber, "div", lastData.s_div_32.R0, lastData.s_div_32.R1, lastData.s_div_32.R2);
+
+        .i_mul_32_im => {
+            binary(fiber, "mul", lastData.i_mul_32_im.i0, fiber.readLocal(u32, lastData.i_mul_32_im.R0), lastData.i_mul_32_im.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_div_64 => {
-            binary(i64, fiber, "div", lastData.s_div_64.R0, lastData.s_div_64.R1, lastData.s_div_64.R2);
+
+        .i_mul_64_im => {
+            binary(fiber, "mul", decodeWideImmediate(fiber), fiber.readLocal(u64, lastData.i_mul_64_im.R0), lastData.i_mul_64_im.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
+        .f_mul_32 => {
+            binary(fiber, "mul", fiber.readLocal(f32, lastData.f_mul_32.R0), fiber.readLocal(f32, lastData.f_mul_32.R1), lastData.f_mul_32.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_mul_64 => {
+            binary(fiber, "mul", fiber.readLocal(f64, lastData.f_mul_64.R0), fiber.readLocal(f64, lastData.f_mul_64.R1), lastData.f_mul_64.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_mul_32_im => {
+            binary(fiber, "mul", @as(f32, @bitCast(lastData.f_mul_32_im.i0)), fiber.readLocal(f32, lastData.f_mul_32_im.R0), lastData.f_mul_32_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_mul_64_im => {
+            binary(fiber, "mul", @as(f64, @bitCast(decodeWideImmediate(fiber))), fiber.readLocal(f64, lastData.f_mul_64_im.R0), lastData.f_mul_64_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
         .u_div_8 => {
-            binary(u8, fiber, "div", lastData.u_div_8.R0, lastData.u_div_8.R1, lastData.u_div_8.R2);
+            binary(fiber, "div", fiber.readLocal(u8, lastData.u_div_8.R0), fiber.readLocal(u8, lastData.u_div_8.R1), lastData.u_div_8.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_div_16 => {
-            binary(u16, fiber, "div", lastData.u_div_16.R0, lastData.u_div_16.R1, lastData.u_div_16.R2);
+            binary(fiber, "div", fiber.readLocal(u16, lastData.u_div_16.R0), fiber.readLocal(u16, lastData.u_div_16.R1), lastData.u_div_16.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_div_32 => {
-            binary(u32, fiber, "div", lastData.u_div_32.R0, lastData.u_div_32.R1, lastData.u_div_32.R2);
+            binary(fiber, "div", fiber.readLocal(u32, lastData.u_div_32.R0), fiber.readLocal(u32, lastData.u_div_32.R1), lastData.u_div_32.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_div_64 => {
-            binary(u64, fiber, "div", lastData.u_div_64.R0, lastData.u_div_64.R1, lastData.u_div_64.R2);
+            binary(fiber, "div", fiber.readLocal(u64, lastData.u_div_64.R0), fiber.readLocal(u64, lastData.u_div_64.R1), lastData.u_div_64.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_rem_8 => {
-            binary(i8, fiber, "rem", lastData.s_rem_8.R0, lastData.s_rem_8.R1, lastData.s_rem_8.R2);
+
+        .u_div_8_im_a => {
+            binary(fiber, "div", lastData.u_div_8_im_a.b0, fiber.readLocal(u8, lastData.u_div_8_im_a.R0), lastData.u_div_8_im_a.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_rem_16 => {
-            binary(i16, fiber, "rem", lastData.s_rem_16.R0, lastData.s_rem_16.R1, lastData.s_rem_16.R2);
+
+        .u_div_16_im_a => {
+            binary(fiber, "div", lastData.u_div_16_im_a.s0, fiber.readLocal(u16, lastData.u_div_16_im_a.R0), lastData.u_div_16_im_a.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_rem_32 => {
-            binary(i32, fiber, "rem", lastData.s_rem_32.R0, lastData.s_rem_32.R1, lastData.s_rem_32.R2);
+
+        .u_div_32_im_a => {
+            binary(fiber, "div", lastData.u_div_32_im_a.i0, fiber.readLocal(u32, lastData.u_div_32_im_a.R0), lastData.u_div_32_im_a.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s_rem_64 => {
-            binary(i64, fiber, "rem", lastData.s_rem_64.R0, lastData.s_rem_64.R1, lastData.s_rem_64.R2);
+
+        .u_div_64_im_a => {
+            binary(fiber, "div", decodeWideImmediate(fiber), fiber.readLocal(u64, lastData.u_div_64_im_a.R0), lastData.u_div_64_im_a.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
+        .u_div_8_im_b => {
+            binary(fiber, "div", fiber.readLocal(u8, lastData.u_div_8_im_b.R0), lastData.u_div_8_im_b.b0, lastData.u_div_8_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_div_16_im_b => {
+            binary(fiber, "div", fiber.readLocal(u16, lastData.u_div_16_im_b.R0), lastData.u_div_16_im_b.s0, lastData.u_div_16_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_div_32_im_b => {
+            binary(fiber, "div", fiber.readLocal(u32, lastData.u_div_32_im_b.R0), lastData.u_div_32_im_b.i0, lastData.u_div_32_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_div_64_im_b => {
+            binary(fiber, "div", fiber.readLocal(u64, lastData.u_div_64_im_b.R0), decodeWideImmediate(fiber), lastData.u_div_64_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_div_8 => {
+            binary(fiber, "div", fiber.readLocal(i8, lastData.s_div_8.R0), fiber.readLocal(i8, lastData.s_div_8.R1), lastData.s_div_8.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_div_16 => {
+            binary(fiber, "div", fiber.readLocal(i16, lastData.s_div_16.R0), fiber.readLocal(i16, lastData.s_div_16.R1), lastData.s_div_16.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_div_32 => {
+            binary(fiber, "div", fiber.readLocal(i32, lastData.s_div_32.R0), fiber.readLocal(i32, lastData.s_div_32.R1), lastData.s_div_32.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_div_64 => {
+            binary(fiber, "div", fiber.readLocal(i64, lastData.s_div_64.R0), fiber.readLocal(i64, lastData.s_div_64.R1), lastData.s_div_64.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_div_8_im_a => {
+            binary(fiber, "div", @as(i8, @bitCast(lastData.s_div_8_im_a.b0)), fiber.readLocal(i8, lastData.s_div_8_im_a.R0), lastData.s_div_8_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_div_16_im_a => {
+            binary(fiber, "div", @as(i16, @bitCast(lastData.s_div_16_im_a.s0)), fiber.readLocal(i16, lastData.s_div_16_im_a.R0), lastData.s_div_16_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_div_32_im_a => {
+            binary(fiber, "div", @as(i32, @bitCast(lastData.s_div_32_im_a.i0)), fiber.readLocal(i32, lastData.s_div_32_im_a.R0), lastData.s_div_32_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_div_64_im_a => {
+            binary(fiber, "div", @as(i64, @bitCast(decodeWideImmediate(fiber))), fiber.readLocal(i64, lastData.s_div_64_im_a.R0), lastData.s_div_64_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_div_8_im_b => {
+            binary(fiber, "div", fiber.readLocal(i8, lastData.s_div_8_im_b.R0), @as(i8, @bitCast(lastData.s_div_8_im_b.b0)), lastData.s_div_8_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_div_16_im_b => {
+            binary(fiber, "div", fiber.readLocal(i16, lastData.s_div_16_im_b.R0), @as(i16, @bitCast(lastData.s_div_16_im_b.s0)), lastData.s_div_16_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_div_32_im_b => {
+            binary(fiber, "div", fiber.readLocal(i32, lastData.s_div_32_im_b.R0), @as(i32, @bitCast(lastData.s_div_32_im_b.i0)), lastData.s_div_32_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_div_64_im_b => {
+            binary(fiber, "div", fiber.readLocal(i64, lastData.s_div_64_im_b.R0), @as(i64, @bitCast(decodeWideImmediate(fiber))), lastData.s_div_64_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_div_32 => {
+            binary(fiber, "div", fiber.readLocal(f32, lastData.f_div_32.R0), fiber.readLocal(f32, lastData.f_div_32.R1), lastData.f_div_32.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_div_64 => {
+            binary(fiber, "div", fiber.readLocal(f64, lastData.f_div_64.R0), fiber.readLocal(f64, lastData.f_div_64.R1), lastData.f_div_64.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_div_32_im_a => {
+            binary(fiber, "div", @as(f32, @bitCast(lastData.f_div_32_im_a.i0)), fiber.readLocal(f32, lastData.f_div_32_im_a.R0), lastData.f_div_32_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_div_64_im_a => {
+            binary(fiber, "div", @as(f64, @bitCast(decodeWideImmediate(fiber))), fiber.readLocal(f64, lastData.f_div_64_im_a.R0), lastData.f_div_64_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_div_32_im_b => {
+            binary(fiber, "div", fiber.readLocal(f32, lastData.f_div_32_im_b.R0), @as(f32, @bitCast(lastData.f_div_32_im_b.i0)), lastData.f_div_32_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_div_64_im_b => {
+            binary(fiber, "div", fiber.readLocal(f64, lastData.f_div_64_im_b.R0), @as(f64, @bitCast(decodeWideImmediate(fiber))), lastData.f_div_64_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
         .u_rem_8 => {
-            binary(u8, fiber, "rem", lastData.u_rem_8.R0, lastData.u_rem_8.R1, lastData.u_rem_8.R2);
+            binary(fiber, "rem", fiber.readLocal(u8, lastData.u_rem_8.R0), fiber.readLocal(u8, lastData.u_rem_8.R1), lastData.u_rem_8.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_rem_16 => {
-            binary(u16, fiber, "rem", lastData.u_rem_16.R0, lastData.u_rem_16.R1, lastData.u_rem_16.R2);
+            binary(fiber, "rem", fiber.readLocal(u16, lastData.u_rem_16.R0), fiber.readLocal(u16, lastData.u_rem_16.R1), lastData.u_rem_16.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_rem_32 => {
-            binary(u32, fiber, "rem", lastData.u_rem_32.R0, lastData.u_rem_32.R1, lastData.u_rem_32.R2);
+            binary(fiber, "rem", fiber.readLocal(u32, lastData.u_rem_32.R0), fiber.readLocal(u32, lastData.u_rem_32.R1), lastData.u_rem_32.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_rem_64 => {
-            binary(u64, fiber, "rem", lastData.u_rem_64.R0, lastData.u_rem_64.R1, lastData.u_rem_64.R2);
+            binary(fiber, "rem", fiber.readLocal(u64, lastData.u_rem_64.R0), fiber.readLocal(u64, lastData.u_rem_64.R1), lastData.u_rem_64.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
+        .u_rem_8_im_a => {
+            binary(fiber, "rem", lastData.u_rem_8_im_a.b0, fiber.readLocal(u8, lastData.u_rem_8_im_a.R0), lastData.u_rem_8_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_rem_16_im_a => {
+            binary(fiber, "rem", lastData.u_rem_16_im_a.s0, fiber.readLocal(u16, lastData.u_rem_16_im_a.R0), lastData.u_rem_16_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_rem_32_im_a => {
+            binary(fiber, "rem", lastData.u_rem_32_im_a.i0, fiber.readLocal(u32, lastData.u_rem_32_im_a.R0), lastData.u_rem_32_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_rem_64_im_a => {
+            binary(fiber, "rem", decodeWideImmediate(fiber), fiber.readLocal(u64, lastData.u_rem_64_im_a.R0), lastData.u_rem_64_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_rem_8_im_b => {
+            binary(fiber, "rem", fiber.readLocal(u8, lastData.u_rem_8_im_b.R0), lastData.u_rem_8_im_b.b0, lastData.u_rem_8_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_rem_16_im_b => {
+            binary(fiber, "rem", fiber.readLocal(u16, lastData.u_rem_16_im_b.R0), lastData.u_rem_16_im_b.s0, lastData.u_rem_16_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_rem_32_im_b => {
+            binary(fiber, "rem", fiber.readLocal(u32, lastData.u_rem_32_im_b.R0), lastData.u_rem_32_im_b.i0, lastData.u_rem_32_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_rem_64_im_b => {
+            binary(fiber, "rem", fiber.readLocal(u64, lastData.u_rem_64_im_b.R0), decodeWideImmediate(fiber), lastData.u_rem_64_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_rem_8 => {
+            binary(fiber, "rem", fiber.readLocal(i8, lastData.s_rem_8.R0), fiber.readLocal(i8, lastData.s_rem_8.R1), lastData.s_rem_8.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_rem_16 => {
+            binary(fiber, "rem", fiber.readLocal(i16, lastData.s_rem_16.R0), fiber.readLocal(i16, lastData.s_rem_16.R1), lastData.s_rem_16.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_rem_32 => {
+            binary(fiber, "rem", fiber.readLocal(i32, lastData.s_rem_32.R0), fiber.readLocal(i32, lastData.s_rem_32.R1), lastData.s_rem_32.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_rem_64 => {
+            binary(fiber, "rem", fiber.readLocal(i64, lastData.s_rem_64.R0), fiber.readLocal(i64, lastData.s_rem_64.R1), lastData.s_rem_64.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_rem_8_im_a => {
+            binary(fiber, "rem", @as(i8, @bitCast(lastData.s_rem_8_im_a.b0)), fiber.readLocal(i8, lastData.s_rem_8_im_a.R0), lastData.s_rem_8_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_rem_16_im_a => {
+            binary(fiber, "rem", @as(i16, @bitCast(lastData.s_rem_16_im_a.s0)), fiber.readLocal(i16, lastData.s_rem_16_im_a.R0), lastData.s_rem_16_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_rem_32_im_a => {
+            binary(fiber, "rem", @as(i32, @bitCast(lastData.s_rem_32_im_a.i0)), fiber.readLocal(i32, lastData.s_rem_32_im_a.R0), lastData.s_rem_32_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_rem_64_im_a => {
+            binary(fiber, "rem", @as(i64, @bitCast(decodeWideImmediate(fiber))), fiber.readLocal(i64, lastData.s_rem_64_im_a.R0), lastData.s_rem_64_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_rem_8_im_b => {
+            binary(fiber, "rem", fiber.readLocal(i8, lastData.s_rem_8_im_b.R0), @as(i8, @bitCast(lastData.s_rem_8_im_b.b0)), lastData.s_rem_8_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_rem_16_im_b => {
+            binary(fiber, "rem", fiber.readLocal(i16, lastData.s_rem_16_im_b.R0), @as(i16, @bitCast(lastData.s_rem_16_im_b.s0)), lastData.s_rem_16_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_rem_32_im_b => {
+            binary(fiber, "rem", fiber.readLocal(i32, lastData.s_rem_32_im_b.R0), @as(i32, @bitCast(lastData.s_rem_32_im_b.i0)), lastData.s_rem_32_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_rem_64_im_b => {
+            binary(fiber, "rem", fiber.readLocal(i64, lastData.s_rem_64_im_b.R0), @as(i64, @bitCast(decodeWideImmediate(fiber))), lastData.s_rem_64_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_rem_32 => {
+            binary(fiber, "rem", fiber.readLocal(f32, lastData.f_rem_32.R0), fiber.readLocal(f32, lastData.f_rem_32.R1), lastData.f_rem_32.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_rem_64 => {
+            binary(fiber, "rem", fiber.readLocal(f64, lastData.f_rem_64.R0), fiber.readLocal(f64, lastData.f_rem_64.R1), lastData.f_rem_64.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_rem_32_im_a => {
+            binary(fiber, "rem", @as(f32, @bitCast(lastData.f_rem_32_im_a.i0)), fiber.readLocal(f32, lastData.f_rem_32_im_a.R0), lastData.f_rem_32_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_rem_64_im_a => {
+            binary(fiber, "rem", @as(f64, @bitCast(decodeWideImmediate(fiber))), fiber.readLocal(f64, lastData.f_rem_64_im_a.R0), lastData.f_rem_64_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_rem_32_im_b => {
+            binary(fiber, "rem", fiber.readLocal(f32, lastData.f_rem_32_im_b.R0), @as(f32, @bitCast(lastData.f_rem_32_im_b.i0)), lastData.f_rem_32_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_rem_64_im_b => {
+            binary(fiber, "rem", fiber.readLocal(f64, lastData.f_rem_64_im_b.R0), @as(f64, @bitCast(decodeWideImmediate(fiber))), lastData.f_rem_64_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
         .s_neg_8 => {
-            unary(i8, fiber, "neg", lastData.s_neg_8.R0, lastData.s_neg_8.R1);
+            unary(fiber, "neg", fiber.readLocal(i8, lastData.s_neg_8.R0), lastData.s_neg_8.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .s_neg_16 => {
-            unary(i16, fiber, "neg", lastData.s_neg_16.R0, lastData.s_neg_16.R1);
+            unary(fiber, "neg", fiber.readLocal(i16, lastData.s_neg_16.R0), lastData.s_neg_16.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .s_neg_32 => {
-            unary(i32, fiber, "neg", lastData.s_neg_32.R0, lastData.s_neg_32.R1);
+            unary(fiber, "neg", fiber.readLocal(i32, lastData.s_neg_32.R0), lastData.s_neg_32.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .s_neg_64 => {
-            unary(i64, fiber, "neg", lastData.s_neg_64.R0, lastData.s_neg_64.R1);
+            unary(fiber, "neg", fiber.readLocal(i64, lastData.s_neg_64.R0), lastData.s_neg_64.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_neg_32 => {
+            unary(fiber, "neg", fiber.readLocal(f32, lastData.f_neg_32.R0), lastData.f_neg_32.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_neg_64 => {
+            unary(fiber, "neg", fiber.readLocal(f64, lastData.f_neg_64.R0), lastData.f_neg_64.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+
+        .band_8 => {
+            binary(fiber, "band", fiber.readLocal(u8, lastData.band_8.R0), fiber.readLocal(u8, lastData.band_8.R1), lastData.band_8.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .band_16 => {
+            binary(fiber, "band", fiber.readLocal(u16, lastData.band_16.R0), fiber.readLocal(u16, lastData.band_16.R1), lastData.band_16.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .band_32 => {
+            binary(fiber, "band", fiber.readLocal(u32, lastData.band_32.R0), fiber.readLocal(u32, lastData.band_32.R1), lastData.band_32.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .band_64 => {
+            binary(fiber, "band", fiber.readLocal(u64, lastData.band_64.R0), fiber.readLocal(u64, lastData.band_64.R1), lastData.band_64.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .band_8_im => {
+            binary(fiber, "band", lastData.band_8_im.b0, fiber.readLocal(u8, lastData.band_8_im.R0), lastData.band_8_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .band_16_im => {
+            binary(fiber, "band", lastData.band_16_im.s0, fiber.readLocal(u16, lastData.band_16_im.R0), lastData.band_16_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .band_32_im => {
+            binary(fiber, "band", lastData.band_32_im.i0, fiber.readLocal(u32, lastData.band_32_im.R0), lastData.band_32_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .band_64_im => {
+            binary(fiber, "band", decodeWideImmediate(fiber), fiber.readLocal(u64, lastData.band_64_im.R0), lastData.band_64_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .bor_8 => {
+            binary(fiber, "bor", fiber.readLocal(u8, lastData.bor_8.R0), fiber.readLocal(u8, lastData.bor_8.R1), lastData.bor_8.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .bor_16 => {
+            binary(fiber, "bor", fiber.readLocal(u16, lastData.bor_16.R0), fiber.readLocal(u16, lastData.bor_16.R1), lastData.bor_16.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .bor_32 => {
+            binary(fiber, "bor", fiber.readLocal(u32, lastData.bor_32.R0), fiber.readLocal(u32, lastData.bor_32.R1), lastData.bor_32.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .bor_64 => {
+            binary(fiber, "bor", fiber.readLocal(u64, lastData.bor_64.R0), fiber.readLocal(u64, lastData.bor_64.R1), lastData.bor_64.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .bor_8_im => {
+            binary(fiber, "bor", lastData.bor_8_im.b0, fiber.readLocal(u8, lastData.bor_8_im.R0), lastData.bor_8_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .bor_16_im => {
+            binary(fiber, "bor", lastData.bor_16_im.s0, fiber.readLocal(u16, lastData.bor_16_im.R0), lastData.bor_16_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .bor_32_im => {
+            binary(fiber, "bor", lastData.bor_32_im.i0, fiber.readLocal(u32, lastData.bor_32_im.R0), lastData.bor_32_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .bor_64_im => {
+            binary(fiber, "bor", decodeWideImmediate(fiber), fiber.readLocal(u64, lastData.bor_64_im.R0), lastData.bor_64_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .bxor_8 => {
+            binary(fiber, "bxor", fiber.readLocal(u8, lastData.bxor_8.R0), fiber.readLocal(u8, lastData.bxor_8.R1), lastData.bxor_8.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .bxor_16 => {
+            binary(fiber, "bxor", fiber.readLocal(u16, lastData.bxor_16.R0), fiber.readLocal(u16, lastData.bxor_16.R1), lastData.bxor_16.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .bxor_32 => {
+            binary(fiber, "bxor", fiber.readLocal(u32, lastData.bxor_32.R0), fiber.readLocal(u32, lastData.bxor_32.R1), lastData.bxor_32.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .bxor_64 => {
+            binary(fiber, "bxor", fiber.readLocal(u64, lastData.bxor_64.R0), fiber.readLocal(u64, lastData.bxor_64.R1), lastData.bxor_64.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .bxor_8_im => {
+            binary(fiber, "bxor", lastData.bxor_8_im.b0, fiber.readLocal(u8, lastData.bxor_8_im.R0), lastData.bxor_8_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .bxor_16_im => {
+            binary(fiber, "bxor", lastData.bxor_16_im.s0, fiber.readLocal(u16, lastData.bxor_16_im.R0), lastData.bxor_16_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .bxor_32_im => {
+            binary(fiber, "bxor", lastData.bxor_32_im.i0, fiber.readLocal(u32, lastData.bxor_32_im.R0), lastData.bxor_32_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .bxor_64_im => {
+            binary(fiber, "bxor", decodeWideImmediate(fiber), fiber.readLocal(u64, lastData.bxor_64_im.R0), lastData.bxor_64_im.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
         .bnot_8 => {
-            unary(u8, fiber, "bitnot", lastData.bnot_8.R0, lastData.bnot_8.R1);
+            unary(fiber, "bnot", fiber.readLocal(u8, lastData.bnot_8.R0), lastData.bnot_8.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .bnot_16 => {
-            unary(u16, fiber, "bitnot", lastData.bnot_16.R0, lastData.bnot_16.R1);
+            unary(fiber, "bnot", fiber.readLocal(u16, lastData.bnot_16.R0), lastData.bnot_16.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .bnot_32 => {
-            unary(u32, fiber, "bitnot", lastData.bnot_32.R0, lastData.bnot_32.R1);
+            unary(fiber, "bnot", fiber.readLocal(u32, lastData.bnot_32.R0), lastData.bnot_32.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .bnot_64 => {
-            unary(u64, fiber, "bitnot", lastData.bnot_64.R0, lastData.bnot_64.R1);
+            unary(fiber, "bnot", fiber.readLocal(u64, lastData.bnot_64.R0), lastData.bnot_64.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .band_8 => {
-            binary(u8, fiber, "bitand", lastData.band_8.R0, lastData.band_8.R1, lastData.band_8.R2);
 
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .band_16 => {
-            binary(u16, fiber, "bitand", lastData.band_16.R0, lastData.band_16.R1, lastData.band_16.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .band_32 => {
-            binary(u32, fiber, "bitand", lastData.band_32.R0, lastData.band_32.R1, lastData.band_32.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .band_64 => {
-            binary(u64, fiber, "bitand", lastData.band_64.R0, lastData.band_64.R1, lastData.band_64.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .bor_8 => {
-            binary(u8, fiber, "bitor", lastData.bor_8.R0, lastData.bor_8.R1, lastData.bor_8.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .bor_16 => {
-            binary(u16, fiber, "bitor", lastData.bor_16.R0, lastData.bor_16.R1, lastData.bor_16.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .bor_32 => {
-            binary(u32, fiber, "bitor", lastData.bor_32.R0, lastData.bor_32.R1, lastData.bor_32.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .bor_64 => {
-            binary(u64, fiber, "bitor", lastData.bor_64.R0, lastData.bor_64.R1, lastData.bor_64.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .bxor_8 => {
-            binary(u8, fiber, "bitxor", lastData.bxor_8.R0, lastData.bxor_8.R1, lastData.bxor_8.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .bxor_16 => {
-            binary(u16, fiber, "bitxor", lastData.bxor_16.R0, lastData.bxor_16.R1, lastData.bxor_16.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .bxor_32 => {
-            binary(u32, fiber, "bitxor", lastData.bxor_32.R0, lastData.bxor_32.R1, lastData.bxor_32.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-        .bxor_64 => {
-            binary(u64, fiber, "bitxor", lastData.bxor_64.R0, lastData.bxor_64.R1, lastData.bxor_64.R2);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
         .bshiftl_8 => {
-            binary(u8, fiber, "shiftl", lastData.bshiftl_8.R0, lastData.bshiftl_8.R1, lastData.bshiftl_8.R2);
+            binary(fiber, "bshiftl", fiber.readLocal(u8, lastData.bshiftl_8.R0), fiber.readLocal(u8, lastData.bshiftl_8.R1), lastData.bshiftl_8.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .bshiftl_16 => {
-            binary(u16, fiber, "shiftl", lastData.bshiftl_16.R0, lastData.bshiftl_16.R1, lastData.bshiftl_16.R2);
+            binary(fiber, "bshiftl", fiber.readLocal(u16, lastData.bshiftl_16.R0), fiber.readLocal(u16, lastData.bshiftl_16.R1), lastData.bshiftl_16.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .bshiftl_32 => {
-            binary(u32, fiber, "shiftl", lastData.bshiftl_32.R0, lastData.bshiftl_32.R1, lastData.bshiftl_32.R2);
+            binary(fiber, "bshiftl", fiber.readLocal(u32, lastData.bshiftl_32.R0), fiber.readLocal(u32, lastData.bshiftl_32.R1), lastData.bshiftl_32.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .bshiftl_64 => {
-            binary(u64, fiber, "shiftl", lastData.bshiftl_64.R0, lastData.bshiftl_64.R1, lastData.bshiftl_64.R2);
+            binary(fiber, "bshiftl", fiber.readLocal(u64, lastData.bshiftl_64.R0), fiber.readLocal(u64, lastData.bshiftl_64.R1), lastData.bshiftl_64.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
+        .bshiftl_8_im_a => {
+            binary(fiber, "bshiftl", lastData.bshiftl_8_im_a.b0, fiber.readLocal(u8, lastData.bshiftl_8_im_a.R0), lastData.bshiftl_8_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .bshiftl_16_im_a => {
+            binary(fiber, "bshiftl", lastData.bshiftl_16_im_a.s0, fiber.readLocal(u16, lastData.bshiftl_16_im_a.R0), lastData.bshiftl_16_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .bshiftl_32_im_a => {
+            binary(fiber, "bshiftl", lastData.bshiftl_32_im_a.i0, fiber.readLocal(u32, lastData.bshiftl_32_im_a.R0), lastData.bshiftl_32_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .bshiftl_64_im_a => {
+            binary(fiber, "bshiftl", decodeWideImmediate(fiber), fiber.readLocal(u64, lastData.bshiftl_64_im_a.R0), lastData.bshiftl_64_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .bshiftl_8_im_b => {
+            binary(fiber, "bshiftl", fiber.readLocal(u8, lastData.bshiftl_8_im_b.R0), lastData.bshiftl_8_im_b.b0, lastData.bshiftl_8_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .bshiftl_16_im_b => {
+            binary(fiber, "bshiftl", fiber.readLocal(u16, lastData.bshiftl_16_im_b.R0), lastData.bshiftl_16_im_b.s0, lastData.bshiftl_16_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .bshiftl_32_im_b => {
+            binary(fiber, "bshiftl", fiber.readLocal(u32, lastData.bshiftl_32_im_b.R0), lastData.bshiftl_32_im_b.i0, lastData.bshiftl_32_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .bshiftl_64_im_b => {
+            binary(fiber, "bshiftl", fiber.readLocal(u64, lastData.bshiftl_64_im_b.R0), decodeWideImmediate(fiber), lastData.bshiftl_64_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
         .u_bshiftr_8 => {
-            binary(u8, fiber, "shiftr", lastData.u_bshiftr_8.R0, lastData.u_bshiftr_8.R1, lastData.u_bshiftr_8.R2);
+            binary(fiber, "bshiftr", fiber.readLocal(u8, lastData.u_bshiftr_8.R0), fiber.readLocal(u8, lastData.u_bshiftr_8.R1), lastData.u_bshiftr_8.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_bshiftr_16 => {
-            binary(u16, fiber, "shiftr", lastData.u_bshiftr_16.R0, lastData.u_bshiftr_16.R1, lastData.u_bshiftr_16.R2);
+            binary(fiber, "bshiftr", fiber.readLocal(u16, lastData.u_bshiftr_16.R0), fiber.readLocal(u16, lastData.u_bshiftr_16.R1), lastData.u_bshiftr_16.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_bshiftr_32 => {
-            binary(u32, fiber, "shiftr", lastData.u_bshiftr_32.R0, lastData.u_bshiftr_32.R1, lastData.u_bshiftr_32.R2);
+            binary(fiber, "bshiftr", fiber.readLocal(u32, lastData.u_bshiftr_32.R0), fiber.readLocal(u32, lastData.u_bshiftr_32.R1), lastData.u_bshiftr_32.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_bshiftr_64 => {
-            binary(u64, fiber, "shiftr", lastData.u_bshiftr_64.R0, lastData.u_bshiftr_64.R1, lastData.u_bshiftr_64.R2);
+            binary(fiber, "bshiftr", fiber.readLocal(u64, lastData.u_bshiftr_64.R0), fiber.readLocal(u64, lastData.u_bshiftr_64.R1), lastData.u_bshiftr_64.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
+        .u_bshiftr_8_im_a => {
+            binary(fiber, "bshiftr", lastData.u_bshiftr_8_im_a.b0, fiber.readLocal(u8, lastData.u_bshiftr_8_im_a.R0), lastData.u_bshiftr_8_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_bshiftr_16_im_a => {
+            binary(fiber, "bshiftr", lastData.u_bshiftr_16_im_a.s0, fiber.readLocal(u16, lastData.u_bshiftr_16_im_a.R0), lastData.u_bshiftr_16_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_bshiftr_32_im_a => {
+            binary(fiber, "bshiftr", lastData.u_bshiftr_32_im_a.i0, fiber.readLocal(u32, lastData.u_bshiftr_32_im_a.R0), lastData.u_bshiftr_32_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_bshiftr_64_im_a => {
+            binary(fiber, "bshiftr", decodeWideImmediate(fiber), fiber.readLocal(u64, lastData.u_bshiftr_64_im_a.R0), lastData.u_bshiftr_64_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_bshiftr_8_im_b => {
+            binary(fiber, "bshiftr", fiber.readLocal(u8, lastData.u_bshiftr_8_im_b.R0), lastData.u_bshiftr_8_im_b.b0, lastData.u_bshiftr_8_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_bshiftr_16_im_b => {
+            binary(fiber, "bshiftr", fiber.readLocal(u16, lastData.u_bshiftr_16_im_b.R0), lastData.u_bshiftr_16_im_b.s0, lastData.u_bshiftr_16_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_bshiftr_32_im_b => {
+            binary(fiber, "bshiftr", fiber.readLocal(u32, lastData.u_bshiftr_32_im_b.R0), lastData.u_bshiftr_32_im_b.i0, lastData.u_bshiftr_32_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_bshiftr_64_im_b => {
+            binary(fiber, "bshiftr", fiber.readLocal(u64, lastData.u_bshiftr_64_im_b.R0), decodeWideImmediate(fiber), lastData.u_bshiftr_64_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
         .s_bshiftr_8 => {
-            binary(i8, fiber, "shiftr", lastData.s_bshiftr_8.R0, lastData.s_bshiftr_8.R1, lastData.s_bshiftr_8.R2);
+            binary(fiber, "bshiftr", fiber.readLocal(i8, lastData.s_bshiftr_8.R0), fiber.readLocal(i8, lastData.s_bshiftr_8.R1), lastData.s_bshiftr_8.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .s_bshiftr_16 => {
-            binary(i16, fiber, "shiftr", lastData.s_bshiftr_16.R0, lastData.s_bshiftr_16.R1, lastData.s_bshiftr_16.R2);
+            binary(fiber, "bshiftr", fiber.readLocal(i16, lastData.s_bshiftr_16.R0), fiber.readLocal(i16, lastData.s_bshiftr_16.R1), lastData.s_bshiftr_16.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .s_bshiftr_32 => {
-            binary(i32, fiber, "shiftr", lastData.s_bshiftr_32.R0, lastData.s_bshiftr_32.R1, lastData.s_bshiftr_32.R2);
+            binary(fiber, "bshiftr", fiber.readLocal(i32, lastData.s_bshiftr_32.R0), fiber.readLocal(i32, lastData.s_bshiftr_32.R1), lastData.s_bshiftr_32.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .s_bshiftr_64 => {
-            binary(i64, fiber, "shiftr", lastData.s_bshiftr_64.R0, lastData.s_bshiftr_64.R1, lastData.s_bshiftr_64.R2);
+            binary(fiber, "bshiftr", fiber.readLocal(i64, lastData.s_bshiftr_64.R0), fiber.readLocal(i64, lastData.s_bshiftr_64.R1), lastData.s_bshiftr_64.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
+        .s_bshiftr_8_im_a => {
+            binary(fiber, "bshiftr", @as(i8, @bitCast(lastData.s_bshiftr_8_im_a.b0)), fiber.readLocal(i8, lastData.s_bshiftr_8_im_a.R0), lastData.s_bshiftr_8_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_bshiftr_16_im_a => {
+            binary(fiber, "bshiftr", @as(i16, @bitCast(lastData.s_bshiftr_16_im_a.s0)), fiber.readLocal(i16, lastData.s_bshiftr_16_im_a.R0), lastData.s_bshiftr_16_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_bshiftr_32_im_a => {
+            binary(fiber, "bshiftr", @as(i32, @bitCast(lastData.s_bshiftr_32_im_a.i0)), fiber.readLocal(i32, lastData.s_bshiftr_32_im_a.R0), lastData.s_bshiftr_32_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_bshiftr_64_im_a => {
+            binary(fiber, "bshiftr", @as(i64, @bitCast(decodeWideImmediate(fiber))), fiber.readLocal(i64, lastData.s_bshiftr_64_im_a.R0), lastData.s_bshiftr_64_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_bshiftr_8_im_b => {
+            binary(fiber, "bshiftr", fiber.readLocal(i8, lastData.s_bshiftr_8_im_b.R0), @as(i8, @bitCast(lastData.s_bshiftr_8_im_b.b0)), lastData.s_bshiftr_8_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_bshiftr_16_im_b => {
+            binary(fiber, "bshiftr", fiber.readLocal(i16, lastData.s_bshiftr_16_im_b.R0), @as(i16, @bitCast(lastData.s_bshiftr_16_im_b.s0)), lastData.s_bshiftr_16_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_bshiftr_32_im_b => {
+            binary(fiber, "bshiftr", fiber.readLocal(i32, lastData.s_bshiftr_32_im_b.R0), @as(i32, @bitCast(lastData.s_bshiftr_32_im_b.i0)), lastData.s_bshiftr_32_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_bshiftr_64_im_b => {
+            binary(fiber, "bshiftr", fiber.readLocal(i64, lastData.s_bshiftr_64_im_b.R0), @as(i64, @bitCast(decodeWideImmediate(fiber))), lastData.s_bshiftr_64_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
 
         .i_eq_8 => {
-            binary(u8, fiber, "eq", lastData.i_eq_8.R0, lastData.i_eq_8.R1, lastData.i_eq_8.R2);
+            binary(fiber, "eq", fiber.readLocal(u8, lastData.i_eq_8.R0), fiber.readLocal(u8, lastData.i_eq_8.R1), lastData.i_eq_8.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .i_eq_16 => {
-            binary(u16, fiber, "eq", lastData.i_eq_16.R0, lastData.i_eq_16.R1, lastData.i_eq_16.R2);
+            binary(fiber, "eq", fiber.readLocal(u16, lastData.i_eq_16.R0), fiber.readLocal(u16, lastData.i_eq_16.R1), lastData.i_eq_16.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .i_eq_32 => {
-            binary(u32, fiber, "eq", lastData.i_eq_32.R0, lastData.i_eq_32.R1, lastData.i_eq_32.R2);
+            binary(fiber, "eq", fiber.readLocal(u32, lastData.i_eq_32.R0), fiber.readLocal(u32, lastData.i_eq_32.R1), lastData.i_eq_32.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .i_eq_64 => {
-            binary(u64, fiber, "eq", lastData.i_eq_64.R0, lastData.i_eq_64.R1, lastData.i_eq_64.R2);
+            binary(fiber, "eq", fiber.readLocal(u64, lastData.i_eq_64.R0), fiber.readLocal(u64, lastData.i_eq_64.R1), lastData.i_eq_64.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
+        .i_eq_8_im => {
+            binary(fiber, "eq", lastData.i_eq_8_im.b0, fiber.readLocal(u8, lastData.i_eq_8_im.R0), lastData.i_eq_8_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .i_eq_16_im => {
+            binary(fiber, "eq", lastData.i_eq_16_im.s0, fiber.readLocal(u16, lastData.i_eq_16_im.R0), lastData.i_eq_16_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .i_eq_32_im => {
+            binary(fiber, "eq", lastData.i_eq_32_im.i0, fiber.readLocal(u32, lastData.i_eq_32_im.R0), lastData.i_eq_32_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .i_eq_64_im => {
+            binary(fiber, "eq", decodeWideImmediate(fiber), fiber.readLocal(u64, lastData.i_eq_64_im.R0), lastData.i_eq_64_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_eq_32 => {
+            binary(fiber, "eq", fiber.readLocal(f32, lastData.f_eq_32.R0), fiber.readLocal(f32, lastData.f_eq_32.R1), lastData.f_eq_32.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_eq_64 => {
+            binary(fiber, "eq", fiber.readLocal(f64, lastData.f_eq_64.R0), fiber.readLocal(f64, lastData.f_eq_64.R1), lastData.f_eq_64.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_eq_32_im => {
+            binary(fiber, "eq", @as(f32, @bitCast(lastData.f_eq_32_im.i0)), fiber.readLocal(f32, lastData.f_eq_32_im.R0), lastData.f_eq_32_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_eq_64_im => {
+            binary(fiber, "eq", @as(f64, @bitCast(decodeWideImmediate(fiber))), fiber.readLocal(f64, lastData.f_eq_64_im.R0), lastData.f_eq_64_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
         .i_ne_8 => {
-            binary(u8, fiber, "ne", lastData.i_ne_8.R0, lastData.i_ne_8.R1, lastData.i_ne_8.R2);
+            binary(fiber, "ne", fiber.readLocal(u8, lastData.i_ne_8.R0), fiber.readLocal(u8, lastData.i_ne_8.R1), lastData.i_ne_8.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .i_ne_16 => {
-            binary(u16, fiber, "ne", lastData.i_ne_16.R0, lastData.i_ne_16.R1, lastData.i_ne_16.R2);
+            binary(fiber, "ne", fiber.readLocal(u16, lastData.i_ne_16.R0), fiber.readLocal(u16, lastData.i_ne_16.R1), lastData.i_ne_16.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .i_ne_32 => {
-            binary(u32, fiber, "ne", lastData.i_ne_32.R0, lastData.i_ne_32.R1, lastData.i_ne_32.R2);
+            binary(fiber, "ne", fiber.readLocal(u32, lastData.i_ne_32.R0), fiber.readLocal(u32, lastData.i_ne_32.R1), lastData.i_ne_32.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .i_ne_64 => {
-            binary(u64, fiber, "ne", lastData.i_ne_64.R0, lastData.i_ne_64.R1, lastData.i_ne_64.R2);
+            binary(fiber, "ne", fiber.readLocal(u64, lastData.i_ne_64.R0), fiber.readLocal(u64, lastData.i_ne_64.R1), lastData.i_ne_64.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
+        .i_ne_8_im => {
+            binary(fiber, "ne", lastData.i_ne_8_im.b0, fiber.readLocal(u8, lastData.i_ne_8_im.R0), lastData.i_ne_8_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .i_ne_16_im => {
+            binary(fiber, "ne", lastData.i_ne_16_im.s0, fiber.readLocal(u16, lastData.i_ne_16_im.R0), lastData.i_ne_16_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .i_ne_32_im => {
+            binary(fiber, "ne", lastData.i_ne_32_im.i0, fiber.readLocal(u32, lastData.i_ne_32_im.R0), lastData.i_ne_32_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .i_ne_64_im => {
+            binary(fiber, "ne", decodeWideImmediate(fiber), fiber.readLocal(u64, lastData.i_ne_64_im.R0), lastData.i_ne_64_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_ne_32 => {
+            binary(fiber, "ne", fiber.readLocal(f32, lastData.f_ne_32.R0), fiber.readLocal(f32, lastData.f_ne_32.R1), lastData.f_ne_32.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_ne_64 => {
+            binary(fiber, "ne", fiber.readLocal(f64, lastData.f_ne_64.R0), fiber.readLocal(f64, lastData.f_ne_64.R1), lastData.f_ne_64.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_ne_32_im => {
+            binary(fiber, "ne", @as(f32, @bitCast(lastData.f_ne_32_im.i0)), fiber.readLocal(f32, lastData.f_ne_32_im.R0), lastData.f_ne_32_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_ne_64_im => {
+            binary(fiber, "ne", @as(f64, @bitCast(decodeWideImmediate(fiber))), fiber.readLocal(f64, lastData.f_ne_64_im.R0), lastData.f_ne_64_im.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
         .u_lt_8 => {
-            binary(u8, fiber, "lt", lastData.u_lt_8.R0, lastData.u_lt_8.R1, lastData.u_lt_8.R2);
+            binary(fiber, "lt", fiber.readLocal(u8, lastData.u_lt_8.R0), fiber.readLocal(u8, lastData.u_lt_8.R1), lastData.u_lt_8.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_lt_16 => {
-            binary(u16, fiber, "lt", lastData.u_lt_16.R0, lastData.u_lt_16.R1, lastData.u_lt_16.R2);
+            binary(fiber, "lt", fiber.readLocal(u16, lastData.u_lt_16.R0), fiber.readLocal(u16, lastData.u_lt_16.R1), lastData.u_lt_16.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_lt_32 => {
-            binary(u32, fiber, "lt", lastData.u_lt_32.R0, lastData.u_lt_32.R1, lastData.u_lt_32.R2);
+            binary(fiber, "lt", fiber.readLocal(u32, lastData.u_lt_32.R0), fiber.readLocal(u32, lastData.u_lt_32.R1), lastData.u_lt_32.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_lt_64 => {
-            binary(u64, fiber, "lt", lastData.u_lt_64.R0, lastData.u_lt_64.R1, lastData.u_lt_64.R2);
+            binary(fiber, "lt", fiber.readLocal(u64, lastData.u_lt_64.R0), fiber.readLocal(u64, lastData.u_lt_64.R1), lastData.u_lt_64.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
+        .u_lt_8_im_a => {
+            binary(fiber, "lt", lastData.u_lt_8_im_a.b0, fiber.readLocal(u8, lastData.u_lt_8_im_a.R0), lastData.u_lt_8_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_lt_16_im_a => {
+            binary(fiber, "lt", lastData.u_lt_16_im_a.s0, fiber.readLocal(u16, lastData.u_lt_16_im_a.R0), lastData.u_lt_16_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_lt_32_im_a => {
+            binary(fiber, "lt", lastData.u_lt_32_im_a.i0, fiber.readLocal(u32, lastData.u_lt_32_im_a.R0), lastData.u_lt_32_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_lt_64_im_a => {
+            binary(fiber, "lt", decodeWideImmediate(fiber), fiber.readLocal(u64, lastData.u_lt_64_im_a.R0), lastData.u_lt_64_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_lt_8_im_b => {
+            binary(fiber, "lt", fiber.readLocal(u8, lastData.u_lt_8_im_b.R0), lastData.u_lt_8_im_b.b0, lastData.u_lt_8_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_lt_16_im_b => {
+            binary(fiber, "lt", fiber.readLocal(u16, lastData.u_lt_16_im_b.R0), lastData.u_lt_16_im_b.s0, lastData.u_lt_16_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_lt_32_im_b => {
+            binary(fiber, "lt", fiber.readLocal(u32, lastData.u_lt_32_im_b.R0), lastData.u_lt_32_im_b.i0, lastData.u_lt_32_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_lt_64_im_b => {
+            binary(fiber, "lt", fiber.readLocal(u64, lastData.u_lt_64_im_b.R0), decodeWideImmediate(fiber), lastData.u_lt_64_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
         .s_lt_8 => {
-            binary(i8, fiber, "lt", lastData.s_lt_8.R0, lastData.s_lt_8.R1, lastData.s_lt_8.R2);
+            binary(fiber, "lt", fiber.readLocal(i8, lastData.s_lt_8.R0), fiber.readLocal(i8, lastData.s_lt_8.R1), lastData.s_lt_8.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .s_lt_16 => {
-            binary(i16, fiber, "lt", lastData.s_lt_16.R0, lastData.s_lt_16.R1, lastData.s_lt_16.R2);
+            binary(fiber, "lt", fiber.readLocal(i16, lastData.s_lt_16.R0), fiber.readLocal(i16, lastData.s_lt_16.R1), lastData.s_lt_16.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .s_lt_32 => {
-            binary(i32, fiber, "lt", lastData.s_lt_32.R0, lastData.s_lt_32.R1, lastData.s_lt_32.R2);
+            binary(fiber, "lt", fiber.readLocal(i32, lastData.s_lt_32.R0), fiber.readLocal(i32, lastData.s_lt_32.R1), lastData.s_lt_32.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .s_lt_64 => {
-            binary(i64, fiber, "lt", lastData.s_lt_64.R0, lastData.s_lt_64.R1, lastData.s_lt_64.R2);
+            binary(fiber, "lt", fiber.readLocal(i64, lastData.s_lt_64.R0), fiber.readLocal(i64, lastData.s_lt_64.R1), lastData.s_lt_64.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
+        .s_lt_8_im_a => {
+            binary(fiber, "lt", @as(i8, @bitCast(lastData.s_lt_8_im_a.b0)), fiber.readLocal(i8, lastData.s_lt_8_im_a.R0), lastData.s_lt_8_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_lt_16_im_a => {
+            binary(fiber, "lt", @as(i16, @bitCast(lastData.s_lt_16_im_a.s0)), fiber.readLocal(i16, lastData.s_lt_16_im_a.R0), lastData.s_lt_16_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_lt_32_im_a => {
+            binary(fiber, "lt", @as(i32, @bitCast(lastData.s_lt_32_im_a.i0)), fiber.readLocal(i32, lastData.s_lt_32_im_a.R0), lastData.s_lt_32_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_lt_64_im_a => {
+            binary(fiber, "lt", @as(i64, @bitCast(decodeWideImmediate(fiber))), fiber.readLocal(i64, lastData.s_lt_64_im_a.R0), lastData.s_lt_64_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_lt_8_im_b => {
+            binary(fiber, "lt", fiber.readLocal(i8, lastData.s_lt_8_im_b.R0), @as(i8, @bitCast(lastData.s_lt_8_im_b.b0)), lastData.s_lt_8_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_lt_16_im_b => {
+            binary(fiber, "lt", fiber.readLocal(i16, lastData.s_lt_16_im_b.R0), @as(i16, @bitCast(lastData.s_lt_16_im_b.s0)), lastData.s_lt_16_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_lt_32_im_b => {
+            binary(fiber, "lt", fiber.readLocal(i32, lastData.s_lt_32_im_b.R0), @as(i32, @bitCast(lastData.s_lt_32_im_b.i0)), lastData.s_lt_32_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_lt_64_im_b => {
+            binary(fiber, "lt", fiber.readLocal(i64, lastData.s_lt_64_im_b.R0), @as(i64, @bitCast(decodeWideImmediate(fiber))), lastData.s_lt_64_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_lt_32 => {
+            binary(fiber, "lt", fiber.readLocal(f32, lastData.f_lt_32.R0), fiber.readLocal(f32, lastData.f_lt_32.R1), lastData.f_lt_32.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_lt_64 => {
+            binary(fiber, "lt", fiber.readLocal(f64, lastData.f_lt_64.R0), fiber.readLocal(f64, lastData.f_lt_64.R1), lastData.f_lt_64.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_lt_32_im_a => {
+            binary(fiber, "lt", @as(f32, @bitCast(lastData.f_lt_32_im_a.i0)), fiber.readLocal(f32, lastData.f_lt_32_im_a.R0), lastData.f_lt_32_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_lt_64_im_a => {
+            binary(fiber, "lt", @as(f64, @bitCast(decodeWideImmediate(fiber))), fiber.readLocal(f64, lastData.f_lt_64_im_a.R0), lastData.f_lt_64_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_lt_32_im_b => {
+            binary(fiber, "lt", fiber.readLocal(f32, lastData.f_lt_32_im_b.R0), @as(f32, @bitCast(lastData.f_lt_32_im_b.i0)), lastData.f_lt_32_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_lt_64_im_b => {
+            binary(fiber, "lt", fiber.readLocal(f64, lastData.f_lt_64_im_b.R0), @as(f64, @bitCast(decodeWideImmediate(fiber))), lastData.f_lt_64_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
         .u_gt_8 => {
-            binary(u8, fiber, "gt", lastData.u_gt_8.R0, lastData.u_gt_8.R1, lastData.u_gt_8.R2);
+            binary(fiber, "gt", fiber.readLocal(u8, lastData.u_gt_8.R0), fiber.readLocal(u8, lastData.u_gt_8.R1), lastData.u_gt_8.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_gt_16 => {
-            binary(u16, fiber, "gt", lastData.u_gt_16.R0, lastData.u_gt_16.R1, lastData.u_gt_16.R2);
+            binary(fiber, "gt", fiber.readLocal(u16, lastData.u_gt_16.R0), fiber.readLocal(u16, lastData.u_gt_16.R1), lastData.u_gt_16.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_gt_32 => {
-            binary(u32, fiber, "gt", lastData.u_gt_32.R0, lastData.u_gt_32.R1, lastData.u_gt_32.R2);
+            binary(fiber, "gt", fiber.readLocal(u32, lastData.u_gt_32.R0), fiber.readLocal(u32, lastData.u_gt_32.R1), lastData.u_gt_32.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_gt_64 => {
-            binary(u64, fiber, "gt", lastData.u_gt_64.R0, lastData.u_gt_64.R1, lastData.u_gt_64.R2);
+            binary(fiber, "gt", fiber.readLocal(u64, lastData.u_gt_64.R0), fiber.readLocal(u64, lastData.u_gt_64.R1), lastData.u_gt_64.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
+        .u_gt_8_im_a => {
+            binary(fiber, "gt", lastData.u_gt_8_im_a.b0, fiber.readLocal(u8, lastData.u_gt_8_im_a.R0), lastData.u_gt_8_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_gt_16_im_a => {
+            binary(fiber, "gt", lastData.u_gt_16_im_a.s0, fiber.readLocal(u16, lastData.u_gt_16_im_a.R0), lastData.u_gt_16_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_gt_32_im_a => {
+            binary(fiber, "gt", lastData.u_gt_32_im_a.i0, fiber.readLocal(u32, lastData.u_gt_32_im_a.R0), lastData.u_gt_32_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_gt_64_im_a => {
+            binary(fiber, "gt", decodeWideImmediate(fiber), fiber.readLocal(u64, lastData.u_gt_64_im_a.R0), lastData.u_gt_64_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_gt_8_im_b => {
+            binary(fiber, "gt", fiber.readLocal(u8, lastData.u_gt_8_im_b.R0), lastData.u_gt_8_im_b.b0, lastData.u_gt_8_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_gt_16_im_b => {
+            binary(fiber, "gt", fiber.readLocal(u16, lastData.u_gt_16_im_b.R0), lastData.u_gt_16_im_b.s0, lastData.u_gt_16_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_gt_32_im_b => {
+            binary(fiber, "gt", fiber.readLocal(u32, lastData.u_gt_32_im_b.R0), lastData.u_gt_32_im_b.i0, lastData.u_gt_32_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_gt_64_im_b => {
+            binary(fiber, "gt", fiber.readLocal(u64, lastData.u_gt_64_im_b.R0), decodeWideImmediate(fiber), lastData.u_gt_64_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
         .s_gt_8 => {
-            binary(i8, fiber, "gt", lastData.s_gt_8.R0, lastData.s_gt_8.R1, lastData.s_gt_8.R2);
+            binary(fiber, "gt", fiber.readLocal(i8, lastData.s_gt_8.R0), fiber.readLocal(i8, lastData.s_gt_8.R1), lastData.s_gt_8.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .s_gt_16 => {
-            binary(i16, fiber, "gt", lastData.s_gt_16.R0, lastData.s_gt_16.R1, lastData.s_gt_16.R2);
+            binary(fiber, "gt", fiber.readLocal(i16, lastData.s_gt_16.R0), fiber.readLocal(i16, lastData.s_gt_16.R1), lastData.s_gt_16.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .s_gt_32 => {
-            binary(i32, fiber, "gt", lastData.s_gt_32.R0, lastData.s_gt_32.R1, lastData.s_gt_32.R2);
+            binary(fiber, "gt", fiber.readLocal(i32, lastData.s_gt_32.R0), fiber.readLocal(i32, lastData.s_gt_32.R1), lastData.s_gt_32.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .s_gt_64 => {
-            binary(i64, fiber, "gt", lastData.s_gt_64.R0, lastData.s_gt_64.R1, lastData.s_gt_64.R2);
+            binary(fiber, "gt", fiber.readLocal(i64, lastData.s_gt_64.R0), fiber.readLocal(i64, lastData.s_gt_64.R1), lastData.s_gt_64.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
+        .s_gt_8_im_a => {
+            binary(fiber, "gt", @as(i8, @bitCast(lastData.s_gt_8_im_a.b0)), fiber.readLocal(i8, lastData.s_gt_8_im_a.R0), lastData.s_gt_8_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_gt_16_im_a => {
+            binary(fiber, "gt", @as(i16, @bitCast(lastData.s_gt_16_im_a.s0)), fiber.readLocal(i16, lastData.s_gt_16_im_a.R0), lastData.s_gt_16_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_gt_32_im_a => {
+            binary(fiber, "gt", @as(i32, @bitCast(lastData.s_gt_32_im_a.i0)), fiber.readLocal(i32, lastData.s_gt_32_im_a.R0), lastData.s_gt_32_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_gt_64_im_a => {
+            binary(fiber, "gt", @as(i64, @bitCast(decodeWideImmediate(fiber))), fiber.readLocal(i64, lastData.s_gt_64_im_a.R0), lastData.s_gt_64_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_gt_8_im_b => {
+            binary(fiber, "gt", fiber.readLocal(i8, lastData.s_gt_8_im_b.R0), @as(i8, @bitCast(lastData.s_gt_8_im_b.b0)), lastData.s_gt_8_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_gt_16_im_b => {
+            binary(fiber, "gt", fiber.readLocal(i16, lastData.s_gt_16_im_b.R0), @as(i16, @bitCast(lastData.s_gt_16_im_b.s0)), lastData.s_gt_16_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_gt_32_im_b => {
+            binary(fiber, "gt", fiber.readLocal(i32, lastData.s_gt_32_im_b.R0), @as(i32, @bitCast(lastData.s_gt_32_im_b.i0)), lastData.s_gt_32_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_gt_64_im_b => {
+            binary(fiber, "gt", fiber.readLocal(i64, lastData.s_gt_64_im_b.R0), @as(i64, @bitCast(decodeWideImmediate(fiber))), lastData.s_gt_64_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_gt_32 => {
+            binary(fiber, "gt", fiber.readLocal(f32, lastData.f_gt_32.R0), fiber.readLocal(f32, lastData.f_gt_32.R1), lastData.f_gt_32.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_gt_64 => {
+            binary(fiber, "gt", fiber.readLocal(f64, lastData.f_gt_64.R0), fiber.readLocal(f64, lastData.f_gt_64.R1), lastData.f_gt_64.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_gt_32_im_a => {
+            binary(fiber, "gt", @as(f32, @bitCast(lastData.f_gt_32_im_a.i0)), fiber.readLocal(f32, lastData.f_gt_32_im_a.R0), lastData.f_gt_32_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_gt_64_im_a => {
+            binary(fiber, "gt", @as(f64, @bitCast(decodeWideImmediate(fiber))), fiber.readLocal(f64, lastData.f_gt_64_im_a.R0), lastData.f_gt_64_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_gt_32_im_b => {
+            binary(fiber, "gt", fiber.readLocal(f32, lastData.f_gt_32_im_b.R0), @as(f32, @bitCast(lastData.f_gt_32_im_b.i0)), lastData.f_gt_32_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_gt_64_im_b => {
+            binary(fiber, "gt", fiber.readLocal(f64, lastData.f_gt_64_im_b.R0), @as(f64, @bitCast(decodeWideImmediate(fiber))), lastData.f_gt_64_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
         .u_le_8 => {
-            binary(u8, fiber, "le", lastData.u_le_8.R0, lastData.u_le_8.R1, lastData.u_le_8.R2);
+            binary(fiber, "le", fiber.readLocal(u8, lastData.u_le_8.R0), fiber.readLocal(u8, lastData.u_le_8.R1), lastData.u_le_8.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_le_16 => {
-            binary(u16, fiber, "le", lastData.u_le_16.R0, lastData.u_le_16.R1, lastData.u_le_16.R2);
+            binary(fiber, "le", fiber.readLocal(u16, lastData.u_le_16.R0), fiber.readLocal(u16, lastData.u_le_16.R1), lastData.u_le_16.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_le_32 => {
-            binary(u32, fiber, "le", lastData.u_le_32.R0, lastData.u_le_32.R1, lastData.u_le_32.R2);
+            binary(fiber, "le", fiber.readLocal(u32, lastData.u_le_32.R0), fiber.readLocal(u32, lastData.u_le_32.R1), lastData.u_le_32.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_le_64 => {
-            binary(u64, fiber, "le", lastData.u_le_64.R0, lastData.u_le_64.R1, lastData.u_le_64.R2);
+            binary(fiber, "le", fiber.readLocal(u64, lastData.u_le_64.R0), fiber.readLocal(u64, lastData.u_le_64.R1), lastData.u_le_64.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
+        .u_le_8_im_a => {
+            binary(fiber, "le", lastData.u_le_8_im_a.b0, fiber.readLocal(u8, lastData.u_le_8_im_a.R0), lastData.u_le_8_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_le_16_im_a => {
+            binary(fiber, "le", lastData.u_le_16_im_a.s0, fiber.readLocal(u16, lastData.u_le_16_im_a.R0), lastData.u_le_16_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_le_32_im_a => {
+            binary(fiber, "le", lastData.u_le_32_im_a.i0, fiber.readLocal(u32, lastData.u_le_32_im_a.R0), lastData.u_le_32_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_le_64_im_a => {
+            binary(fiber, "le", decodeWideImmediate(fiber), fiber.readLocal(u64, lastData.u_le_64_im_a.R0), lastData.u_le_64_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_le_8_im_b => {
+            binary(fiber, "le", fiber.readLocal(u8, lastData.u_le_8_im_b.R0), lastData.u_le_8_im_b.b0, lastData.u_le_8_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_le_16_im_b => {
+            binary(fiber, "le", fiber.readLocal(u16, lastData.u_le_16_im_b.R0), lastData.u_le_16_im_b.s0, lastData.u_le_16_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_le_32_im_b => {
+            binary(fiber, "le", fiber.readLocal(u32, lastData.u_le_32_im_b.R0), lastData.u_le_32_im_b.i0, lastData.u_le_32_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_le_64_im_b => {
+            binary(fiber, "le", fiber.readLocal(u64, lastData.u_le_64_im_b.R0), decodeWideImmediate(fiber), lastData.u_le_64_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
         .s_le_8 => {
-            binary(i8, fiber, "le", lastData.s_le_8.R0, lastData.s_le_8.R1, lastData.s_le_8.R2);
+            binary(fiber, "le", fiber.readLocal(i8, lastData.s_le_8.R0), fiber.readLocal(i8, lastData.s_le_8.R1), lastData.s_le_8.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .s_le_16 => {
-            binary(i16, fiber, "le", lastData.s_le_16.R0, lastData.s_le_16.R1, lastData.s_le_16.R2);
+            binary(fiber, "le", fiber.readLocal(i16, lastData.s_le_16.R0), fiber.readLocal(i16, lastData.s_le_16.R1), lastData.s_le_16.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .s_le_32 => {
-            binary(i32, fiber, "le", lastData.s_le_32.R0, lastData.s_le_32.R1, lastData.s_le_32.R2);
+            binary(fiber, "le", fiber.readLocal(i32, lastData.s_le_32.R0), fiber.readLocal(i32, lastData.s_le_32.R1), lastData.s_le_32.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .s_le_64 => {
-            binary(i64, fiber, "le", lastData.s_le_64.R0, lastData.s_le_64.R1, lastData.s_le_64.R2);
+            binary(fiber, "le", fiber.readLocal(i64, lastData.s_le_64.R0), fiber.readLocal(i64, lastData.s_le_64.R1), lastData.s_le_64.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
+        .s_le_8_im_a => {
+            binary(fiber, "le", @as(i8, @bitCast(lastData.s_le_8_im_a.b0)), fiber.readLocal(i8, lastData.s_le_8_im_a.R0), lastData.s_le_8_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_le_16_im_a => {
+            binary(fiber, "le", @as(i16, @bitCast(lastData.s_le_16_im_a.s0)), fiber.readLocal(i16, lastData.s_le_16_im_a.R0), lastData.s_le_16_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_le_32_im_a => {
+            binary(fiber, "le", @as(i32, @bitCast(lastData.s_le_32_im_a.i0)), fiber.readLocal(i32, lastData.s_le_32_im_a.R0), lastData.s_le_32_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_le_64_im_a => {
+            binary(fiber, "le", @as(i64, @bitCast(decodeWideImmediate(fiber))), fiber.readLocal(i64, lastData.s_le_64_im_a.R0), lastData.s_le_64_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_le_8_im_b => {
+            binary(fiber, "le", fiber.readLocal(i8, lastData.s_le_8_im_b.R0), @as(i8, @bitCast(lastData.s_le_8_im_b.b0)), lastData.s_le_8_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_le_16_im_b => {
+            binary(fiber, "le", fiber.readLocal(i16, lastData.s_le_16_im_b.R0), @as(i16, @bitCast(lastData.s_le_16_im_b.s0)), lastData.s_le_16_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_le_32_im_b => {
+            binary(fiber, "le", fiber.readLocal(i32, lastData.s_le_32_im_b.R0), @as(i32, @bitCast(lastData.s_le_32_im_b.i0)), lastData.s_le_32_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_le_64_im_b => {
+            binary(fiber, "le", fiber.readLocal(i64, lastData.s_le_64_im_b.R0), @as(i64, @bitCast(decodeWideImmediate(fiber))), lastData.s_le_64_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_le_32 => {
+            binary(fiber, "le", fiber.readLocal(f32, lastData.f_le_32.R0), fiber.readLocal(f32, lastData.f_le_32.R1), lastData.f_le_32.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_le_64 => {
+            binary(fiber, "le", fiber.readLocal(f64, lastData.f_le_64.R0), fiber.readLocal(f64, lastData.f_le_64.R1), lastData.f_le_64.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_le_32_im_a => {
+            binary(fiber, "le", @as(f32, @bitCast(lastData.f_le_32_im_a.i0)), fiber.readLocal(f32, lastData.f_le_32_im_a.R0), lastData.f_le_32_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_le_64_im_a => {
+            binary(fiber, "le", @as(f64, @bitCast(decodeWideImmediate(fiber))), fiber.readLocal(f64, lastData.f_le_64_im_a.R0), lastData.f_le_64_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_le_32_im_b => {
+            binary(fiber, "le", fiber.readLocal(f32, lastData.f_le_32_im_b.R0), @as(f32, @bitCast(lastData.f_le_32_im_b.i0)), lastData.f_le_32_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_le_64_im_b => {
+            binary(fiber, "le", fiber.readLocal(f64, lastData.f_le_64_im_b.R0), @as(f64, @bitCast(decodeWideImmediate(fiber))), lastData.f_le_64_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
         .u_ge_8 => {
-            binary(u8, fiber, "ge", lastData.u_ge_8.R0, lastData.u_ge_8.R1, lastData.u_ge_8.R2);
+            binary(fiber, "ge", fiber.readLocal(u8, lastData.u_ge_8.R0), fiber.readLocal(u8, lastData.u_ge_8.R1), lastData.u_ge_8.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_ge_16 => {
-            binary(u16, fiber, "ge", lastData.u_ge_16.R0, lastData.u_ge_16.R1, lastData.u_ge_16.R2);
+            binary(fiber, "ge", fiber.readLocal(u16, lastData.u_ge_16.R0), fiber.readLocal(u16, lastData.u_ge_16.R1), lastData.u_ge_16.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_ge_32 => {
-            binary(u32, fiber, "ge", lastData.u_ge_32.R0, lastData.u_ge_32.R1, lastData.u_ge_32.R2);
+            binary(fiber, "ge", fiber.readLocal(u32, lastData.u_ge_32.R0), fiber.readLocal(u32, lastData.u_ge_32.R1), lastData.u_ge_32.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_ge_64 => {
-            binary(u64, fiber, "ge", lastData.u_ge_64.R0, lastData.u_ge_64.R1, lastData.u_ge_64.R2);
+            binary(fiber, "ge", fiber.readLocal(u64, lastData.u_ge_64.R0), fiber.readLocal(u64, lastData.u_ge_64.R1), lastData.u_ge_64.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
+        .u_ge_8_im_a => {
+            binary(fiber, "ge", lastData.u_ge_8_im_a.b0, fiber.readLocal(u8, lastData.u_ge_8_im_a.R0), lastData.u_ge_8_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_ge_16_im_a => {
+            binary(fiber, "ge", lastData.u_ge_16_im_a.s0, fiber.readLocal(u16, lastData.u_ge_16_im_a.R0), lastData.u_ge_16_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_ge_32_im_a => {
+            binary(fiber, "ge", lastData.u_ge_32_im_a.i0, fiber.readLocal(u32, lastData.u_ge_32_im_a.R0), lastData.u_ge_32_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_ge_64_im_a => {
+            binary(fiber, "ge", decodeWideImmediate(fiber), fiber.readLocal(u64, lastData.u_ge_64_im_a.R0), lastData.u_ge_64_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_ge_8_im_b => {
+            binary(fiber, "ge", fiber.readLocal(u8, lastData.u_ge_8_im_b.R0), lastData.u_ge_8_im_b.b0, lastData.u_ge_8_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_ge_16_im_b => {
+            binary(fiber, "ge", fiber.readLocal(u16, lastData.u_ge_16_im_b.R0), lastData.u_ge_16_im_b.s0, lastData.u_ge_16_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_ge_32_im_b => {
+            binary(fiber, "ge", fiber.readLocal(u32, lastData.u_ge_32_im_b.R0), lastData.u_ge_32_im_b.i0, lastData.u_ge_32_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u_ge_64_im_b => {
+            binary(fiber, "ge", fiber.readLocal(u64, lastData.u_ge_64_im_b.R0), decodeWideImmediate(fiber), lastData.u_ge_64_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
         .s_ge_8 => {
-            binary(i8, fiber, "ge", lastData.s_ge_8.R0, lastData.s_ge_8.R1, lastData.s_ge_8.R2);
+            binary(fiber, "ge", fiber.readLocal(i8, lastData.s_ge_8.R0), fiber.readLocal(i8, lastData.s_ge_8.R1), lastData.s_ge_8.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .s_ge_16 => {
-            binary(i16, fiber, "ge", lastData.s_ge_16.R0, lastData.s_ge_16.R1, lastData.s_ge_16.R2);
+            binary(fiber, "ge", fiber.readLocal(i16, lastData.s_ge_16.R0), fiber.readLocal(i16, lastData.s_ge_16.R1), lastData.s_ge_16.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .s_ge_32 => {
-            binary(i32, fiber, "ge", lastData.s_ge_32.R0, lastData.s_ge_32.R1, lastData.s_ge_32.R2);
+            binary(fiber, "ge", fiber.readLocal(i32, lastData.s_ge_32.R0), fiber.readLocal(i32, lastData.s_ge_32.R1), lastData.s_ge_32.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .s_ge_64 => {
-            binary(i64, fiber, "ge", lastData.s_ge_64.R0, lastData.s_ge_64.R1, lastData.s_ge_64.R2);
+            binary(fiber, "ge", fiber.readLocal(i64, lastData.s_ge_64.R0), fiber.readLocal(i64, lastData.s_ge_64.R1), lastData.s_ge_64.R2);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
+        .s_ge_8_im_a => {
+            binary(fiber, "ge", @as(i8, @bitCast(lastData.s_ge_8_im_a.b0)), fiber.readLocal(i8, lastData.s_ge_8_im_a.R0), lastData.s_ge_8_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_ge_16_im_a => {
+            binary(fiber, "ge", @as(i16, @bitCast(lastData.s_ge_16_im_a.s0)), fiber.readLocal(i16, lastData.s_ge_16_im_a.R0), lastData.s_ge_16_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_ge_32_im_a => {
+            binary(fiber, "ge", @as(i32, @bitCast(lastData.s_ge_32_im_a.i0)), fiber.readLocal(i32, lastData.s_ge_32_im_a.R0), lastData.s_ge_32_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_ge_64_im_a => {
+            binary(fiber, "ge", @as(i64, @bitCast(decodeWideImmediate(fiber))), fiber.readLocal(i64, lastData.s_ge_64_im_a.R0), lastData.s_ge_64_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_ge_8_im_b => {
+            binary(fiber, "ge", fiber.readLocal(i8, lastData.s_ge_8_im_b.R0), @as(i8, @bitCast(lastData.s_ge_8_im_b.b0)), lastData.s_ge_8_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_ge_16_im_b => {
+            binary(fiber, "ge", fiber.readLocal(i16, lastData.s_ge_16_im_b.R0), @as(i16, @bitCast(lastData.s_ge_16_im_b.s0)), lastData.s_ge_16_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_ge_32_im_b => {
+            binary(fiber, "ge", fiber.readLocal(i32, lastData.s_ge_32_im_b.R0), @as(i32, @bitCast(lastData.s_ge_32_im_b.i0)), lastData.s_ge_32_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s_ge_64_im_b => {
+            binary(fiber, "ge", fiber.readLocal(i64, lastData.s_ge_64_im_b.R0), @as(i64, @bitCast(decodeWideImmediate(fiber))), lastData.s_ge_64_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_ge_32 => {
+            binary(fiber, "ge", fiber.readLocal(f32, lastData.f_ge_32.R0), fiber.readLocal(f32, lastData.f_ge_32.R1), lastData.f_ge_32.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_ge_64 => {
+            binary(fiber, "ge", fiber.readLocal(f64, lastData.f_ge_64.R0), fiber.readLocal(f64, lastData.f_ge_64.R1), lastData.f_ge_64.R2);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_ge_32_im_a => {
+            binary(fiber, "ge", @as(f32, @bitCast(lastData.f_ge_32_im_a.i0)), fiber.readLocal(f32, lastData.f_ge_32_im_a.R0), lastData.f_ge_32_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_ge_64_im_a => {
+            binary(fiber, "ge", @as(f64, @bitCast(decodeWideImmediate(fiber))), fiber.readLocal(f64, lastData.f_ge_64_im_a.R0), lastData.f_ge_64_im_a.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_ge_32_im_b => {
+            binary(fiber, "ge", fiber.readLocal(f32, lastData.f_ge_32_im_b.R0), @as(f32, @bitCast(lastData.f_ge_32_im_b.i0)), lastData.f_ge_32_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .f_ge_64_im_b => {
+            binary(fiber, "ge", fiber.readLocal(f64, lastData.f_ge_64_im_b.R0), @as(f64, @bitCast(decodeWideImmediate(fiber))), lastData.f_ge_64_im_b.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
 
         .u_ext_8_16 => {
             cast(u8, u16, fiber, lastData.u_ext_8_16.R0, lastData.u_ext_8_16.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_ext_8_32 => {
             cast(u8, u32, fiber, lastData.u_ext_8_32.R0, lastData.u_ext_8_32.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_ext_8_64 => {
             cast(u8, u64, fiber, lastData.u_ext_8_64.R0, lastData.u_ext_8_64.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_ext_16_32 => {
             cast(u16, u32, fiber, lastData.u_ext_16_32.R0, lastData.u_ext_16_32.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_ext_16_64 => {
             cast(u16, u64, fiber, lastData.u_ext_16_64.R0, lastData.u_ext_16_64.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .u_ext_32_64 => {
             cast(u32, u64, fiber, lastData.u_ext_32_64.R0, lastData.u_ext_32_64.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .s_ext_8_16 => {
             cast(i8, i16, fiber, lastData.s_ext_8_16.R0, lastData.s_ext_8_16.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .s_ext_8_32 => {
             cast(i8, i32, fiber, lastData.s_ext_8_32.R0, lastData.s_ext_8_32.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .s_ext_8_64 => {
             cast(i8, i64, fiber, lastData.s_ext_8_64.R0, lastData.s_ext_8_64.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .s_ext_16_32 => {
             cast(i16, i32, fiber, lastData.s_ext_16_32.R0, lastData.s_ext_16_32.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .s_ext_16_64 => {
             cast(i16, i64, fiber, lastData.s_ext_16_64.R0, lastData.s_ext_16_64.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .s_ext_32_64 => {
             cast(i32, i64, fiber, lastData.s_ext_32_64.R0, lastData.s_ext_32_64.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .f_ext_32_64 => {
             cast(f32, i64, fiber, lastData.f_ext_32_64.R0, lastData.f_ext_32_64.R1);
 
@@ -1185,31 +2677,37 @@ fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (reswitch)
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .i_trunc_64_16 => {
             cast(u64, u16, fiber, lastData.i_trunc_64_16.R0, lastData.i_trunc_64_16.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .i_trunc_64_8 => {
             cast(u64, u8, fiber, lastData.i_trunc_64_8.R0, lastData.i_trunc_64_8.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .i_trunc_32_16 => {
             cast(u32, u16, fiber, lastData.i_trunc_32_16.R0, lastData.i_trunc_32_16.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .i_trunc_32_8 => {
             cast(u32, u8, fiber, lastData.i_trunc_32_8.R0, lastData.i_trunc_32_8.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .i_trunc_16_8 => {
             cast(u16, u8, fiber, lastData.i_trunc_16_8.R0, lastData.i_trunc_16_8.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .f_trunc_64_32 => {
             cast(f64, f32, fiber, lastData.f_trunc_64_32.R0, lastData.f_trunc_64_32.R1);
 
@@ -1221,163 +2719,192 @@ fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (reswitch)
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u8_to_f64 => {
-            cast(u8, f64, fiber, lastData.u8_to_f64.R0, lastData.u8_to_f64.R1);
 
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
         .u16_to_f32 => {
             cast(u16, f32, fiber, lastData.u16_to_f32.R0, lastData.u16_to_f32.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u16_to_f64 => {
-            cast(u16, f64, fiber, lastData.u16_to_f64.R0, lastData.u16_to_f64.R1);
 
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
         .u32_to_f32 => {
             cast(u32, f32, fiber, lastData.u32_to_f32.R0, lastData.u32_to_f32.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u32_to_f64 => {
-            cast(u32, f64, fiber, lastData.u32_to_f64.R0, lastData.u32_to_f64.R1);
 
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
         .u64_to_f32 => {
             cast(u64, f32, fiber, lastData.u64_to_f32.R0, lastData.u64_to_f32.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .u64_to_f64 => {
-            cast(u64, f64, fiber, lastData.u64_to_f64.R0, lastData.u64_to_f64.R1);
 
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
         .s8_to_f32 => {
             cast(i8, f32, fiber, lastData.s8_to_f32.R0, lastData.s8_to_f32.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s8_to_f64 => {
-            cast(i8, f64, fiber, lastData.s8_to_f64.R0, lastData.s8_to_f64.R1);
 
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
         .s16_to_f32 => {
             cast(i16, f32, fiber, lastData.s16_to_f32.R0, lastData.s16_to_f32.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s16_to_f64 => {
-            cast(i16, f64, fiber, lastData.s16_to_f64.R0, lastData.s16_to_f64.R1);
 
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
         .s32_to_f32 => {
             cast(i32, f32, fiber, lastData.s32_to_f32.R0, lastData.s32_to_f32.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s32_to_f64 => {
-            cast(i32, f64, fiber, lastData.s32_to_f64.R0, lastData.s32_to_f64.R1);
 
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
         .s64_to_f32 => {
             cast(i64, f32, fiber, lastData.s64_to_f32.R0, lastData.s64_to_f32.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-        .s64_to_f64 => {
-            cast(i64, f64, fiber, lastData.s64_to_f64.R0, lastData.s64_to_f64.R1);
 
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
         .f32_to_u8 => {
             cast(f32, u8, fiber, lastData.f32_to_u8.R0, lastData.f32_to_u8.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .f32_to_u16 => {
             cast(f32, u16, fiber, lastData.f32_to_u16.R0, lastData.f32_to_u16.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .f32_to_u32 => {
             cast(f32, u32, fiber, lastData.f32_to_u32.R0, lastData.f32_to_u32.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .f32_to_u64 => {
             cast(f32, u64, fiber, lastData.f32_to_u64.R0, lastData.f32_to_u64.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
+        .u8_to_f64 => {
+            cast(u8, f64, fiber, lastData.u8_to_f64.R0, lastData.u8_to_f64.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u16_to_f64 => {
+            cast(u16, f64, fiber, lastData.u16_to_f64.R0, lastData.u16_to_f64.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u32_to_f64 => {
+            cast(u32, f64, fiber, lastData.u32_to_f64.R0, lastData.u32_to_f64.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .u64_to_f64 => {
+            cast(u64, f64, fiber, lastData.u64_to_f64.R0, lastData.u64_to_f64.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s8_to_f64 => {
+            cast(i8, f64, fiber, lastData.s8_to_f64.R0, lastData.s8_to_f64.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s16_to_f64 => {
+            cast(i16, f64, fiber, lastData.s16_to_f64.R0, lastData.s16_to_f64.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s32_to_f64 => {
+            cast(i32, f64, fiber, lastData.s32_to_f64.R0, lastData.s32_to_f64.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
+        .s64_to_f64 => {
+            cast(i64, f64, fiber, lastData.s64_to_f64.R0, lastData.s64_to_f64.R1);
+
+            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
+        },
+
         .f64_to_u8 => {
             cast(f64, u8, fiber, lastData.f64_to_u8.R0, lastData.f64_to_u8.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .f64_to_u16 => {
             cast(f64, u16, fiber, lastData.f64_to_u16.R0, lastData.f64_to_u16.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .f64_to_u32 => {
             cast(f64, u32, fiber, lastData.f64_to_u32.R0, lastData.f64_to_u32.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .f64_to_u64 => {
             cast(f64, u64, fiber, lastData.f64_to_u64.R0, lastData.f64_to_u64.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .f32_to_s8 => {
             cast(f32, i8, fiber, lastData.f32_to_s8.R0, lastData.f32_to_s8.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .f32_to_s16 => {
             cast(f32, i16, fiber, lastData.f32_to_s16.R0, lastData.f32_to_s16.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .f32_to_s32 => {
             cast(f32, i32, fiber, lastData.f32_to_s32.R0, lastData.f32_to_s32.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .f32_to_s64 => {
             cast(f32, i64, fiber, lastData.f32_to_s64.R0, lastData.f32_to_s64.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .f64_to_s8 => {
             cast(f64, i8, fiber, lastData.f64_to_s8.R0, lastData.f64_to_s8.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .f64_to_s16 => {
             cast(f64, i16, fiber, lastData.f64_to_s16.R0, lastData.f64_to_s16.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .f64_to_s32 => {
             cast(f64, i32, fiber, lastData.f64_to_s32.R0, lastData.f64_to_s32.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
+
         .f64_to_s64 => {
             cast(f64, i64, fiber, lastData.f64_to_s64.R0, lastData.f64_to_s64.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
-
-        inline else => Support.todo(noreturn, {}),
     }
 
     if (comptime !reswitch) return true;
@@ -1414,9 +2941,17 @@ fn stepForeign(fiber: *Fiber) Fiber.Trap!void {
     }
 }
 
-fn addr_local(fiber: *Fiber, x: Bytecode.RegisterIndex, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
-    const local = fiber.addrLocal(x);
-    fiber.writeLocal(y, local);
+pub fn alloca(fiber: *Fiber, size: u16, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const wordSize = byteSizeToWordSize(size);
+
+    if (!fiber.data.hasSpace(wordSize)) {
+        @branchHint(.cold);
+        return Fiber.Trap.Overflow;
+    }
+
+    const ptr = fiber.data.incrGet(wordSize);
+
+    fiber.writeLocal(y, ptr);
 }
 
 pub fn addr_global(fiber: *Fiber, g: Bytecode.GlobalIndex, x: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
@@ -1429,14 +2964,14 @@ pub fn addr_upvalue(fiber: *Fiber, u: Bytecode.UpvalueIndex, x: Bytecode.Registe
     fiber.writeLocal(x, upvalue);
 }
 
+fn addr_local(fiber: *Fiber, x: Bytecode.RegisterIndex, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
+    const local = fiber.addrLocal(x);
+    fiber.writeLocal(y, local);
+}
+
 pub fn read_global(comptime T: type, fiber: *Fiber, g: Bytecode.GlobalIndex, x: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
     const global = fiber.readGlobal(T, g);
     fiber.writeLocal(x, global);
-}
-
-pub fn write_global(comptime T: type, fiber: *Fiber, g: Bytecode.GlobalIndex, x: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
-    const local = fiber.readLocal(T, x);
-    fiber.writeGlobal(g, local);
 }
 
 pub fn read_upvalue(comptime T: type, fiber: *Fiber, u: Bytecode.UpvalueIndex, x: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
@@ -1444,23 +2979,20 @@ pub fn read_upvalue(comptime T: type, fiber: *Fiber, u: Bytecode.UpvalueIndex, x
     fiber.writeLocal(x, upvalue);
 }
 
-pub fn write_upvalue(comptime T: type, fiber: *Fiber, u: Bytecode.UpvalueIndex, x: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
-    const local = fiber.readLocal(T, x);
-    fiber.writeUpvalue(u, local);
-}
 
 pub fn load(comptime T: type, fiber: *Fiber, x: Bytecode.RegisterIndex, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    const out = fiber.readLocal(*T, y);
-    const in = fiber.readLocal(T, x);
-    try fiber.boundsCheck(out, @sizeOf(T));
-    out.* = in;
-}
-
-pub fn store(comptime T: type, fiber: *Fiber, x: Bytecode.RegisterIndex, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const in = fiber.readLocal(*T, x);
     try fiber.boundsCheck(in, @sizeOf(T));
     fiber.writeLocal(y, in.*);
 }
+
+pub fn store(fiber: *Fiber, x: anytype, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const T = @TypeOf(x);
+    const out = fiber.readLocal(*T, y);
+    try fiber.boundsCheck(out, @sizeOf(T));
+    out.* = x;
+}
+
 
 pub fn clear(comptime T: type, fiber: *Fiber, x: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
     fiber.writeLocal(x, @as(T, 0));
@@ -1473,10 +3005,6 @@ pub fn swap(comptime T: type, fiber: *Fiber, x: Bytecode.RegisterIndex, y: Bytec
     fiber.writeLocal(y, temp);
 }
 
-pub fn copy(comptime T: type, fiber: *Fiber, x: Bytecode.RegisterIndex, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
-    const xVal = fiber.readLocal(T, x);
-    fiber.writeLocal(y, xVal);
-}
 
 
 fn when(fiber: *Fiber, newBlockIndex: Bytecode.BlockIndex, x: Bytecode.RegisterIndex, comptime zeroCheck: ZeroCheck) callconv(Config.INLINING_CALL_CONV) void {
@@ -1497,10 +3025,10 @@ fn when(fiber: *Fiber, newBlockIndex: Bytecode.BlockIndex, x: Bytecode.RegisterI
     }
 }
 
-fn br(fiber: *Fiber, terminatedBlockOffset: Bytecode.BlockIndex, x: Bytecode.RegisterIndex, comptime zeroCheck: ?ZeroCheck, y: Bytecode.RegisterIndex, comptime style: ReturnStyle) callconv(Config.INLINING_CALL_CONV) void {
+fn br(fiber: *Fiber, terminatedBlockOffset: Bytecode.BlockIndex, x: Bytecode.RegisterIndex, comptime zeroCheck: ?ZeroCheck, y: u64, comptime style: ReturnStyle) callconv(Config.INLINING_CALL_CONV) void {
     const terminatedBlockPtr: [*]Fiber.BlockFrame = fiber.blocks.top_ptr - terminatedBlockOffset;
 
-    if (zeroCheck) |zc| {
+    if (comptime zeroCheck) |zc| {
         const cond = fiber.readLocal(u8, x);
 
         switch (zc) {
@@ -1509,9 +3037,8 @@ fn br(fiber: *Fiber, terminatedBlockOffset: Bytecode.BlockIndex, x: Bytecode.Reg
         }
     }
 
-    if (style == .v) {
-        const out = fiber.readLocal(u64, y);
-        fiber.writeLocal(terminatedBlockPtr[0].out, out);
+    if (comptime style == .v) {
+        fiber.writeLocal(terminatedBlockPtr[0].out, y);
     }
 
     fiber.removeAnyHandlerSet(@ptrCast(terminatedBlockPtr));
@@ -1567,6 +3094,7 @@ fn with(fiber: *Fiber, newBlockIndex: Bytecode.BlockIndex, handlerSetIndex: Byte
             .handler = &fiber.program.functions[binding.handler],
             .call = fiber.calls.top(),
             .block = fiber.blocks.top(),
+            .data = fiber.data.top_ptr,
         });
     }
 }
@@ -1593,12 +3121,11 @@ fn @"if"(fiber: *Fiber, thenBlockIndex: Bytecode.BlockIndex, elseBlockIndex: Byt
 
 
 
-fn callImpl_no_tail(fiber: *Fiber, funcIndex: Bytecode.FunctionIndex, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    const newFunction = &fiber.program.functions[funcIndex];
-
+fn call(fiber: *Fiber, newFunction: *const Bytecode.Function, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     if (( fiber.data.hasSpaceU1(newFunction.num_registers)
         & fiber.calls.hasSpaceU1(1)
-        ) != 1) {
+        ) != 1)
+    {
         @branchHint(.cold);
         if (!fiber.data.hasSpace(newFunction.num_registers)) {
             std.debug.print("stack overflow @{}\n", .{Fiber.DATA_STACK_SIZE});
@@ -1637,49 +3164,82 @@ fn callImpl_no_tail(fiber: *Fiber, funcIndex: Bytecode.FunctionIndex, y: Bytecod
     }
 }
 
-fn callImpl_tail(fiber: *Fiber, funcIndex: Bytecode.FunctionIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    Support.todo(noreturn, .{fiber, funcIndex});
+fn tail_call(fiber: *Fiber, registerScratchSpace: [*]u64, newFunction: *const Bytecode.Function) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const callFrame = fiber.calls.top();
+    const blockFrame = fiber.blocks.top();
+
+    const oldFunction = callFrame.function;
+
+    if (!fiber.data.hasSpace(newFunction.num_registers -| oldFunction.num_registers)) {
+        @branchHint(.cold);
+        std.debug.print("stack overflow @{}\n", .{Fiber.DATA_STACK_SIZE});
+        return Fiber.Trap.Overflow;
+    }
+
+    const arguments = decodeArguments(fiber, newFunction.num_arguments);
+
+    for (0..newFunction.num_arguments) |i| {
+        const value = fiber.readLocal(u64, arguments[i]);
+        registerScratchSpace[i] = value;
+    }
+
+    for (0..newFunction.num_arguments) |i| {
+        fiber.writeLocal(@truncate(i), registerScratchSpace[i]);
+    }
+
+    const newBlock = newFunction.value.bytecode.blocks[0];
+    blockFrame.base = newBlock;
+    blockFrame.ip = newBlock;
+    blockFrame.handler_set = null;
+
+    callFrame.evidence = undefined;
+    callFrame.function = newFunction;
+
+    fiber.blocks.top_ptr = @ptrCast(blockFrame);
+
+    fiber.data.top_ptr =
+        if (oldFunction.num_registers > newFunction.num_registers)
+            fiber.data.top_ptr - (oldFunction.num_registers - newFunction.num_registers)
+        else
+            fiber.data.top_ptr + (newFunction.num_registers - oldFunction.num_registers);
 }
 
-fn callImpl_tail_v(fiber: *Fiber, funcIndex: Bytecode.FunctionIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    Support.todo(noreturn, .{fiber, funcIndex});
+fn prompt(fiber: *Fiber, evIndex: Bytecode.EvidenceIndex, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+    const ev = fiber.evidence[evIndex].top();
+
+    try call(fiber, ev.handler, y);
+
+    fiber.calls.top().evidence = ev;
 }
 
-fn callImpl_ev_no_tail(fiber: *Fiber, evIndex: Bytecode.EvidenceIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    Support.todo(noreturn, .{fiber, evIndex});
-}
-
-fn callImpl_ev_no_tail_v(fiber: *Fiber, evIndex: Bytecode.EvidenceIndex, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    Support.todo(noreturn, .{fiber, evIndex, y});
-}
-
-fn callImpl_ev_tail(fiber: *Fiber, evIndex: Bytecode.EvidenceIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    Support.todo(noreturn, .{fiber, evIndex});
-}
-
-fn callImpl_ev_tail_v(fiber: *Fiber, evIndex: Bytecode.EvidenceIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    Support.todo(noreturn, .{fiber, evIndex});
-}
-
-
-fn term(fiber: *Fiber, y: Bytecode.RegisterIndex, comptime style: ReturnStyle) callconv(Config.INLINING_CALL_CONV) void {
-    Support.todo(noreturn, .{fiber, y, style});
-}
-
-fn ret(fiber: *Fiber, y: Bytecode.RegisterIndex, comptime style: ReturnStyle) callconv(Config.INLINING_CALL_CONV) void {
+fn ret(fiber: *Fiber, y: u64, comptime style: ReturnStyle) callconv(Config.INLINING_CALL_CONV) void {
     const currentCallFrame = fiber.calls.top();
 
     const rootBlockFrame = currentCallFrame.block;
 
-    if (style == .v) {
-        const out = fiber.readLocal(u64, y);
-        Fiber.writeReg(@ptrCast(fiber.calls.top_ptr - 1), rootBlockFrame.out, out);
+    if (comptime style == .v) {
+        Fiber.writeReg(@ptrCast(fiber.calls.top_ptr - 1), rootBlockFrame.out, y);
     }
 
     fiber.data.top_ptr = currentCallFrame.data;
     fiber.calls.pop();
     fiber.blocks.top_ptr = @as([*]Fiber.BlockFrame, @ptrCast(rootBlockFrame)) - 1;
 }
+
+fn term(fiber: *Fiber, y: u64, comptime style: ReturnStyle) callconv(Config.INLINING_CALL_CONV) void {
+    const currentCallFrame = fiber.calls.top();
+
+    const ev = currentCallFrame.evidence;
+
+    if (comptime style == .v) {
+        Fiber.writeReg(ev.call, ev.block.out, y);
+    }
+
+    fiber.calls.top_ptr = @ptrCast(ev.call);
+    fiber.blocks.top_ptr = @as([*]Fiber.BlockFrame, @ptrCast(ev.block)) - 1;
+    fiber.data.top_ptr = ev.data;
+}
+
 
 pub fn cast(comptime X: type, comptime Y: type, fiber: *Fiber, xOp: Bytecode.RegisterIndex, yOp: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
     const x = fiber.readLocal(X, xOp);
@@ -1696,21 +3256,12 @@ pub fn cast(comptime X: type, comptime Y: type, fiber: *Fiber, xOp: Bytecode.Reg
     fiber.writeLocal(yOp, y);
 }
 
-pub fn unary(comptime T: type, fiber: *Fiber, comptime op: []const u8, xOp: Bytecode.RegisterIndex, yOp: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
-    const x = fiber.readLocal(T, xOp);
-
-    const y = @field(ops, op)(x);
-
-    fiber.writeLocal(yOp, y);
+pub fn unary(fiber: *Fiber, comptime op: []const u8, x: anytype, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
+    fiber.writeLocal(y, @field(ops, op)(x));
 }
 
-pub fn binary(comptime T: type, fiber: *Fiber, comptime op: []const u8, xOp: Bytecode.RegisterIndex, yOp: Bytecode.RegisterIndex, zOp: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
-    const x = fiber.readLocal(T, xOp);
-    const y = fiber.readLocal(T, yOp);
-
-    const z = @field(ops, op)(x, y);
-
-    fiber.writeLocal(zOp, z);
+pub fn binary(fiber: *Fiber, comptime op: []const u8, x: anytype, y: @TypeOf(x), z: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
+    fiber.writeLocal(z, @field(ops, op)(x, y));
 }
 
 const ops = struct {
@@ -1780,35 +3331,23 @@ const ops = struct {
         return @rem(a, b);
     }
 
-    inline fn bitnot(a: anytype) @TypeOf(a) {
+    inline fn bnot(a: anytype) @TypeOf(a) {
         return ~a;
     }
 
-    inline fn not(a: anytype) @TypeOf(a) {
-        return !a;
-    }
-
-    inline fn bitand(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    inline fn band(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
         return a & b;
     }
 
-    inline fn @"and"(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-        return a and b;
-    }
-
-    inline fn bitor(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    inline fn bor(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
         return a | b;
     }
 
-    inline fn @"or"(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
-        return a or b;
-    }
-
-    inline fn bitxor(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    inline fn bxor(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
         return a ^ b;
     }
 
-    inline fn shiftl(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    inline fn bshiftl(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
         const T = @TypeOf(a);
         const bits = @bitSizeOf(T);
         const S = std.meta.Int(.unsigned, std.math.log2(bits));
@@ -1818,7 +3357,7 @@ const ops = struct {
         return a << @truncate(bs);
     }
 
-    inline fn shiftr(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    inline fn bshiftr(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
         const T = @TypeOf(a);
         const bits = @bitSizeOf(T);
         const S = std.meta.Int(.unsigned, std.math.log2(bits));

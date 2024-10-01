@@ -156,6 +156,8 @@ pub fn exitOp(self: *BlockBuilder, comptime code: Bytecode.OpCode, data: anytype
         .code = code,
         .data = @unionInit(Bytecode.OpData, @tagName(code), data),
     });
+
+    self.exited = true;
 }
 
 
@@ -402,26 +404,6 @@ pub fn br_z_im_v(self: *BlockBuilder, b: anytype, x: Bytecode.RegisterIndex, w: 
     try self.wideImmediate(w);
 }
 
-pub fn call_im(self: *BlockBuilder, f: anytype, as: anytype) Error!void {
-    try self.op(.call_im, .{ .F0 = try self.function.parent.extractFunctionIndex(f) });
-    try self.args(as);
-}
-
-pub fn call_im_v(self: *BlockBuilder, f: anytype, y: Bytecode.RegisterIndex, as: anytype) Error!void {
-    try self.op(.call_im_v, .{ .F0 = try self.function.parent.extractFunctionIndex(f), .R0 = y });
-    try self.args(as);
-}
-
-pub fn tail_call_im(self: *BlockBuilder, f: anytype, as: anytype) Error!void {
-    try self.exitOp(.tail_call_im, .{ .F0 = try self.function.parent.extractFunctionIndex(f) });
-    try self.args(as);
-}
-
-pub fn tail_call_im_v(self: *BlockBuilder, f: anytype, y: Bytecode.RegisterIndex, as: anytype) Error!void {
-    try self.exitOp(.tail_call_im_v, .{ .F0 = try self.function.parent.extractFunctionIndex(f), .R0 = y });
-    try self.args(as);
-}
-
 pub fn call(self: *BlockBuilder, f: Bytecode.RegisterIndex, as: anytype) Error!void {
     try self.op(.call, .{ .F0 = f });
     try self.args(as);
@@ -429,6 +411,16 @@ pub fn call(self: *BlockBuilder, f: Bytecode.RegisterIndex, as: anytype) Error!v
 
 pub fn call_v(self: *BlockBuilder, f: Bytecode.RegisterIndex, y: Bytecode.RegisterIndex, as: anytype) Error!void {
     try self.op(.call_v, .{ .F0 = f, .R0 = y });
+    try self.args(as);
+}
+
+pub fn call_im(self: *BlockBuilder, f: anytype, as: anytype) Error!void {
+    try self.op(.call_im, .{ .F0 = try self.function.parent.extractFunctionIndex(f) });
+    try self.args(as);
+}
+
+pub fn call_im_v(self: *BlockBuilder, f: anytype, y: Bytecode.RegisterIndex, as: anytype) Error!void {
+    try self.op(.call_im_v, .{ .F0 = try self.function.parent.extractFunctionIndex(f), .R0 = y });
     try self.args(as);
 }
 
@@ -442,6 +434,16 @@ pub fn tail_call_v(self: *BlockBuilder, f: Bytecode.RegisterIndex, y: Bytecode.R
     try self.args(as);
 }
 
+pub fn tail_call_im(self: *BlockBuilder, f: anytype, as: anytype) Error!void {
+    try self.exitOp(.tail_call_im, .{ .F0 = try self.function.parent.extractFunctionIndex(f) });
+    try self.args(as);
+}
+
+pub fn tail_call_im_v(self: *BlockBuilder, f: anytype, y: Bytecode.RegisterIndex, as: anytype) Error!void {
+    try self.exitOp(.tail_call_im_v, .{ .F0 = try self.function.parent.extractFunctionIndex(f), .R0 = y });
+    try self.args(as);
+}
+
 pub fn prompt(self: *BlockBuilder, e: Bytecode.EvidenceIndex, as: anytype) Error!void {
     try self.op(.prompt, .{ .E0 = e });
     try self.args(as);
@@ -449,16 +451,6 @@ pub fn prompt(self: *BlockBuilder, e: Bytecode.EvidenceIndex, as: anytype) Error
 
 pub fn prompt_v(self: *BlockBuilder, e: Bytecode.EvidenceIndex, y: Bytecode.RegisterIndex, as: anytype) Error!void {
     try self.op(.prompt_v, .{ .E0 = e, .R0 = y });
-    try self.args(as);
-}
-
-pub fn tail_prompt(self: *BlockBuilder, e: Bytecode.EvidenceIndex, as: anytype) Error!void {
-    try self.exitOp(.tail_prompt, .{ .E0 = e });
-    try self.args(as);
-}
-
-pub fn tail_prompt_v(self: *BlockBuilder, e: Bytecode.EvidenceIndex, y: Bytecode.RegisterIndex, as: anytype) Error!void {
-    try self.exitOp(.tail_prompt_v, .{ .E0 = e, .R0 = y });
     try self.args(as);
 }
 

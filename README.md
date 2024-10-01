@@ -350,14 +350,14 @@ The block operand is a relative block index
 Call the function designated by the function operand; expects a number of arguments matching that of the callee to follow this instruction
 | Op code | Name | Description | Operands |
 | ------- | ---- | ----------- | -------- |
-| `001a` | **call_im** | Call a static function, expecting no return value (discards the result, if there is one) | `F` |
-| `001b` | **call_im_v** | Call a static function, and place the return value in the designated register | `F`,&nbsp;`R` |
-| `001c` | **tail_call_im** | Call a static function in tail position, expecting no return value (discards the result, if there is one) | `F` |
-| `001d` | **tail_call_im_v** | Call a static function in tail position, expecting a return value (places the result in the caller's return register) | `F` |
-| `001e` | **call** | Call a dynamic function, expecting no return value (discards the result, if there is one) | `R` |
-| `001f` | **call_v** | Call a dynamic function, and place the return value in the designated register | `R`,&nbsp;`R` |
-| `0020` | **tail_call** | Call a dynamic function in tail position, expecting no return value (discards the result, if there is one) | `R` |
-| `0021` | **tail_call_v** | Call a dynamic function in tail position, and place the result in the caller's return register | `R`,&nbsp;`R` |
+| `001a` | **call** | Call a dynamic function, expecting no return value (discards the result, if there is one) | `R` |
+| `001b` | **call_v** | Call a dynamic function, and place the return value in the designated register | `R`,&nbsp;`R` |
+| `001c` | **call_im** | Call a static function, expecting no return value (discards the result, if there is one) | `F` |
+| `001d` | **call_im_v** | Call a static function, and place the return value in the designated register | `F`,&nbsp;`R` |
+| `001e` | **tail_call** | Call a dynamic function in tail position, expecting no return value (discards the result, if there is one) | `R` |
+| `001f` | **tail_call_v** | Call a dynamic function in tail position, and place the result in the caller's return register | `R`,&nbsp;`R` |
+| `0020` | **tail_call_im** | Call a static function in tail position, expecting no return value (discards the result, if there is one) | `F` |
+| `0021` | **tail_call_im_v** | Call a static function in tail position, expecting a return value (places the result in the caller's return register) | `F` |
 
 ##### prompt
 Call the effect handler designated by the evidence operand; expects a number of arguments matching that of the callee to follow this instruction

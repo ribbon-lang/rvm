@@ -193,6 +193,7 @@ pub const Evidence = struct {
     handler: *const Bytecode.Function,
     call: *CallFrame,
     block: *BlockFrame,
+    data: [*]Bytecode.Register,
 };
 
 pub const BlockFrame = struct {

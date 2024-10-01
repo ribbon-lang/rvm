@@ -179,6 +179,13 @@ pub const Instructions = &[_]InstructionCategory {
          , .description =
             \\Call the function designated by the function operand; expects a number of arguments matching that of the callee to follow this instruction
          , .instructions = &[_]InstructionDescriptor {
+            .{ .description = "Call a dynamic function, expecting no return value (discards the result, if there is one)"
+             , .operands = &[_]OperandDescriptor { .register }
+            },
+            .{ .suffix = "v"
+             , .description = "Call a dynamic function, and place the return value in the designated register"
+             , .operands = &[_]OperandDescriptor { .register, .register }
+            },
             .{ .suffix = "im"
              , .description = "Call a static function, expecting no return value (discards the result, if there is one)"
              , .operands = &[_]OperandDescriptor { .function_index }
@@ -186,6 +193,15 @@ pub const Instructions = &[_]InstructionCategory {
             .{ .suffix = "im_v"
              , .description = "Call a static function, and place the return value in the designated register"
              , .operands = &[_]OperandDescriptor { .function_index, .register }
+            },
+            .{ .prefix = "tail"
+             , .description = "Call a dynamic function in tail position, expecting no return value (discards the result, if there is one)"
+             , .operands = &[_]OperandDescriptor { .register }
+            },
+            .{ .prefix = "tail"
+             , .suffix = "v"
+             , .description = "Call a dynamic function in tail position, and place the result in the caller's return register"
+             , .operands = &[_]OperandDescriptor { .register, .register }
             },
             .{ .prefix = "tail"
              , .suffix = "im"
@@ -196,22 +212,6 @@ pub const Instructions = &[_]InstructionCategory {
              , .suffix = "im_v"
              , .description = "Call a static function in tail position, expecting a return value (places the result in the caller's return register)"
              , .operands = &[_]OperandDescriptor { .function_index }
-            },
-            .{ .description = "Call a dynamic function, expecting no return value (discards the result, if there is one)"
-             , .operands = &[_]OperandDescriptor { .register }
-            },
-            .{ .suffix = "v"
-             , .description = "Call a dynamic function, and place the return value in the designated register"
-             , .operands = &[_]OperandDescriptor { .register, .register }
-            },
-            .{ .prefix = "tail"
-             , .description = "Call a dynamic function in tail position, expecting no return value (discards the result, if there is one)"
-             , .operands = &[_]OperandDescriptor { .register }
-            },
-            .{ .prefix = "tail"
-             , .suffix = "v"
-             , .description = "Call a dynamic function in tail position, and place the result in the caller's return register"
-             , .operands = &[_]OperandDescriptor { .register, .register }
             },
          }
         },
@@ -225,16 +225,6 @@ pub const Instructions = &[_]InstructionCategory {
             .{ .suffix = "v"
              , .description = "Call an effect handler, and place the return value in the designated register"
              , .operands = &[_]OperandDescriptor { .evidence_index, .register }
-            },
-
-            .{ .prefix = "tail"
-             , .description = "Call an effect handler in tail position, expecting no return value (discards the result, if there is one)"
-             , .operands = &[_]OperandDescriptor { .evidence_index }
-            },
-            .{ .prefix = "tail"
-             , .suffix = "v"
-             , .description = "Call an effect handler in tail position, and place the return value in the caller's return register"
-             , .operands = &[_]OperandDescriptor { .evidence_index }
             },
          }
         },
@@ -415,19 +405,19 @@ pub const Instructions = &[_]InstructionCategory {
              },
              .{ .suffix = "8_im"
               , .description = "Copy 8 bits from the immediate into the designated upvalue"
-              , .operands = &[_]OperandDescriptor { .byte, .register }
+              , .operands = &[_]OperandDescriptor { .byte, .upvalue_index }
              },
              .{ .suffix = "16_im"
               , .description = "Copy 16 bits from the immediate into the designated upvalue"
-              , .operands = &[_]OperandDescriptor { .short, .register }
+              , .operands = &[_]OperandDescriptor { .short, .upvalue_index }
              },
              .{ .suffix = "32_im"
               , .description = "Copy 32 bits from the register into the designated upvalue"
-              , .operands = &[_]OperandDescriptor { .immediate, .register }
+              , .operands = &[_]OperandDescriptor { .immediate, .upvalue_index }
              },
              .{ .suffix = "64_im"
               , .description = "Copy 64 bits from the immediate into the designated upvalue"
-              , .operands = &[_]OperandDescriptor { .register }
+              , .operands = &[_]OperandDescriptor { .upvalue_index }
               , .wide_immediate = true
              },
          }

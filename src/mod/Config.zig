@@ -14,7 +14,7 @@ pub const USE_ANSI_STYLES_DEFAULT: bool = zig_config.useAnsiStyles;
 pub var USE_ANSI_STYLES = USE_ANSI_STYLES_DEFAULT;
 
 pub const MAXIMUM_INLINING: bool = zig_config.maximumInlining;
-pub const INLINING_BRANCH_QUOTA: comptime_int = if (MAXIMUM_INLINING) 25_000 else 1_000;
+pub const INLINING_BRANCH_QUOTA: comptime_int = if (MAXIMUM_INLINING) 25_000 else 5_000;
 pub const INLINING_CALL_CONV: std.builtin.CallingConvention =
     if (MAXIMUM_INLINING) std.builtin.CallingConvention.Inline
     else std.builtin.CallingConvention.Unspecified;
