@@ -1,12 +1,15 @@
 const std = @import("std");
 const Build = std.Build;
-const Builder = @import("tools/Builder.zig");
-const BuildMetaData = Builder.BuildMetaData;
+const Meta = @import("tools/Meta.zig");
+const Utils = Meta.Utils;
+const Builder = Utils.Build.Module;
+
+const BuildMetaData = Meta.BuildMetaData;
 const Snapshot = Builder.Snapshot;
 const Manifest = Builder.Manifest;
 const SourceTree = Builder.SourceTree;
 const Compilation = Builder.Compilation;
-const TypeUtils = Builder.ZigTypeUtils;
+const TypeUtils = Utils.Type;
 
 const Builtin = @import("builtin");
 
@@ -36,9 +39,10 @@ pub fn build(b: *Build) !void {
     try validatePackageDeps(&manifest, BuildMetaData.packageDeps);
 
     const nativeDependencies =
-        TypeUtils.structConcat(.{ BuildMetaData.packageDeps, .{
-        .config = nativeConfig,
-    } });
+        TypeUtils.structConcat(.{
+            BuildMetaData.packageDeps,
+            .{ .config = nativeConfig },
+        });
 
     const buildCommands = try makeBuildCommands(b);
 
@@ -50,13 +54,20 @@ pub fn build(b: *Build) !void {
 
     const stripDebugInfo = buildOptions.stripDebugInfo;
 
+    const compilationMetaModule = Compilation.Meta {
+        .native = b.dependency("ZigUtils", .{
+            .target = nativeTarget,
+            .optimize = nativeOptimize,
+        }),
+    };
+
     const nativeCompSet = try Compilation.init(
         b,
         "native",
         toolingTree,
         nativeDependencies,
         .{
-            .meta = .native,
+            .meta = compilationMetaModule,
             .vis = .private,
             .target = nativeTarget,
             .optimize = nativeOptimize,

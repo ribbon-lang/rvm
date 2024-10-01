@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Support = @import("Support");
+const MiscUtils = @import("ZigUtils").Misc;
 const Bytecode = @import("Bytecode");
 const IO = @import("IO");
 
@@ -47,7 +47,7 @@ pub const Error = std.mem.Allocator.Error || error {
 };
 
 
-pub const TypeMap = std.ArrayHashMapUnmanaged(Bytecode.Info.Type, void, Support.SimpleHashContext, true);
+pub const TypeMap = std.ArrayHashMapUnmanaged(Bytecode.Info.Type, void, MiscUtils.SimpleHashContext, true);
 pub const TypeList = std.ArrayListUnmanaged(Bytecode.Info.TypeIndex);
 pub const GlobalList = std.ArrayListUnmanaged(Global);
 pub const FunctionList = std.ArrayListUnmanaged(*Function);
@@ -57,7 +57,7 @@ pub const HandlerMap = EvidenceMap(Bytecode.FunctionIndex);
 pub const InstrList = std.ArrayListUnmanaged(Bytecode.Instruction);
 
 fn EvidenceMap(comptime T: type) type {
-    return std.ArrayHashMapUnmanaged(Bytecode.EvidenceIndex, T, Support.SimpleHashContext, false);
+    return std.ArrayHashMapUnmanaged(Bytecode.EvidenceIndex, T, MiscUtils.SimpleHashContext, false);
 }
 
 
@@ -165,7 +165,7 @@ pub fn generateGlobalSet(self: *const Builder, allocator: std.mem.Allocator) Err
     defer buf.deinit(allocator);
 
     for (self.globals.items) |global| {
-        const padding = Support.alignmentDelta(buf.items.len, global.alignment);
+        const padding = MiscUtils.alignmentDelta(buf.items.len, global.alignment);
         try buf.appendNTimes(allocator, 0, padding);
         try buf.appendSlice(allocator, global.initial);
     }
@@ -174,7 +174,7 @@ pub fn generateGlobalSet(self: *const Builder, allocator: std.mem.Allocator) Err
 
     var offset: usize = 0;
     for (self.globals.items, 0..) |global, i| {
-        const padding = Support.alignmentDelta(offset, global.alignment);
+        const padding = MiscUtils.alignmentDelta(offset, global.alignment);
         offset += padding;
         values[i] = memory.ptr + offset;
         offset += global.initial.len;

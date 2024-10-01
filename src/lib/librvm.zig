@@ -1,15 +1,17 @@
 const std = @import("std");
 
-const Support = @import("Support");
+const Config = @import("Config");
+const MiscUtils = @import("ZigUtils").Misc;
 
-const Extern = @import("Extern");
-const HeaderGenUtils = @import("ZigBuilder:HeaderGenUtils");
+const Extern = @import("ZigUtils").Extern;
+const HeaderGenUtils = @import("ZigUtils").Build.HeaderGenUtils;
 
-const Log = @import("Log");
+pub const std_options = std.Options {
+    .log_level = Config.LOG_LEVEL,
+    .logFn = MiscUtils.FilteredLogger(Config.LOG_SCOPES),
+};
 
-pub const std_options = Log.std_options;
-
-const log = Log.scoped(.librvm);
+const log = std.log.scoped(.librvm);
 
 inline fn tryCall(err_out: ?*BB_Error, func: anytype, args: anytype) ?@typeInfo(@typeInfo(@TypeOf(func)).Fn.return_type.?).ErrorUnion.payload {
     if (@call(.always_inline, func, args)) |res| {
@@ -153,12 +155,12 @@ pub const @"HEADER-GENERATION-DATA" = HeaderGenUtils.MakeData(struct {
 });
 
 pub const BB_Error: customtype = Extern.Error;
-pub const BB_Ordering: type = Support.Ordering;
+pub const BB_Ordering: type = MiscUtils.Ordering;
 pub const BB_Arena: opaquetype = std.heap.ArenaAllocator;
 
 pub const BB_CStr: type = [*:0]const c_char;
 pub const BB_UStr: type = Extern.UStr;
-pub const BB_Unit: type = Support.Unit;
+pub const BB_Unit: type = MiscUtils.Unit;
 
 pub const BB_Writer: customtype = Extern.Writer;
 pub const BB_HasherProc: type = Extern.Hasher.Proc;

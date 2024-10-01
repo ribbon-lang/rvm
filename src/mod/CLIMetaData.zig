@@ -1,13 +1,13 @@
 const std = @import("std");
 
-const Support = @import("Support");
-const TypeUtils = @import("ZigTypeUtils");
+const MiscUtils = @import("ZigUtils").Misc;
+const TypeUtils = @import("ZigUtils").Type;
 
 const clap = @import("clap");
 
 const Config = @import("Config");
 
-const ANSI = @import("ANSI");
+const ANSI = @import("ZigUtils").ANSI;
 
 
 pub const options =
@@ -58,7 +58,7 @@ pub fn asCLIError(err: anyerror) ?CLIError {
     return TypeUtils.narrowErrorSet(CLIError, err);
 }
 
-pub fn processArgs(allocator: std.mem.Allocator, args: []const []const u8) (Support.IOError || std.mem.Allocator.Error || CLIError)!ArgsResult {
+pub fn processArgs(allocator: std.mem.Allocator, args: []const []const u8) (MiscUtils.IOError || std.mem.Allocator.Error || CLIError)!ArgsResult {
     if (args.len == 0) {
         return ArgsResult{
             .execute = ArgsResult.Execute{
@@ -87,7 +87,7 @@ pub fn processArgs(allocator: std.mem.Allocator, args: []const []const u8) (Supp
         .uint = clap.parsers.default.usize,
     };
 
-    var iterator = Support.BufferIterator([]const u8).init(args);
+    var iterator = MiscUtils.BufferIterator([]const u8).init(args);
 
     var diag = clap.Diagnostic{};
     var res = clap.parseEx(clap.Help, &options, parsers, &iterator, .{

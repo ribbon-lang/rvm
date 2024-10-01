@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const Config = @import("Config");
-const Support = @import("Support");
+const MiscUtils = @import("ZigUtils").Misc;
 
 const Bytecode = @import("Bytecode");
 const IO = @import("IO");
@@ -79,7 +79,7 @@ inline fn decodeInstr(fiber: *Fiber, out_data: *Bytecode.OpData) Bytecode.OpCode
 
 inline fn byteSizeToWordSize(byteSize: usize) usize {
     const byteOffset = @divTrunc(byteSize, 8);
-    const padding = @intFromBool(Support.alignmentDelta(byteSize, 8) > 0);
+    const padding = @intFromBool(MiscUtils.alignmentDelta(byteSize, 8) > 0);
     return byteOffset + padding;
 }
 

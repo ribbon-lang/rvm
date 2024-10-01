@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const clap = @import("clap");
-const TypeUtils = @import("ZigTypeUtils");
+const TypeUtils = @import("ZigUtils").Type;
 
 const Bytecode = @import("Bytecode");
 const OpCode = Bytecode.OpCode;

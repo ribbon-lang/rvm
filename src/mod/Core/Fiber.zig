@@ -16,8 +16,8 @@
 const std = @import("std");
 
 const Config = @import("Config");
-const Support = @import("Support");
-const Extern = @import("Extern");
+const MiscUtils = @import("ZigUtils").Misc;
+const Extern = @import("ZigUtils").Extern;
 const Bytecode = @import("Bytecode");
 const Disassembler = @import("Disassembler");
 const IO = @import("IO");
@@ -282,7 +282,7 @@ pub fn getForeign(self: *const Fiber, index: Bytecode.ForeignId) callconv(Config
 }
 
 pub fn boundsCheck(self: *Fiber, address: anytype, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    Support.todo(noreturn, .{self, address, size});
+    MiscUtils.todo(noreturn, .{self, address, size});
 }
 
 pub inline fn removeAnyHandlerSet(self: *Fiber, blockFrame: *const Fiber.BlockFrame) void {

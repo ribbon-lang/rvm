@@ -3,10 +3,10 @@ const std = @import("std");
 const zig_builtin = @import("builtin");
 
 const Config = @import("Config");
-const Support = @import("Support");
+const MiscUtils = @import("ZigUtils").Misc;
 const CLIMetaData = @import("CLIMetaData");
-const TextUtils = @import("ZigTextUtils");
-const ANSI = @import("ANSI");
+const TextUtils = @import("ZigUtils").Text;
+const ANSI = @import("ZigUtils").ANSI;
 const Core = @import("Core");
 const IO = @import("IO");
 const Bytecode = @import("Bytecode");
@@ -14,9 +14,12 @@ const Builder = @import("Builder");
 const Disassembler = @import("Disassembler");
 const log = std.log.scoped(.rvm);
 
-pub const std_options = @import("Log").std_options;
+pub const std_options = std.Options {
+    .log_level = Config.LOG_LEVEL,
+    .logFn = MiscUtils.FilteredLogger(Config.LOG_SCOPES),
+};
 
-const Error = Support.IOError || std.mem.Allocator.Error || CLIMetaData.CLIError || Core.Fiber.Trap || Builder.Error || error {
+const Error = MiscUtils.IOError || std.mem.Allocator.Error || CLIMetaData.CLIError || Core.Fiber.Trap || Builder.Error || error {
     TestExpectedEqual,
 };
 

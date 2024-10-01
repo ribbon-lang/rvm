@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Support = @import("Support");
+const MiscUtils = @import("ZigUtils").Misc;
 const Bytecode = @import("Bytecode");
 const IO = @import("IO");
 

@@ -1,10 +1,10 @@
 const std = @import("std");
 
-const TypeUtils = @import("ZigTypeUtils");
+const TypeUtils = @import("ZigUtils").Type;
 
-const Manifest = @import("ZigBuilder:Manifest");
+const Manifest = @import("ZigUtils").Build.Manifest;
 
-const BuildMetaData = @import("BuildMetaData");
+const BuildMetaData = @import("BuildMetaData").make(TypeUtils);
 const commands = BuildMetaData.commands;
 const options = BuildMetaData.options;
 const buildOptions = BuildMetaData.buildOptions;

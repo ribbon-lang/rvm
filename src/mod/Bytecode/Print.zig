@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Support = @import("Support");
+const MiscUtils = @import("ZigUtils").Misc;
 
 const Bytecode = @import("root.zig");
 const Info = Bytecode.Info;
@@ -119,7 +119,7 @@ pub fn printValue(types: []const Info.Type, ty: Info.TypeIndex, bytes: [*]const 
             try writer.writeAll("(");
             for (info.types, 0..) |field, i| {
                 if (typeLayout(types, field)) |fieldLayout| {
-                    offset += Support.alignmentDelta(offset, fieldLayout.alignment);
+                    offset += MiscUtils.alignmentDelta(offset, fieldLayout.alignment);
                     try printValue(types, field, bytes + offset, fieldLayout.size, writer);
                     if (i < info.types.len - 1) {
                         try writer.writeAll(" * ");
@@ -150,7 +150,7 @@ pub fn printValue(types: []const Info.Type, ty: Info.TypeIndex, bytes: [*]const 
             const fieldType = info.types[disc];
 
             if (typeLayout(types, fieldType)) |fieldLayout| {
-                offset += Support.alignmentDelta(offset, fieldLayout.alignment);
+                offset += MiscUtils.alignmentDelta(offset, fieldLayout.alignment);
                 try printValue(types, fieldType, bytes + offset, fieldLayout.size, writer);
             } else {
                 try writer.writeAll("[cannot display]");
@@ -196,7 +196,7 @@ pub fn typeLayout(types: []const Info.Type, ty: Info.TypeIndex) ?Info.Layout {
                 if (typeLayout(types, field)) |fieldLayout| {
                     alignment = @max(alignment, fieldLayout.alignment);
 
-                    const padding = Support.alignmentDelta(size, alignment);
+                    const padding = MiscUtils.alignmentDelta(size, alignment);
 
                     size += padding + fieldLayout.size;
                 } else {
@@ -228,7 +228,7 @@ pub fn typeLayout(types: []const Info.Type, ty: Info.TypeIndex) ?Info.Layout {
                 }
             }
 
-            const padding = Support.alignmentDelta(baseSize, alignment);
+            const padding = MiscUtils.alignmentDelta(baseSize, alignment);
             size += padding;
 
             return .{ .size = size, .alignment = alignment };
@@ -296,7 +296,7 @@ pub fn offsetType(types: []const Info.Type, ty: Info.TypeIndex, offset: usize) ?
             if (offset < prodLayout.size) {
                 for (info.types) |field| {
                     if (typeLayout(types, field)) |fieldLayout| {
-                        fieldOffset += Support.alignmentDelta(fieldOffset, fieldLayout.alignment);
+                        fieldOffset += MiscUtils.alignmentDelta(fieldOffset, fieldLayout.alignment);
 
                         if (fieldOffset == offset) {
                             return field;
