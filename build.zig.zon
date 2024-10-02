@@ -7,8 +7,8 @@
             .hash = "122005e589ab3b6bff8e589b45f5b12cd27ce79f266bdac17e9f33ebfe2fbaff7fe3",
         },
         .Rbc = .{
-            .url = "https://github.com/ribbon-lang/rbc/archive/230604f993f2798cdf5209f87d9543f324292f08.tar.gz",
-            .hash = "1220567972d0ef144ccf9d6e8c344957e67b974861e128c1025820451111bf376875",
+            .url = "https://github.com/ribbon-lang/rbc/archive/f2a49474ad2cc7767b1fdf6eaf430f6776133b68.tar.gz",
+            .hash = "12209ffb1a5d7c2333fd731cb69ef5520bad377e60decf10aaed955f2d30a1b9765a",
         },
         .ZigUtils = .{
             .url = "https://github.com/noxabellus/zig-utils/archive/3af7b28cefb932d62db7b845a68d684d66619445.tar.gz",

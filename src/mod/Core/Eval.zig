@@ -18,18 +18,6 @@ const ZeroCheck = enum {
     non_zero
 };
 
-const CallStyle = enum {
-    tail,
-    tail_v,
-    no_tail,
-    no_tail_v,
-
-    ev_tail,
-    ev_tail_v,
-    ev_no_tail,
-    ev_no_tail_v,
-};
-
 const ReturnStyle = enum {
     v,
     no_v
@@ -263,21 +251,8 @@ fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (reswitch)
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
-        .tail_call_v => {
-            const f = fiber.readLocal(RbcCore.FunctionIndex, lastData.tail_call_v.R0);
-            try tail_call(fiber, &registerScratchSpace, &fiber.program.functions[f]);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-
         .tail_call_im => {
             try tail_call(fiber, &registerScratchSpace, &fiber.program.functions[lastData.tail_call_im.F0]);
-
-            if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
-        },
-
-        .tail_call_im_v => {
-            try tail_call(fiber, &registerScratchSpace, &fiber.program.functions[lastData.tail_call_im_v.F0]);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
