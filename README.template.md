@@ -16,9 +16,9 @@
 This is a virtual machine implementation for the
 [Ribbon](https://ribbon-lang.github.io) programming language.
 
-For the bytecode implementation see [rbc](https://github.com/ribbon-lang/rbc).
+For the bytecode ISA specification, see [rbc-isa](https://github.com/ribbon-lang/rbc-isa)
 
-For the ISA spec see [rbc-isa](https://github.com/ribbon-lang/rbc-isa).
+For the bytecode implementation, see [rbc](https://github.com/ribbon-lang/rbc)
 
 
 ## Contents
