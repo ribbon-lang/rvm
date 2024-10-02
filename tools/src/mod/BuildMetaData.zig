@@ -75,6 +75,9 @@ pub fn make(comptime TypeUtils: type) type {
 
         pub const packageDeps = .{
             .clap = .{},
+            .Rbc = .{
+                .modules = .{ "Core", "Builder" }
+            },
             .ZigUtils = .{},
         };
 

@@ -7,7 +7,7 @@
 //! - call stack
 //!     > stack of CallFrame, which contains the necessary state of a function call
 //! - block stack
-//!     > stack of BlockFrame, which contains information about a bytecode basic block
+//!     > stack of BlockFrame, which contains information about a RbcCore basic block
 //! - evidence vector
 //!     > vector of evidence, which is used to store effect handler pointers
 //! - trap
@@ -18,9 +18,7 @@ const std = @import("std");
 const Config = @import("Config");
 const MiscUtils = @import("ZigUtils").Misc;
 const Extern = @import("ZigUtils").Extern;
-const Bytecode = @import("Bytecode");
-const Disassembler = @import("Disassembler");
-const IO = @import("IO");
+const RbcCore = @import("Rbc:Core");
 
 const Core = @import("root.zig");
 const Context = Core.Context;
@@ -30,7 +28,7 @@ const Fiber = @This();
 
 
 context: *const Context,
-program: *const Bytecode.Program,
+program: *const RbcCore.Program,
 data: DataStack,
 calls: CallStack,
 blocks: BlockStack,
@@ -39,13 +37,13 @@ foreign: []const ForeignFunction,
 
 
 pub const CALL_STACK_SIZE: usize = 1024;
-pub const BLOCK_STACK_SIZE: usize = CALL_STACK_SIZE * Bytecode.MAX_BLOCKS;
-pub const EVIDENCE_VECTOR_SIZE: usize = Bytecode.MAX_EVIDENCE;
+pub const BLOCK_STACK_SIZE: usize = CALL_STACK_SIZE * RbcCore.MAX_BLOCKS;
+pub const EVIDENCE_VECTOR_SIZE: usize = RbcCore.MAX_EVIDENCE;
 pub const EVIDENCE_STACK_SIZE: usize = 1024;
-pub const DATA_STACK_SIZE: usize = CALL_STACK_SIZE * Bytecode.MAX_REGISTERS;
+pub const DATA_STACK_SIZE: usize = CALL_STACK_SIZE * RbcCore.MAX_REGISTERS;
 
 
-pub const DataStack = Stack(Bytecode.Register, false);
+pub const DataStack = Stack(RbcCore.Register, false);
 pub const CallStack = Stack(CallFrame, true);
 pub const BlockStack = Stack(BlockFrame, true);
 pub const EvidenceStack = Stack(Evidence, true);
@@ -65,7 +63,7 @@ pub const Trap = error {
 };
 
 
-pub const ForeignFunction = *const fn (*anyopaque, Bytecode.BlockIndex, *ForeignOut) callconv(.C) ForeignControl;
+pub const ForeignFunction = *const fn (*anyopaque, RbcCore.BlockIndex, *ForeignOut) callconv(.C) ForeignControl;
 
 pub const ForeignControl = enum(u32) {
     step,
@@ -75,9 +73,9 @@ pub const ForeignControl = enum(u32) {
 };
 
 pub const ForeignOut = extern union {
-    step: Bytecode.BlockIndex,
+    step: RbcCore.BlockIndex,
     done: void,
-    done_v: Bytecode.RegisterIndex,
+    done_v: RbcCore.RegisterIndex,
     trap: Extern.Error,
 };
 
@@ -190,28 +188,28 @@ pub fn Stack(comptime T: type, comptime PRE_INCR: bool) type {
 }
 
 pub const Evidence = struct {
-    handler: *const Bytecode.Function,
+    handler: *const RbcCore.Function,
     call: *CallFrame,
     block: *BlockFrame,
-    data: [*]Bytecode.Register,
+    data: [*]RbcCore.Register,
 };
 
 pub const BlockFrame = struct {
-    base: [*]const Bytecode.Instruction,
-    ip: [*]const Bytecode.Instruction,
-    out: Bytecode.RegisterIndex,
-    handler_set: ?*const Bytecode.HandlerSet,
+    base: [*]const RbcCore.Instruction,
+    ip: [*]const RbcCore.Instruction,
+    out: RbcCore.RegisterIndex,
+    handler_set: ?*const RbcCore.Handler.Set,
 };
 
 pub const CallFrame = struct {
-    function: *const Bytecode.Function,
+    function: *const RbcCore.Function,
     evidence: *Evidence,
     block: *BlockFrame,
-    data: [*]Bytecode.Register,
+    data: [*]RbcCore.Register,
 };
 
 
-pub fn init(context: *const Context, program: *const Bytecode.Program, foreign: []const ForeignFunction) !*Fiber {
+pub fn init(context: *const Context, program: *const RbcCore.Program, foreign: []const ForeignFunction) !*Fiber {
     const ptr = try context.allocator.create(Fiber);
     errdefer context.allocator.destroy(ptr);
 
@@ -265,7 +263,7 @@ pub fn deinit(self: *Fiber) void {
     self.context.allocator.destroy(self);
 }
 
-pub fn getLocation(self: *const Fiber) Bytecode.Info.Location {
+pub fn getLocation(self: *const Fiber) RbcCore.Info.Location {
     const call = &self.calls.top_ptr[0];
     const block = &self.blocks.top_ptr[0];
 
@@ -277,11 +275,11 @@ pub fn getLocation(self: *const Fiber) Bytecode.Info.Location {
 }
 
 
-pub fn getForeign(self: *const Fiber, index: Bytecode.ForeignId) callconv(Config.INLINING_CALL_CONV) ForeignFunction {
+pub fn getForeign(self: *const Fiber, index: RbcCore.ForeignId) callconv(Config.INLINING_CALL_CONV) ForeignFunction {
     return self.foreign[index];
 }
 
-pub fn boundsCheck(self: *Fiber, address: anytype, size: Bytecode.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+pub fn boundsCheck(self: *Fiber, address: anytype, size: RbcCore.RegisterLocalOffset) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     MiscUtils.todo(noreturn, .{self, address, size});
 }
 
@@ -291,7 +289,7 @@ pub inline fn removeAnyHandlerSet(self: *Fiber, blockFrame: *const Fiber.BlockFr
     }
 }
 
-pub inline fn removeHandlerSet(self: *Fiber, handlerSet: *const Bytecode.HandlerSet) void {
+pub inline fn removeHandlerSet(self: *Fiber, handlerSet: *const RbcCore.Handler.Set) void {
     for (handlerSet.*) |binding| {
         const removedEv = self.evidence[binding.id].popGet();
         std.debug.assert(removedEv.handler == &self.program.functions[binding.handler]);
@@ -301,7 +299,7 @@ pub inline fn removeHandlerSet(self: *Fiber, handlerSet: *const Bytecode.Handler
 
 
 
-pub fn invoke(self: *Core.Fiber, comptime T: type, functionIndex: Bytecode.FunctionIndex, arguments: anytype) Trap!T {
+pub fn invoke(self: *Core.Fiber, comptime T: type, functionIndex: RbcCore.FunctionIndex, arguments: anytype) Trap!T {
     const function = &self.program.functions[functionIndex];
 
     if (( self.calls.hasSpaceU1(2)
@@ -311,19 +309,19 @@ pub fn invoke(self: *Core.Fiber, comptime T: type, functionIndex: Bytecode.Funct
         return Trap.Overflow;
     }
 
-    const wrapperInstructions = [_]Bytecode.Instruction {
+    const wrapperInstructions = [_]RbcCore.Instruction {
         .{ .code = .halt, .data = .{ .halt = {} } },
     };
 
-    const wrapper = Bytecode.Function {
+    const wrapper = RbcCore.Function {
         .num_arguments = 0,
         .num_registers = 1,
-        .value = .{.bytecode = .{
-            .blocks = &[_][*]const Bytecode.Instruction {
+        .bytecode = .{
+            .blocks = &[_][*]const RbcCore.Instruction {
                 &wrapperInstructions
             },
             .instructions = &wrapperInstructions
-        }},
+        },
     };
 
     var dataBase = self.data.incrGet(1);
@@ -344,8 +342,8 @@ pub fn invoke(self: *Core.Fiber, comptime T: type, functionIndex: Bytecode.Funct
     dataBase = self.data.incrGet(function.num_registers);
 
     const block = self.blocks.pushGet(BlockFrame {
-        .base = function.value.bytecode.blocks[0],
-        .ip = function.value.bytecode.blocks[0],
+        .base = function.bytecode.blocks[0],
+        .ip = function.bytecode.blocks[0],
         .out = 0,
         .handler_set = null,
     });
@@ -374,51 +372,51 @@ pub fn invoke(self: *Core.Fiber, comptime T: type, functionIndex: Bytecode.Funct
 }
 
 
-pub inline fn readLocal(self: *Fiber, comptime T: type, r: Bytecode.RegisterIndex) T {
+pub inline fn readLocal(self: *Fiber, comptime T: type, r: RbcCore.RegisterIndex) T {
     return readReg(T, self.calls.top(), r);
 }
 
-pub inline fn writeLocal(self: *Fiber, r: Bytecode.RegisterIndex, value: anytype) void {
+pub inline fn writeLocal(self: *Fiber, r: RbcCore.RegisterIndex, value: anytype) void {
     return writeReg(self.calls.top(), r, value);
 }
 
-pub inline fn addrLocal(self: *Fiber, r: Bytecode.RegisterIndex) *u64 {
+pub inline fn addrLocal(self: *Fiber, r: RbcCore.RegisterIndex) *u64 {
     return addrReg(self.calls.top(), r);
 }
 
-pub inline fn readUpvalue(self: *Fiber, comptime T: type, u: Bytecode.UpvalueIndex) T {
+pub inline fn readUpvalue(self: *Fiber, comptime T: type, u: RbcCore.UpvalueIndex) T {
     return readReg(T, self.calls.top().evidence.call, u);
 }
 
-pub inline fn writeUpvalue(self: *Fiber, u: Bytecode.UpvalueIndex, value: anytype) void {
+pub inline fn writeUpvalue(self: *Fiber, u: RbcCore.UpvalueIndex, value: anytype) void {
     return writeReg(self.calls.top().evidence.call, u, value);
 }
 
-pub inline fn addrUpvalue(self: *Fiber, u: Bytecode.UpvalueIndex) *u64 {
+pub inline fn addrUpvalue(self: *Fiber, u: RbcCore.UpvalueIndex) *u64 {
     return addrReg(self.calls.top().evidence.call, u);
 }
 
-pub inline fn addrGlobal(self: *Fiber, g: Bytecode.GlobalIndex) [*]u8 {
+pub inline fn addrGlobal(self: *Fiber, g: RbcCore.GlobalIndex) [*]u8 {
     return self.program.globals[g];
 }
 
-pub inline fn readGlobal(self: *Fiber, comptime T: type, g: Bytecode.GlobalIndex) T {
+pub inline fn readGlobal(self: *Fiber, comptime T: type, g: RbcCore.GlobalIndex) T {
     return @as(*T, @ptrCast(@alignCast(self.addrGlobal(g)))).*;
 }
 
-pub inline fn writeGlobal(self: *Fiber, g: Bytecode.GlobalIndex, value: anytype) void {
+pub inline fn writeGlobal(self: *Fiber, g: RbcCore.GlobalIndex, value: anytype) void {
     @as(*@TypeOf(value), @ptrCast(@alignCast(self.addrGlobal(g)))).* = value;
 }
 
-pub inline fn addrReg(frame: *const CallFrame, r: Bytecode.RegisterIndex) *u64 {
+pub inline fn addrReg(frame: *const CallFrame, r: RbcCore.RegisterIndex) *u64 {
     return @ptrCast(frame.data + r);
 }
 
-pub inline fn readReg(comptime T: type, frame: *const CallFrame, r: Bytecode.RegisterIndex) T {
+pub inline fn readReg(comptime T: type, frame: *const CallFrame, r: RbcCore.RegisterIndex) T {
     return @as(*T, @ptrCast(addrReg(frame, r))).*;
 }
 
-pub inline fn writeReg(frame: *const CallFrame, r: Bytecode.RegisterIndex, value: anytype) void {
+pub inline fn writeReg(frame: *const CallFrame, r: RbcCore.RegisterIndex, value: anytype) void {
     @as(*@TypeOf(value), @ptrCast(addrReg(frame, r))).* = value;
 }
 

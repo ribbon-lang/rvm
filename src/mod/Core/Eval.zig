@@ -3,8 +3,7 @@ const std = @import("std");
 const Config = @import("Config");
 const MiscUtils = @import("ZigUtils").Misc;
 
-const Bytecode = @import("Bytecode");
-const IO = @import("IO");
+const RbcCore = @import("Rbc:Core");
 
 const Core = @import("root.zig");
 const Fiber = Core.Fiber;
@@ -44,23 +43,6 @@ pub inline fn step(fiber: *Fiber) Fiber.Trap!bool {
     return stepBytecode(false, fiber);
 }
 
-// pub fn stepCall(fiber: *Fiber) Fiber.Trap!void {
-//     const start = fiber.stack.call.ptr;
-
-//     if (start == 0) {
-//         @branchHint(.unlikely);
-//         return;
-//     }
-
-//     while (fiber.stack.call.ptr >= start) {
-//         _ = try @call(Config.INLINING_CALL_MOD, step, .{fiber});
-//     }
-// }
-
-// pub fn step(fiber: *Fiber) Fiber.Trap!bool {
-//     return stepBytecode(false, fiber);
-// }
-
 inline fn decodeWideImmediate(fiber: *Fiber) u64 {
     const currentBlockFrame = fiber.blocks.top();
     const instr = currentBlockFrame.ip[0];
@@ -68,11 +50,11 @@ inline fn decodeWideImmediate(fiber: *Fiber) u64 {
     return @bitCast(instr);
 }
 
-inline fn decodeInstr(fiber: *Fiber, out_data: *Bytecode.OpData) Bytecode.OpCode {
+inline fn decodeInstr(fiber: *Fiber, out_data: *RbcCore.Op.Data) RbcCore.Op.Code {
     const currentBlockFrame = fiber.blocks.top();
     const instr = currentBlockFrame.ip[0];
     out_data.* = instr.data;
-    // std.debug.print("{}\t|\t{s} {any}\n", .{@intFromPtr(currentBlockFrame.ip), @tagName(instr.code), @call(.never_inline, Bytecode.Info.extractInstructionInfo, .{instr})});
+    // std.debug.print("{}\t|\t{s} {any}\n", .{@intFromPtr(currentBlockFrame.ip), @tagName(instr.code), @call(.never_inline, RbcCore.Info.extractInstructionInfo, .{instr})});
     currentBlockFrame.ip += 1;
     return instr.code;
 }
@@ -83,12 +65,12 @@ inline fn byteSizeToWordSize(byteSize: usize) usize {
     return byteOffset + padding;
 }
 
-inline fn decodeArguments(fiber: *Fiber, count: usize) [*]const Bytecode.RegisterIndex {
+inline fn decodeArguments(fiber: *Fiber, count: usize) [*]const RbcCore.RegisterIndex {
     const currentBlockFrame = fiber.blocks.top();
 
-    const out: [*]const Bytecode.RegisterIndex = @ptrCast(currentBlockFrame.ip);
+    const out: [*]const RbcCore.RegisterIndex = @ptrCast(currentBlockFrame.ip);
 
-    currentBlockFrame.ip += byteSizeToWordSize(count * @sizeOf(Bytecode.RegisterIndex));
+    currentBlockFrame.ip += byteSizeToWordSize(count * @sizeOf(RbcCore.RegisterIndex));
 
     return out;
 }
@@ -98,9 +80,9 @@ inline fn decodeArguments(fiber: *Fiber, count: usize) [*]const Bytecode.Registe
 fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (reswitch) void else bool {
     @setEvalBranchQuota(Config.INLINING_BRANCH_QUOTA);
 
-    var lastData: Bytecode.OpData = undefined;
+    var lastData: RbcCore.Op.Data = undefined;
 
-    var registerScratchSpace = [1]u64 { undefined } ** Bytecode.MAX_REGISTERS;
+    var registerScratchSpace = [1]u64 { undefined } ** RbcCore.MAX_REGISTERS;
 
     reswitch: switch (decodeInstr(fiber, &lastData)) {
         .nop => if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData),
@@ -249,14 +231,14 @@ fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (reswitch)
         },
 
         .call => {
-            const f = fiber.readLocal(Bytecode.FunctionIndex, lastData.call.R0);
+            const f = fiber.readLocal(RbcCore.FunctionIndex, lastData.call.R0);
             try call(fiber, &fiber.program.functions[f], undefined);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
         .call_v => {
-            const f = fiber.readLocal(Bytecode.FunctionIndex, lastData.call_v.R0);
+            const f = fiber.readLocal(RbcCore.FunctionIndex, lastData.call_v.R0);
             try call(fiber, &fiber.program.functions[f], lastData.call_v.R1);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
@@ -275,14 +257,14 @@ fn stepBytecode(comptime reswitch: bool, fiber: *Fiber) Fiber.Trap!if (reswitch)
         },
 
         .tail_call => {
-            const f = fiber.readLocal(Bytecode.FunctionIndex, lastData.tail_call.R0);
+            const f = fiber.readLocal(RbcCore.FunctionIndex, lastData.tail_call.R0);
             try tail_call(fiber, &registerScratchSpace, &fiber.program.functions[f]);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
         },
 
         .tail_call_v => {
-            const f = fiber.readLocal(Bytecode.FunctionIndex, lastData.tail_call_v.R0);
+            const f = fiber.readLocal(RbcCore.FunctionIndex, lastData.tail_call_v.R0);
             try tail_call(fiber, &registerScratchSpace, &fiber.program.functions[f]);
 
             if (comptime reswitch) continue :reswitch decodeInstr(fiber, &lastData);
@@ -2941,7 +2923,7 @@ fn stepForeign(fiber: *Fiber) Fiber.Trap!void {
     }
 }
 
-pub fn alloca(fiber: *Fiber, size: u16, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+pub fn alloca(fiber: *Fiber, size: u16, y: RbcCore.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const wordSize = byteSizeToWordSize(size);
 
     if (!fiber.data.hasSpace(wordSize)) {
@@ -2954,39 +2936,39 @@ pub fn alloca(fiber: *Fiber, size: u16, y: Bytecode.RegisterIndex) callconv(Conf
     fiber.writeLocal(y, ptr);
 }
 
-pub fn addr_global(fiber: *Fiber, g: Bytecode.GlobalIndex, x: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
+pub fn addr_global(fiber: *Fiber, g: RbcCore.GlobalIndex, x: RbcCore.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
     const global = fiber.addrGlobal(g);
     fiber.writeLocal(x, global);
 }
 
-pub fn addr_upvalue(fiber: *Fiber, u: Bytecode.UpvalueIndex, x: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
+pub fn addr_upvalue(fiber: *Fiber, u: RbcCore.UpvalueIndex, x: RbcCore.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
     const upvalue = fiber.addrUpvalue(u);
     fiber.writeLocal(x, upvalue);
 }
 
-fn addr_local(fiber: *Fiber, x: Bytecode.RegisterIndex, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
+fn addr_local(fiber: *Fiber, x: RbcCore.RegisterIndex, y: RbcCore.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
     const local = fiber.addrLocal(x);
     fiber.writeLocal(y, local);
 }
 
-pub fn read_global(comptime T: type, fiber: *Fiber, g: Bytecode.GlobalIndex, x: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
+pub fn read_global(comptime T: type, fiber: *Fiber, g: RbcCore.GlobalIndex, x: RbcCore.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
     const global = fiber.readGlobal(T, g);
     fiber.writeLocal(x, global);
 }
 
-pub fn read_upvalue(comptime T: type, fiber: *Fiber, u: Bytecode.UpvalueIndex, x: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
+pub fn read_upvalue(comptime T: type, fiber: *Fiber, u: RbcCore.UpvalueIndex, x: RbcCore.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
     const upvalue = fiber.readUpvalue(T, u);
     fiber.writeLocal(x, upvalue);
 }
 
 
-pub fn load(comptime T: type, fiber: *Fiber, x: Bytecode.RegisterIndex, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+pub fn load(comptime T: type, fiber: *Fiber, x: RbcCore.RegisterIndex, y: RbcCore.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const in = fiber.readLocal(*T, x);
     try fiber.boundsCheck(in, @sizeOf(T));
     fiber.writeLocal(y, in.*);
 }
 
-pub fn store(fiber: *Fiber, x: anytype, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+pub fn store(fiber: *Fiber, x: anytype, y: RbcCore.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const T = @TypeOf(x);
     const out = fiber.readLocal(*T, y);
     try fiber.boundsCheck(out, @sizeOf(T));
@@ -2994,11 +2976,11 @@ pub fn store(fiber: *Fiber, x: anytype, y: Bytecode.RegisterIndex) callconv(Conf
 }
 
 
-pub fn clear(comptime T: type, fiber: *Fiber, x: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
+pub fn clear(comptime T: type, fiber: *Fiber, x: RbcCore.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
     fiber.writeLocal(x, @as(T, 0));
 }
 
-pub fn swap(comptime T: type, fiber: *Fiber, x: Bytecode.RegisterIndex, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
+pub fn swap(comptime T: type, fiber: *Fiber, x: RbcCore.RegisterIndex, y: RbcCore.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
     const temp = fiber.readLocal(T, x);
     const yVal = fiber.readLocal(T, y);
     fiber.writeLocal(x, yVal);
@@ -3007,10 +2989,10 @@ pub fn swap(comptime T: type, fiber: *Fiber, x: Bytecode.RegisterIndex, y: Bytec
 
 
 
-fn when(fiber: *Fiber, newBlockIndex: Bytecode.BlockIndex, x: Bytecode.RegisterIndex, comptime zeroCheck: ZeroCheck) callconv(Config.INLINING_CALL_CONV) void {
+fn when(fiber: *Fiber, newBlockIndex: RbcCore.BlockIndex, x: RbcCore.RegisterIndex, comptime zeroCheck: ZeroCheck) callconv(Config.INLINING_CALL_CONV) void {
     const cond = fiber.readLocal(u8, x);
 
-    const newBlock = fiber.calls.top().function.value.bytecode.blocks[newBlockIndex];
+    const newBlock = fiber.calls.top().function.bytecode.blocks[newBlockIndex];
 
     const newBlockFrame = Fiber.BlockFrame {
         .base = newBlock,
@@ -3025,7 +3007,7 @@ fn when(fiber: *Fiber, newBlockIndex: Bytecode.BlockIndex, x: Bytecode.RegisterI
     }
 }
 
-fn br(fiber: *Fiber, terminatedBlockOffset: Bytecode.BlockIndex, x: Bytecode.RegisterIndex, comptime zeroCheck: ?ZeroCheck, y: u64, comptime style: ReturnStyle) callconv(Config.INLINING_CALL_CONV) void {
+fn br(fiber: *Fiber, terminatedBlockOffset: RbcCore.BlockIndex, x: RbcCore.RegisterIndex, comptime zeroCheck: ?ZeroCheck, y: u64, comptime style: ReturnStyle) callconv(Config.INLINING_CALL_CONV) void {
     const terminatedBlockPtr: [*]Fiber.BlockFrame = fiber.blocks.top_ptr - terminatedBlockOffset;
 
     if (comptime zeroCheck) |zc| {
@@ -3046,7 +3028,7 @@ fn br(fiber: *Fiber, terminatedBlockOffset: Bytecode.BlockIndex, x: Bytecode.Reg
     fiber.blocks.top_ptr = terminatedBlockPtr;
 }
 
-fn re(fiber: *Fiber, restartedBlockOffset: Bytecode.BlockIndex, x: Bytecode.RegisterIndex, comptime zeroCheck: ?ZeroCheck) callconv(Config.INLINING_CALL_CONV) void {
+fn re(fiber: *Fiber, restartedBlockOffset: RbcCore.BlockIndex, x: RbcCore.RegisterIndex, comptime zeroCheck: ?ZeroCheck) callconv(Config.INLINING_CALL_CONV) void {
     const restartedBlockPtr: [*]Fiber.BlockFrame = fiber.blocks.top_ptr - restartedBlockOffset;
 
     if (zeroCheck) |zc| {
@@ -3062,8 +3044,8 @@ fn re(fiber: *Fiber, restartedBlockOffset: Bytecode.BlockIndex, x: Bytecode.Regi
     fiber.blocks.top_ptr = restartedBlockPtr;
 }
 
-fn block(fiber: *Fiber, newBlockIndex: Bytecode.BlockIndex, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
-    const newBlock = fiber.calls.top().function.value.bytecode.blocks[newBlockIndex];
+fn block(fiber: *Fiber, newBlockIndex: RbcCore.BlockIndex, y: RbcCore.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
+    const newBlock = fiber.calls.top().function.bytecode.blocks[newBlockIndex];
 
     const newBlockFrame = Fiber.BlockFrame {
         .base = newBlock,
@@ -3075,10 +3057,10 @@ fn block(fiber: *Fiber, newBlockIndex: Bytecode.BlockIndex, y: Bytecode.Register
     fiber.blocks.push(newBlockFrame);
 }
 
-fn with(fiber: *Fiber, newBlockIndex: Bytecode.BlockIndex, handlerSetIndex: Bytecode.HandlerSetIndex, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn with(fiber: *Fiber, newBlockIndex: RbcCore.BlockIndex, handlerSetIndex: RbcCore.HandlerSetIndex, y: RbcCore.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const handlerSet = &fiber.program.handler_sets[handlerSetIndex];
 
-    const newBlock = fiber.calls.top().function.value.bytecode.blocks[newBlockIndex];
+    const newBlock = fiber.calls.top().function.bytecode.blocks[newBlockIndex];
 
     const newBlockFrame = Fiber.BlockFrame {
         .base = newBlock,
@@ -3099,7 +3081,7 @@ fn with(fiber: *Fiber, newBlockIndex: Bytecode.BlockIndex, handlerSetIndex: Byte
     }
 }
 
-fn @"if"(fiber: *Fiber, thenBlockIndex: Bytecode.BlockIndex, elseBlockIndex: Bytecode.BlockIndex, x: Bytecode.RegisterIndex, comptime zeroCheck: ZeroCheck, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
+fn @"if"(fiber: *Fiber, thenBlockIndex: RbcCore.BlockIndex, elseBlockIndex: RbcCore.BlockIndex, x: RbcCore.RegisterIndex, comptime zeroCheck: ZeroCheck, y: RbcCore.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
     const cond = fiber.readLocal(u8, x);
 
     const newBlockIndex = switch (zeroCheck) {
@@ -3107,7 +3089,7 @@ fn @"if"(fiber: *Fiber, thenBlockIndex: Bytecode.BlockIndex, elseBlockIndex: Byt
         .non_zero => if (cond != 0) thenBlockIndex else elseBlockIndex,
     };
 
-    const newBlock = fiber.calls.top().function.value.bytecode.blocks[newBlockIndex];
+    const newBlock = fiber.calls.top().function.bytecode.blocks[newBlockIndex];
 
     const newBlockFrame = Fiber.BlockFrame {
         .base = newBlock,
@@ -3121,7 +3103,7 @@ fn @"if"(fiber: *Fiber, thenBlockIndex: Bytecode.BlockIndex, elseBlockIndex: Byt
 
 
 
-fn call(fiber: *Fiber, newFunction: *const Bytecode.Function, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn call(fiber: *Fiber, newFunction: *const RbcCore.Function, y: RbcCore.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     if (( fiber.data.hasSpaceU1(newFunction.num_registers)
         & fiber.calls.hasSpaceU1(1)
         ) != 1)
@@ -3140,7 +3122,7 @@ fn call(fiber: *Fiber, newFunction: *const Bytecode.Function, y: Bytecode.Regist
 
     const data = fiber.data.incrGetMulti(newFunction.num_registers);
 
-    const newBlock = newFunction.value.bytecode.blocks[0];
+    const newBlock = newFunction.bytecode.blocks[0];
 
     const newBlockFrame = fiber.blocks.pushGet(Fiber.BlockFrame {
         .base = newBlock,
@@ -3164,7 +3146,7 @@ fn call(fiber: *Fiber, newFunction: *const Bytecode.Function, y: Bytecode.Regist
     }
 }
 
-fn tail_call(fiber: *Fiber, registerScratchSpace: [*]u64, newFunction: *const Bytecode.Function) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn tail_call(fiber: *Fiber, registerScratchSpace: [*]u64, newFunction: *const RbcCore.Function) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const callFrame = fiber.calls.top();
     const blockFrame = fiber.blocks.top();
 
@@ -3187,7 +3169,7 @@ fn tail_call(fiber: *Fiber, registerScratchSpace: [*]u64, newFunction: *const By
         fiber.writeLocal(@truncate(i), registerScratchSpace[i]);
     }
 
-    const newBlock = newFunction.value.bytecode.blocks[0];
+    const newBlock = newFunction.bytecode.blocks[0];
     blockFrame.base = newBlock;
     blockFrame.ip = newBlock;
     blockFrame.handler_set = null;
@@ -3204,7 +3186,7 @@ fn tail_call(fiber: *Fiber, registerScratchSpace: [*]u64, newFunction: *const By
             fiber.data.top_ptr + (newFunction.num_registers - oldFunction.num_registers);
 }
 
-fn prompt(fiber: *Fiber, evIndex: Bytecode.EvidenceIndex, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
+fn prompt(fiber: *Fiber, evIndex: RbcCore.EvidenceIndex, y: RbcCore.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
     const ev = fiber.evidence[evIndex].top();
 
     try call(fiber, ev.handler, y);
@@ -3241,7 +3223,7 @@ fn term(fiber: *Fiber, y: u64, comptime style: ReturnStyle) callconv(Config.INLI
 }
 
 
-pub fn cast(comptime X: type, comptime Y: type, fiber: *Fiber, xOp: Bytecode.RegisterIndex, yOp: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
+pub fn cast(comptime X: type, comptime Y: type, fiber: *Fiber, xOp: RbcCore.RegisterIndex, yOp: RbcCore.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
     const x = fiber.readLocal(X, xOp);
 
     const xKind = @as(std.builtin.TypeId, @typeInfo(X));
@@ -3256,11 +3238,11 @@ pub fn cast(comptime X: type, comptime Y: type, fiber: *Fiber, xOp: Bytecode.Reg
     fiber.writeLocal(yOp, y);
 }
 
-pub fn unary(fiber: *Fiber, comptime op: []const u8, x: anytype, y: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
+pub fn unary(fiber: *Fiber, comptime op: []const u8, x: anytype, y: RbcCore.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
     fiber.writeLocal(y, @field(ops, op)(x));
 }
 
-pub fn binary(fiber: *Fiber, comptime op: []const u8, x: anytype, y: @TypeOf(x), z: Bytecode.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
+pub fn binary(fiber: *Fiber, comptime op: []const u8, x: anytype, y: @TypeOf(x), z: RbcCore.RegisterIndex) callconv(Config.INLINING_CALL_CONV) void {
     fiber.writeLocal(z, @field(ops, op)(x, y));
 }
 

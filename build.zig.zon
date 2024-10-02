@@ -6,6 +6,10 @@
             .url = "https://github.com/Hejsil/zig-clap/archive/2d9db156ae928860a9acf2f1260750d3b44a4c98.tar.gz",
             .hash = "122005e589ab3b6bff8e589b45f5b12cd27ce79f266bdac17e9f33ebfe2fbaff7fe3",
         },
+        .Rbc = .{
+            .url = "https://github.com/noxabellus/rbc/archive/4db9b0fff39c182314b4490553ba71c99fb35da0.tar.gz",
+            .hash = "12202b04bffbc55a3456ea5ce56e3f296e2e6edbc3616707cf5f98a7175cf601eb88",
+        },
         .ZigUtils = .{
             .url = "https://github.com/noxabellus/zig-utils/archive/3af7b28cefb932d62db7b845a68d684d66619445.tar.gz",
             .hash = "12201ca6097b31b861a41f7ca7472cd2cd74a6f8d56c49eba2c7a72f9f5bc0e1bf5d",

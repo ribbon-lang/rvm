@@ -8,10 +8,7 @@ const CLIMetaData = @import("CLIMetaData");
 const TextUtils = @import("ZigUtils").Text;
 const ANSI = @import("ZigUtils").ANSI;
 const Core = @import("Core");
-const IO = @import("IO");
-const Bytecode = @import("Bytecode");
-const Builder = @import("Builder");
-const Disassembler = @import("Disassembler");
+const Builder = @import("Rbc:Builder");
 const log = std.log.scoped(.rvm);
 
 pub const std_options = std.Options {
@@ -133,7 +130,6 @@ pub fn main() Error!void {
     const program = try builder.assemble(arena.allocator());
     // defer program.deinit(arena.allocator());
 
-    // try Disassembler.bytecode(program.functions[0].value.bytecode, output);
 
     const fiber = try Core.Fiber.init(context, &program, &[0] Core.Fiber.ForeignFunction {});
     defer fiber.deinit();
