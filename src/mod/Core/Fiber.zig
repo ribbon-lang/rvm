@@ -1,17 +1,4 @@
-//! The Fiber contains everything needed to execute a single thread.
-//! This includes:
-//! - context pointer
-//!     > The shared global state for all Fibers
-//! - data stack
-//!     > The backing storage for virtual registers
-//! - call stack
-//!     > stack of CallFrame, which contains the necessary state of a function call
-//! - block stack
-//!     > stack of BlockFrame, which contains information about a RbcCore basic block
-//! - evidence vector
-//!     > vector of evidence, which is used to store effect handler pointers
-//! - trap
-//!     > Stores diagnostics about the last trap that occurred
+//! The Fiber contains everything needed to execute a single thread
 
 const std = @import("std");
 
@@ -32,21 +19,19 @@ program: *const RbcCore.Program,
 data: DataStack,
 calls: CallStack,
 blocks: BlockStack,
-evidence: []EvidenceStack,
+evidence: [*]Evidence,
 foreign: []const ForeignFunction,
 
 
 pub const CALL_STACK_SIZE: usize = 1024;
 pub const BLOCK_STACK_SIZE: usize = CALL_STACK_SIZE * RbcCore.MAX_BLOCKS;
-pub const EVIDENCE_VECTOR_SIZE: usize = RbcCore.MAX_EVIDENCE;
-pub const EVIDENCE_STACK_SIZE: usize = 1024;
+pub const EVIDENCE_VECTOR_SIZE: usize = std.math.maxInt(RbcCore.EvidenceIndex);
 pub const DATA_STACK_SIZE: usize = CALL_STACK_SIZE * RbcCore.MAX_REGISTERS;
 
 
 pub const DataStack = Stack(RbcCore.Register, false);
 pub const CallStack = Stack(CallFrame, true);
 pub const BlockStack = Stack(BlockFrame, true);
-pub const EvidenceStack = Stack(Evidence, true);
 
 pub const Trap = error {
     ForeignUnknown,
@@ -143,6 +128,22 @@ pub fn Stack(comptime T: type, comptime PRE_INCR: bool) type {
             return @ptrCast(self.top_ptr);
         }
 
+        pub inline fn decr(self: *Self, count: usize) void {
+            comptime std.debug.assert(!PRE_INCR);
+
+            self.top_ptr -= count;
+        }
+
+        pub inline fn decrGet(self: *Self, count: usize) *T {
+            return @ptrCast(self.decrGetMulti(count));
+        }
+
+        pub inline fn decrGetMulti(self: *Self, count: usize) [*]T {
+            self.decr(count);
+
+            return self.top_ptr;
+        }
+
         pub inline fn incr(self: *Self, count: usize) void {
             self.top_ptr += count;
         }
@@ -222,20 +223,8 @@ pub fn init(context: *const Context, program: *const RbcCore.Program, foreign: [
     const blocks = try BlockStack.init(context.allocator, BLOCK_STACK_SIZE);
     errdefer blocks.deinit(context.allocator);
 
-    const evidence = try context.allocator.alloc(EvidenceStack, EVIDENCE_VECTOR_SIZE);
+    const evidence = try context.allocator.alloc(Evidence, EVIDENCE_VECTOR_SIZE);
     errdefer context.allocator.free(evidence);
-
-    var i: usize = 0;
-    errdefer {
-        var j: usize = 0;
-        while (j < i) : (j += 1) {
-            evidence[j].deinit(context.allocator);
-        }
-    }
-
-    while (i < EVIDENCE_VECTOR_SIZE) : (i += 1) {
-        evidence[i] = try EvidenceStack.init(context.allocator, EVIDENCE_STACK_SIZE);
-    }
 
     ptr.* = Fiber {
         .program = program,
@@ -243,7 +232,7 @@ pub fn init(context: *const Context, program: *const RbcCore.Program, foreign: [
         .data = data,
         .calls = calls,
         .blocks = blocks,
-        .evidence = evidence,
+        .evidence = evidence.ptr,
         .foreign = foreign,
     };
 
@@ -255,10 +244,7 @@ pub fn deinit(self: *Fiber) void {
     self.calls.deinit(self.context.allocator);
     self.blocks.deinit(self.context.allocator);
 
-    for (self.evidence) |ev| {
-        ev.deinit(self.context.allocator);
-    }
-    self.context.allocator.free(self.evidence);
+    self.context.allocator.free(self.evidence[0..EVIDENCE_VECTOR_SIZE]);
 
     self.context.allocator.destroy(self);
 }
@@ -290,9 +276,9 @@ pub inline fn removeAnyHandlerSet(self: *Fiber, blockFrame: *const Fiber.BlockFr
 }
 
 pub inline fn removeHandlerSet(self: *Fiber, handlerSet: *const RbcCore.Handler.Set) void {
-    for (handlerSet.*) |binding| {
-        const removedEv = self.evidence[binding.id].popGet();
-        std.debug.assert(removedEv.handler == &self.program.functions[binding.handler]);
+    const oldHandlerStorage: [*]Evidence = @ptrCast(self.data.decrGet(handlerSet.len * (@sizeOf(Evidence) / @sizeOf(RbcCore.Register))));
+    for (handlerSet.*, 0..) |binding, i| {
+        self.evidence[binding.id] = oldHandlerStorage[i];
     }
 }
 

@@ -3046,13 +3046,21 @@ fn with(fiber: *Fiber, newBlockIndex: RbcCore.BlockIndex, handlerSetIndex: RbcCo
 
     fiber.blocks.push(newBlockFrame);
 
-    for (handlerSet.*) |binding| {
-        fiber.evidence[binding.id].push(Fiber.Evidence {
+    if (!fiber.data.hasSpace(handlerSet.len)) {
+        @branchHint(.cold);
+        return Fiber.Trap.Overflow;
+    }
+
+    const oldHandlerStorage: [*]Fiber.Evidence = @ptrCast(fiber.data.incrGet(handlerSet.len * (@sizeOf(Fiber.Evidence) / @sizeOf(RbcCore.Register))));
+
+    for (handlerSet.*, 0..) |binding, i| {
+        oldHandlerStorage[i] = fiber.evidence[binding.id];
+        fiber.evidence[binding.id] = Fiber.Evidence {
             .handler = &fiber.program.functions[binding.handler],
             .call = fiber.calls.top(),
             .block = fiber.blocks.top(),
             .data = fiber.data.top_ptr,
-        });
+        };
     }
 }
 
@@ -3162,7 +3170,7 @@ fn tail_call(fiber: *Fiber, registerScratchSpace: [*]u64, newFunction: *const Rb
 }
 
 fn prompt(fiber: *Fiber, evIndex: RbcCore.EvidenceIndex, y: RbcCore.RegisterIndex) callconv(Config.INLINING_CALL_CONV) Fiber.Trap!void {
-    const ev = fiber.evidence[evIndex].top();
+    const ev = &fiber.evidence[evIndex];
 
     try call(fiber, ev.handler, y);
 
